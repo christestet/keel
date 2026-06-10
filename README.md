@@ -49,4 +49,4 @@ more conformance test pass. See `ROADMAP.md`.
 
 ## License
 
-Apache-2.0 (see `LICENSE-NOTE.md` — add the license text before publishing).
+Apache-2.0. See [`LICENSE`](LICENSE) for details.

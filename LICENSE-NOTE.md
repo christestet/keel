@@ -1,6 +1,11 @@
-Recommended license: Apache-2.0 for all code and specification text.
+# License Choice: Apache-2.0
 
-Rationale: patent grant (matters for a language toolchain), corporate-adoption
-friendly, used by Go, Rust (dual MIT/Apache-2.0), and Swift. Add the standard
-Apache-2.0 LICENSE file before making the repository public. If you want maximal
-ecosystem symmetry with Rust, dual-license MIT OR Apache-2.0.
+We use Apache-2.0 for all code and specification text.
+
+**Rationale:**
+- **Patent grant** — essential for a language toolchain
+- **Corporate adoption** — widely trusted and used
+- **Precedent** — Go, Rust (dual MIT/Apache-2.0), and Swift all use it
+- **Ecosystem** — aligns with Rust's licensing model
+
+See [`LICENSE`](LICENSE) for the full license text.
