@@ -1,0 +1,9 @@
+struct User {
+    id: Int
+    name: String
+}
+
+fn main() {
+    let u = User{ id: 1 }   // missing field: name
+    print(u.name)
+}

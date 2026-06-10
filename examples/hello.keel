@@ -1,0 +1,4 @@
+// The first program keelc must run (Milestone 3 exit criterion).
+fn main() {
+    print("hello, keel")
+}

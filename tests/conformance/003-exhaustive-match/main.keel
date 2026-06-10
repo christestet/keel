@@ -1,0 +1,16 @@
+enum Status {
+    Active,
+    Suspended(reason: String),
+    Deleted,
+}
+
+fn describe(s: Status) -> String {
+    match s {                       // missing variant: Deleted
+        Active            => "ok",
+        Suspended(reason) => "suspended: {reason}",
+    }
+}
+
+fn main() {
+    print(describe(Active))
+}

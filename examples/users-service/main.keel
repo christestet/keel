@@ -1,0 +1,161 @@
+// main.keel — complete users CRUD service (M6 target program)
+
+use std.http
+use std.sql
+use std.json
+use std.log
+use std.config
+
+struct User {
+    id: Uuid
+    name: String
+    email: Email
+    created_at: Timestamp
+}
+
+struct CreateUser {
+    name: String
+    email: Email
+}
+
+struct UpdateUser {
+    name: Option<String>
+    email: Option<Email>
+}
+
+enum UserError {
+    NotFound(id: Uuid),
+    EmailTaken(email: Email),
+}
+
+fn create_user(db: sql.Pool, input: CreateUser) -> Result<User, UserError | sql.Error> {
+    let row = db.query_one(
+        "insert into users (id, name, email, created_at)
+         values ($1, $2, $3, $4)
+         returning id, name, email, created_at",
+        Uuid.new(), input.name, input.email, Timestamp.now(),
+    ) catch err {
+        sql.UniqueViolation => return Err(EmailTaken(input.email)),
+        other               => return Err(other),
+    }
+    Ok(User.from_row(row)?)
+}
+
+fn get_user(db: sql.Pool, id: Uuid) -> Result<User, UserError | sql.Error> {
+    let row = db.query_one("select id, name, email, created_at from users where id = $1", id)
+        catch sql.NoRows => return Err(NotFound(id))
+    Ok(User.from_row(row)?)
+}
+
+fn list_users(db: sql.Pool, limit: Int = 50) -> Result<List<User>, sql.Error> {
+    let rows = db.query("select id, name, email, created_at from users order by created_at limit $1", limit)?
+    rows.map(User.from_row).collect()
+}
+
+fn update_user(db: sql.Pool, id: Uuid, input: UpdateUser) -> Result<User, UserError | sql.Error> {
+    let row = db.query_one(
+        "update users
+         set name = coalesce($2, name), email = coalesce($3, email)
+         where id = $1
+         returning id, name, email, created_at",
+        id, input.name, input.email,
+    ) catch err {
+        sql.NoRows          => return Err(NotFound(id)),
+        sql.UniqueViolation => return Err(EmailTaken(input.email.unwrap())),
+        other               => return Err(other),
+    }
+    Ok(User.from_row(row)?)
+}
+
+fn delete_user(db: sql.Pool, id: Uuid) -> Result<Unit, UserError | sql.Error> {
+    let affected = db.exec("delete from users where id = $1", id)?
+    if affected == 0 { return Err(NotFound(id)) }
+    Ok(())
+}
+
+fn routes(db: sql.Pool) -> http.Router {
+    http.Router{
+        "POST   /users":      fn(req) => handle_create(db, req),
+        "GET    /users":      fn(req) => handle_list(db, req),
+        "GET    /users/{id}": fn(req) => handle_get(db, req),
+        "PATCH  /users/{id}": fn(req) => handle_update(db, req),
+        "DELETE /users/{id}": fn(req) => handle_delete(db, req),
+    }
+}
+
+fn handle_create(db: sql.Pool, req: http.Request) -> http.Response {
+    let input = json.parse<CreateUser>(req.body)
+        catch err => return http.bad_request(err)
+
+    match create_user(db, input) {
+        Ok(user)            => http.created(json.write(user)),
+        Err(EmailTaken(e))  => http.conflict("email already in use: {e}"),
+        Err(err: sql.Error) => http.internal_error(err),
+    }
+}
+
+fn handle_get(db: sql.Pool, req: http.Request) -> http.Response {
+    let id = req.path_param<Uuid>("id")
+        catch err => return http.bad_request(err)
+
+    match get_user(db, id) {
+        Ok(user)            => http.ok(json.write(user)),
+        Err(NotFound(_))    => http.not_found(),
+        Err(err: sql.Error) => http.internal_error(err),
+    }
+}
+
+fn handle_list(db: sql.Pool, req: http.Request) -> http.Response {
+    let limit = req.query_param<Int>("limit") ?? 50
+
+    match list_users(db, limit) {
+        Ok(users) => http.ok(json.write(users)),
+        Err(err)  => http.internal_error(err),
+    }
+}
+
+fn handle_update(db: sql.Pool, req: http.Request) -> http.Response {
+    let id = req.path_param<Uuid>("id")
+        catch err => return http.bad_request(err)
+    let input = json.parse<UpdateUser>(req.body)
+        catch err => return http.bad_request(err)
+
+    match update_user(db, id, input) {
+        Ok(user)            => http.ok(json.write(user)),
+        Err(NotFound(_))    => http.not_found(),
+        Err(EmailTaken(e))  => http.conflict("email already in use: {e}"),
+        Err(err: sql.Error) => http.internal_error(err),
+    }
+}
+
+fn handle_delete(db: sql.Pool, req: http.Request) -> http.Response {
+    let id = req.path_param<Uuid>("id")
+        catch err => return http.bad_request(err)
+
+    match delete_user(db, id) {
+        Ok(())              => http.no_content(),
+        Err(NotFound(_))    => http.not_found(),
+        Err(err: sql.Error) => http.internal_error(err),
+    }
+}
+
+fn main() -> Result<Unit, Error> {
+    let cfg = config.load<struct {
+        database_url: Secret<String>
+        port: Int = 8080
+    }>()?
+
+    let db = sql.connect(cfg.database_url)?
+
+    db.migrate("
+        create table if not exists users (
+            id uuid primary key,
+            name text not null,
+            email text not null unique,
+            created_at timestamptz not null
+        )
+    ")?
+
+    log.info("listening", port: cfg.port)
+    http.serve(port: cfg.port, routes: routes(db))
+}

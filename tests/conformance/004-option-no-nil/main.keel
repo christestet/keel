@@ -1,0 +1,14 @@
+fn find(name: String) -> Option<Int> {
+    if name == "ada" { Some(1) } else { None }
+}
+
+fn main() {
+    match find("ada") {
+        Some(id) => print("found: {id}"),
+        None     => print("missing"),
+    }
+    match find("bob") {
+        Some(id) => print("found: {id}"),
+        None     => print("missing"),
+    }
+}

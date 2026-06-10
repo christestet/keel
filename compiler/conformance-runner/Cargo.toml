@@ -1,0 +1,8 @@
+[package]
+name = "conformance-runner"
+version = "0.1.0"
+edition = "2021"
+description = "Executes the Keel conformance suite against a keelc binary, or lints the suite's structure when no compiler exists yet."
+
+# Zero dependencies, deliberately. See compiler/ARCHITECTURE.md iron rule 4.
+[dependencies]

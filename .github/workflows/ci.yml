@@ -1,0 +1,87 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Determinism and honesty: CI is the same `cargo run` a contributor uses locally.
+# No CI-only magic.
+
+jobs:
+  # The conformance suite is the executable spec — it must be structurally
+  # valid on every commit, even before a compiler exists (pre-M1).
+  conformance-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate conformance suite structure
+        run: cargo run -p conformance-runner -- --check
+
+  # Once `keelc` exists (M3+), this job becomes the gate that defines
+  # "the compiler is correct". Until then it self-skips.
+  conformance-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Detect keelc
+        id: keelc
+        run: |
+          if cargo metadata --no-deps --format-version 1 | grep -q '"name":"keelc-driver"'; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "keelc-driver crate not in workspace yet (pre-M3) — skipping execution"
+          fi
+      - name: Build keelc
+        if: steps.keelc.outputs.present == 'true'
+        run: cargo build --release -p keelc-driver
+      - name: Run conformance suite
+        if: steps.keelc.outputs.present == 'true'
+        env:
+          KEEL_MILESTONE: ${{ vars.keel_MILESTONE }}   # set in repo settings, e.g. M3
+        run: cargo run -p conformance-runner -- --keelc target/release/keelc
+
+  rust-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  # AGENTS.md / CONTRIBUTING.md rule: spec changes, conformance-test changes,
+  # and compiler changes never mix in a single PR. Enforced, not requested.
+  separation-of-concerns:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: One concern per PR
+        run: |
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+          echo "changed files:"; echo "$changed"
+          areas=0
+          spec=$(echo "$changed" | grep -c '^docs/spec/' || true)
+          tests=$(echo "$changed" | grep -c '^tests/conformance/' || true)
+          comp=$(echo "$changed" | grep -c '^compiler/' || true)
+          [ "$spec"  -gt 0 ] && areas=$((areas+1))
+          [ "$tests" -gt 0 ] && areas=$((areas+1))
+          [ "$comp"  -gt 0 ] && areas=$((areas+1))
+          if [ "$areas" -gt 1 ]; then
+            echo "::error::This PR mixes concerns (spec:$spec conformance:$tests compiler:$comp files)."
+            echo "::error::A behavior change is three PRs, in order: spec -> conformance tests -> implementation. See AGENTS.md."
+            exit 1
+          fi
+          echo "ok: single concern"
