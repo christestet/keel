@@ -11,6 +11,7 @@ pub struct RegistryEntry {
 pub const K0001: Code = Code::new("K0001");
 pub const K0002: Code = Code::new("K0002");
 pub const K0003: Code = Code::new("K0003");
+pub const K0004: Code = Code::new("K0004");
 pub const K0101: Code = Code::new("K0101");
 pub const K0102: Code = Code::new("K0102");
 pub const K0201: Code = Code::new("K0201");
@@ -46,6 +47,10 @@ pub const ALL_CODES: &[RegistryEntry] = &[
     RegistryEntry {
         code: K0003,
         summary: "syntax error",
+    },
+    RegistryEntry {
+        code: K0004,
+        summary: "malformed string interpolation",
     },
     RegistryEntry {
         code: K0101,
