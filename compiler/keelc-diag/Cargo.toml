@@ -5,3 +5,4 @@ edition = "2021"
 description = "Diagnostic types and stable error-code registry for keelc."
 
 [dependencies]
+keelc-span = { path = "../keelc-span" }

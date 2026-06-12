@@ -1,1 +1,295 @@
 //! AST definitions and pretty-printer foundation for keelc.
+
+use keelc_span::{Span, Spanned};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Module {
+    pub header: Option<Spanned<String>>,
+    pub items: Vec<Item>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Item {
+    Use(UseDecl),
+    Struct(StructDecl),
+    Enum(EnumDecl),
+    Function(FunctionDecl),
+    Test(TestDecl),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UseDecl {
+    pub path: Vec<Spanned<String>>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StructDecl {
+    pub name: Spanned<String>,
+    pub fields: Vec<FieldDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FieldDecl {
+    pub name: Spanned<String>,
+    pub ty: Type,
+    pub default: Option<Expr>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnumDecl {
+    pub name: Spanned<String>,
+    pub variants: Vec<VariantDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VariantDecl {
+    pub name: Spanned<String>,
+    pub fields: Vec<FieldDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FunctionDecl {
+    pub name: Spanned<String>,
+    pub params: Vec<Param>,
+    pub return_type: Option<Type>,
+    pub body: Option<Block>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Param {
+    pub name: Spanned<String>,
+    pub ty: Option<Type>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestDecl {
+    pub name: Spanned<String>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Type {
+    Named {
+        name: Spanned<String>,
+        args: Vec<Type>,
+        span: Span,
+    },
+    Union {
+        members: Vec<Type>,
+        span: Span,
+    },
+}
+
+impl Type {
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        match self {
+            Type::Named { span, .. } | Type::Union { span, .. } => *span,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Block {
+    pub statements: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Stmt {
+    Let {
+        mutable: bool,
+        name: Spanned<String>,
+        value: Expr,
+        span: Span,
+    },
+    Assign {
+        target: Expr,
+        value: Expr,
+        span: Span,
+    },
+    Return {
+        value: Option<Expr>,
+        span: Span,
+    },
+    Break(Span),
+    Continue(Span),
+    Assert {
+        value: Expr,
+        span: Span,
+    },
+    Expr(Expr),
+}
+
+impl Stmt {
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. }
+            | Stmt::Assign { span, .. }
+            | Stmt::Return { span, .. }
+            | Stmt::Assert { span, .. } => *span,
+            Stmt::Break(span) | Stmt::Continue(span) => *span,
+            Stmt::Expr(expr) => expr.span(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Expr {
+    Missing(Span),
+    Int(Spanned<String>),
+    Float(Spanned<String>),
+    String(Spanned<String>),
+    Char(Spanned<String>),
+    Bool(Spanned<bool>),
+    Name(Spanned<String>),
+    Wildcard(Span),
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+        span: Span,
+    },
+    Binary {
+        left: Box<Expr>,
+        op: BinaryOp,
+        right: Box<Expr>,
+        span: Span,
+    },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    Field {
+        target: Box<Expr>,
+        field: Spanned<String>,
+        span: Span,
+    },
+    StructLiteral {
+        name: Spanned<String>,
+        fields: Vec<StructLiteralField>,
+        span: Span,
+    },
+    If {
+        condition: Box<Expr>,
+        then_block: Block,
+        else_branch: Option<Box<Expr>>,
+        span: Span,
+    },
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
+    While {
+        condition: Box<Expr>,
+        body: Block,
+        span: Span,
+    },
+    Block(Block),
+    Question {
+        expr: Box<Expr>,
+        span: Span,
+    },
+    Catch {
+        expr: Box<Expr>,
+        error_name: Spanned<String>,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
+    Return {
+        value: Option<Box<Expr>>,
+        span: Span,
+    },
+}
+
+impl Expr {
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        match self {
+            Expr::Missing(span)
+            | Expr::Wildcard(span)
+            | Expr::Unary { span, .. }
+            | Expr::Binary { span, .. }
+            | Expr::Call { span, .. }
+            | Expr::Field { span, .. }
+            | Expr::StructLiteral { span, .. }
+            | Expr::If { span, .. }
+            | Expr::Match { span, .. }
+            | Expr::While { span, .. }
+            | Expr::Question { span, .. }
+            | Expr::Catch { span, .. }
+            | Expr::Return { span, .. } => *span,
+            Expr::Int(value)
+            | Expr::Float(value)
+            | Expr::String(value)
+            | Expr::Char(value)
+            | Expr::Name(value) => value.span,
+            Expr::Bool(value) => value.span,
+            Expr::Block(block) => block.span,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UnaryOp {
+    Negate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BinaryOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StructLiteralField {
+    pub name: Spanned<String>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub guard: Option<Expr>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Pattern {
+    Name {
+        name: Spanned<String>,
+        args: Vec<Pattern>,
+        span: Span,
+    },
+    Wildcard(Span),
+}
+
+impl Pattern {
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        match self {
+            Pattern::Name { span, .. } | Pattern::Wildcard(span) => *span,
+        }
+    }
+}

@@ -5,3 +5,7 @@ edition = "2021"
 description = "Recursive-descent parser for Keel Core source files."
 
 [dependencies]
+keelc-ast = { path = "../keelc-ast" }
+keelc-diag = { path = "../keelc-diag" }
+keelc-lex = { path = "../keelc-lex" }
+keelc-span = { path = "../keelc-span" }

@@ -9,18 +9,34 @@ version = "0.1.0"
 [[package]]
 name = "keelc-ast"
 version = "0.1.0"
+dependencies = [
+ "keelc-span",
+]
 
 [[package]]
 name = "keelc-diag"
 version = "0.1.0"
+dependencies = [
+ "keelc-span",
+]
 
 [[package]]
 name = "keelc-lex"
 version = "0.1.0"
+dependencies = [
+ "keelc-diag",
+ "keelc-span",
+]
 
 [[package]]
 name = "keelc-parse"
 version = "0.1.0"
+dependencies = [
+ "keelc-ast",
+ "keelc-diag",
+ "keelc-lex",
+ "keelc-span",
+]
 
 [[package]]
 name = "keelc-span"

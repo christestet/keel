@@ -5,3 +5,5 @@ edition = "2021"
 description = "Lexer for Keel Core source files."
 
 [dependencies]
+keelc-diag = { path = "../keelc-diag" }
+keelc-span = { path = "../keelc-span" }
