@@ -1,6 +1,8 @@
 //! Name resolution and early semantic diagnostics for Keel Core.
 
-use keelc_ast::{BinaryOp, Block, Expr, Item, Module, Stmt, StringLiteral, Type as AstType};
+use keelc_ast::{
+    BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, StringLiteral, Type as AstType,
+};
 use keelc_diag::{registry, Diagnostic};
 use keelc_parse::parse;
 use keelc_span::{Span, Spanned};
@@ -310,6 +312,12 @@ struct FunctionInfo {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct EnumInfo {
+    name: String,
+    variants: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct TypedBinding {
     name: String,
     ty: TypeInfo,
@@ -349,10 +357,6 @@ impl TypeInfo {
                 Self::Union(members.iter().map(Self::from_ast).collect())
             }
         }
-    }
-
-    const fn is_known(&self) -> bool {
-        !matches!(self, Self::Unknown)
     }
 
     const fn is_numeric(&self) -> bool {
@@ -401,9 +405,11 @@ fn write_type_list(
 struct Typechecker<'a> {
     module: &'a Module,
     functions: Vec<FunctionInfo>,
+    enums: Vec<EnumInfo>,
     scopes: Vec<Vec<TypedBinding>>,
     diagnostics: Vec<Diagnostic>,
     diagnostic_span_override: Option<Span>,
+    current_return_type: Option<TypeInfo>,
 }
 
 impl<'a> Typechecker<'a> {
@@ -411,9 +417,11 @@ impl<'a> Typechecker<'a> {
         Self {
             module,
             functions: collect_functions(module),
+            enums: collect_enums(module),
             scopes: Vec::new(),
             diagnostics: Vec::new(),
             diagnostic_span_override: None,
+            current_return_type: None,
         }
     }
 
@@ -445,6 +453,12 @@ impl<'a> Typechecker<'a> {
             return;
         };
 
+        let previous_return_type = self.current_return_type.replace(
+            function
+                .return_type
+                .as_ref()
+                .map_or(TypeInfo::Unit, TypeInfo::from_ast),
+        );
         self.push_scope();
         for param in &function.params {
             let ty = param
@@ -455,6 +469,7 @@ impl<'a> Typechecker<'a> {
         }
         self.check_block(body);
         self.pop_scope();
+        self.current_return_type = previous_return_type;
     }
 
     fn check_block(&mut self, block: &Block) -> TypeInfo {
@@ -509,7 +524,11 @@ impl<'a> Typechecker<'a> {
             }
             Expr::Char(_) => TypeInfo::Char,
             Expr::Bool(_) => TypeInfo::Bool,
-            Expr::Name(name) => self.value_type(&name.value).unwrap_or(TypeInfo::Unknown),
+            Expr::Name(name) => self
+                .value_type(&name.value)
+                .or_else(|| self.builtin_value_type(&name.value))
+                .or_else(|| self.enum_variant_type(&name.value))
+                .unwrap_or(TypeInfo::Unknown),
             Expr::Unary { op, expr, .. } => self.infer_unary(*op, expr),
             Expr::Binary {
                 left,
@@ -535,9 +554,12 @@ impl<'a> Typechecker<'a> {
                 span,
             } => self.infer_if(condition, then_block, else_branch.as_deref(), *span),
             Expr::Match {
-                scrutinee, arms, ..
+                scrutinee,
+                arms,
+                span,
             } => {
-                self.infer_expr(scrutinee);
+                let scrutinee_type = self.infer_expr(scrutinee);
+                self.check_match_exhaustive(&scrutinee_type, arms, *span);
                 let mut result = TypeInfo::Unknown;
                 for arm in arms {
                     if let Some(guard) = &arm.guard {
@@ -558,16 +580,26 @@ impl<'a> Typechecker<'a> {
                 TypeInfo::Unit
             }
             Expr::Block(block) => self.check_block(block),
-            Expr::Question { expr, .. } => {
-                self.infer_expr(expr);
-                TypeInfo::Unknown
-            }
-            Expr::Catch { expr, arms, .. } => {
-                self.infer_expr(expr);
+            Expr::Question { expr, span } => self.infer_question(expr, *span),
+            Expr::Catch {
+                expr,
+                error_name,
+                arms,
+                span,
+            } => {
+                let result_type = self.infer_expr(expr);
+                let (success_type, error_type) = result_parts(&result_type)
+                    .map_or((TypeInfo::Unknown, TypeInfo::Unknown), |(ok, err)| {
+                        (ok.clone(), err.clone())
+                    });
+                self.check_catch_exhaustive(&error_type, arms, *span);
+                self.push_scope();
+                self.define_value(error_name, error_type);
                 for arm in arms {
                     self.infer_expr(&arm.value);
                 }
-                TypeInfo::Unknown
+                self.pop_scope();
+                success_type
             }
             Expr::Return { value, .. } => {
                 if let Some(value) = value {
@@ -625,14 +657,37 @@ impl<'a> Typechecker<'a> {
     }
 
     fn infer_call(&mut self, callee: &Expr, args: &[Expr]) -> TypeInfo {
-        for arg in args {
-            self.infer_expr(arg);
-        }
+        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
 
         match callee {
             Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
+            Expr::Name(name) if name.value == "checked_div" || name.value == "checked_rem" => {
+                TypeInfo::Generic {
+                    name: "Option".to_string(),
+                    args: vec![TypeInfo::Int],
+                }
+            }
+            Expr::Name(name) if name.value == "Some" => TypeInfo::Generic {
+                name: "Option".to_string(),
+                args: vec![arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)],
+            },
+            Expr::Name(name) if name.value == "Ok" => TypeInfo::Generic {
+                name: "Result".to_string(),
+                args: vec![
+                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
+                    TypeInfo::Unknown,
+                ],
+            },
+            Expr::Name(name) if name.value == "Err" => TypeInfo::Generic {
+                name: "Result".to_string(),
+                args: vec![
+                    TypeInfo::Unknown,
+                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
+                ],
+            },
             Expr::Name(name) => self
                 .function_return_type(&name.value)
+                .or_else(|| self.enum_variant_type(&name.value))
                 .unwrap_or(TypeInfo::Unknown),
             Expr::Field { target, field, .. }
                 if matches!(target.as_ref(), Expr::Name(name) if name.value == "Float")
@@ -664,18 +719,154 @@ impl<'a> Typechecker<'a> {
             return TypeInfo::Unit;
         };
         let else_type = self.infer_expr(else_branch);
-        if then_type.is_known() && else_type.is_known() && then_type != else_type {
+        if !types_compatible(&then_type, &else_type) {
             self.diagnostics.push(Diagnostic::error(
                 registry::K0401,
                 self.diagnostic_span(span),
                 format!("if arms have incompatible types `{then_type}` and `{else_type}`"),
             ));
             TypeInfo::Unknown
-        } else if then_type == else_type {
-            then_type
         } else {
-            TypeInfo::Unknown
+            merge_types(&then_type, &else_type)
         }
+    }
+
+    fn infer_question(&mut self, expr: &Expr, span: Span) -> TypeInfo {
+        let expr_type = self.infer_expr(expr);
+        match &expr_type {
+            TypeInfo::Generic { name, args } if name == "Result" && args.len() == 2 => {
+                let (Some(success_type), Some(error_type)) = (args.first(), args.get(1)) else {
+                    return TypeInfo::Unknown;
+                };
+                let can_absorb = self
+                    .current_return_type
+                    .as_ref()
+                    .and_then(result_parts)
+                    .is_some_and(|(_, return_error)| type_absorbs(return_error, error_type));
+                if can_absorb {
+                    success_type.clone()
+                } else {
+                    self.report_question_context(span, &expr_type);
+                    TypeInfo::Unknown
+                }
+            }
+            TypeInfo::Generic { name, args } if name == "Option" && args.len() == 1 => {
+                let Some(success_type) = args.first() else {
+                    return TypeInfo::Unknown;
+                };
+                let can_absorb = self
+                    .current_return_type
+                    .as_ref()
+                    .and_then(option_inner)
+                    .is_some();
+                if can_absorb {
+                    success_type.clone()
+                } else {
+                    self.report_question_context(span, &expr_type);
+                    TypeInfo::Unknown
+                }
+            }
+            _ => {
+                self.report_question_context(span, &expr_type);
+                TypeInfo::Unknown
+            }
+        }
+    }
+
+    fn report_question_context(&mut self, span: Span, expr_type: &TypeInfo) {
+        let return_type = self
+            .current_return_type
+            .as_ref()
+            .map_or_else(|| TypeInfo::Unit.to_string(), ToString::to_string);
+        self.diagnostics.push(Diagnostic::error(
+            registry::K0501,
+            self.diagnostic_span(span),
+            format!("`?` cannot unwrap `{expr_type}` in a function returning `{return_type}`"),
+        ));
+    }
+
+    fn check_match_exhaustive(&mut self, scrutinee_type: &TypeInfo, arms: &[MatchArm], span: Span) {
+        let Some(variants) = self.exhaustive_variants(scrutinee_type) else {
+            return;
+        };
+        if arms.iter().any(is_unguarded_wildcard_arm) {
+            return;
+        }
+
+        if let Some(missing) = variants.iter().find(|variant| {
+            !arms
+                .iter()
+                .any(|arm| arm.guard.is_none() && arm_pattern_name(arm) == Some(variant.as_str()))
+        }) {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0402,
+                self.diagnostic_span(span),
+                format!("match is not exhaustive; missing `{missing}`"),
+            ));
+        }
+    }
+
+    fn check_catch_exhaustive(&mut self, error_type: &TypeInfo, arms: &[MatchArm], span: Span) {
+        if arms.iter().any(is_catch_fallback_arm) {
+            return;
+        }
+        let Some(variants) = self.exhaustive_variants(error_type) else {
+            return;
+        };
+
+        if let Some(missing) = variants.iter().find(|variant| {
+            !arms
+                .iter()
+                .any(|arm| arm.guard.is_none() && arm_pattern_name(arm) == Some(variant.as_str()))
+        }) {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0502,
+                self.diagnostic_span(span),
+                format!("catch is not exhaustive; missing `{missing}`"),
+            ));
+        }
+    }
+
+    fn exhaustive_variants(&self, ty: &TypeInfo) -> Option<Vec<String>> {
+        match ty {
+            TypeInfo::Named(name) => self
+                .enums
+                .iter()
+                .find(|info| info.name == *name)
+                .map(|info| info.variants.clone()),
+            TypeInfo::Generic { name, .. } if name == "Option" => {
+                Some(vec!["Some".to_string(), "None".to_string()])
+            }
+            TypeInfo::Generic { name, .. } if name == "Result" => {
+                Some(vec!["Ok".to_string(), "Err".to_string()])
+            }
+            TypeInfo::Union(members) => {
+                let mut variants = Vec::new();
+                for member in members {
+                    let member_variants = self.exhaustive_variants(member)?;
+                    variants.extend(member_variants);
+                }
+                Some(variants)
+            }
+            _ => None,
+        }
+    }
+
+    fn builtin_value_type(&self, name: &str) -> Option<TypeInfo> {
+        match name {
+            "None" => Some(TypeInfo::Generic {
+                name: "Option".to_string(),
+                args: vec![TypeInfo::Unknown],
+            }),
+            _ => None,
+        }
+    }
+
+    fn enum_variant_type(&self, variant_name: &str) -> Option<TypeInfo> {
+        self.enums
+            .iter()
+            .find(|info| info.variants.iter().any(|variant| variant == variant_name))
+            .map(|info| TypeInfo::Named(info.name.clone()))
     }
 
     fn check_string_interpolations(&mut self, literal: &Spanned<StringLiteral>) {
@@ -746,11 +937,149 @@ fn collect_functions(module: &Module) -> Vec<FunctionInfo> {
     functions
 }
 
+fn collect_enums(module: &Module) -> Vec<EnumInfo> {
+    let mut enums = Vec::new();
+    for item in &module.items {
+        if let Item::Enum(decl) = item {
+            let mut variants: Vec<String> = decl
+                .variants
+                .iter()
+                .map(|variant| variant.name.value.clone())
+                .collect();
+            variants.sort();
+            enums.push(EnumInfo {
+                name: decl.name.value.clone(),
+                variants,
+            });
+        }
+    }
+    enums.sort_by(|left, right| left.name.cmp(&right.name));
+    enums
+}
+
 fn is_int_float_pair(left: &TypeInfo, right: &TypeInfo) -> bool {
     matches!(
         (left, right),
         (TypeInfo::Int, TypeInfo::Float) | (TypeInfo::Float, TypeInfo::Int)
     )
+}
+
+fn types_compatible(left: &TypeInfo, right: &TypeInfo) -> bool {
+    if left == right || matches!(left, TypeInfo::Unknown) || matches!(right, TypeInfo::Unknown) {
+        return true;
+    }
+    match (left, right) {
+        (
+            TypeInfo::Generic {
+                name: left_name,
+                args: left_args,
+            },
+            TypeInfo::Generic {
+                name: right_name,
+                args: right_args,
+            },
+        ) if left_name == right_name && left_args.len() == right_args.len() => left_args
+            .iter()
+            .zip(right_args)
+            .all(|(left, right)| types_compatible(left, right)),
+        (TypeInfo::Union(left_members), TypeInfo::Union(right_members)) => {
+            left_members.len() == right_members.len()
+                && left_members
+                    .iter()
+                    .zip(right_members)
+                    .all(|(left, right)| types_compatible(left, right))
+        }
+        _ => false,
+    }
+}
+
+fn merge_types(left: &TypeInfo, right: &TypeInfo) -> TypeInfo {
+    if matches!(left, TypeInfo::Unknown) {
+        return right.clone();
+    }
+    if matches!(right, TypeInfo::Unknown) || left == right {
+        return left.clone();
+    }
+    match (left, right) {
+        (
+            TypeInfo::Generic {
+                name: left_name,
+                args: left_args,
+            },
+            TypeInfo::Generic {
+                name: right_name,
+                args: right_args,
+            },
+        ) if left_name == right_name && left_args.len() == right_args.len() => TypeInfo::Generic {
+            name: left_name.clone(),
+            args: left_args
+                .iter()
+                .zip(right_args)
+                .map(|(left, right)| merge_types(left, right))
+                .collect(),
+        },
+        (TypeInfo::Union(left_members), TypeInfo::Union(right_members))
+            if left_members.len() == right_members.len() =>
+        {
+            TypeInfo::Union(
+                left_members
+                    .iter()
+                    .zip(right_members)
+                    .map(|(left, right)| merge_types(left, right))
+                    .collect(),
+            )
+        }
+        _ => TypeInfo::Unknown,
+    }
+}
+
+fn option_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
+    match ty {
+        TypeInfo::Generic { name, args } if name == "Option" && args.len() == 1 => args.first(),
+        _ => None,
+    }
+}
+
+fn result_parts(ty: &TypeInfo) -> Option<(&TypeInfo, &TypeInfo)> {
+    match ty {
+        TypeInfo::Generic { name, args } if name == "Result" && args.len() == 2 => {
+            Some((args.first()?, args.get(1)?))
+        }
+        _ => None,
+    }
+}
+
+fn type_absorbs(target: &TypeInfo, source: &TypeInfo) -> bool {
+    target == source
+        || matches!(source, TypeInfo::Unknown)
+        || match (target, source) {
+            (TypeInfo::Union(_), TypeInfo::Union(sources)) => {
+                sources.iter().all(|source| type_absorbs(target, source))
+            }
+            (TypeInfo::Union(targets), source) => targets.iter().any(|target| target == source),
+            _ => false,
+        }
+}
+
+fn is_unguarded_wildcard_arm(arm: &MatchArm) -> bool {
+    arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard(_))
+}
+
+fn is_catch_fallback_arm(arm: &MatchArm) -> bool {
+    if arm.guard.is_some() {
+        return false;
+    }
+    match &arm.pattern {
+        Pattern::Wildcard(_) => true,
+        Pattern::Name { name, args, .. } => name.value == "other" && args.is_empty(),
+    }
+}
+
+fn arm_pattern_name(arm: &MatchArm) -> Option<&str> {
+    match &arm.pattern {
+        Pattern::Name { name, .. } => Some(name.value.as_str()),
+        Pattern::Wildcard(_) => None,
+    }
 }
 
 fn parse_interpolation_expr(span: Span, source: &str) -> Option<Expr> {
