@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "compiler/conformance-runner",
+    "compiler/keelc-driver",
     "compiler/keelc-span",
     "compiler/keelc-diag",
     "compiler/keelc-lex",
