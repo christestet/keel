@@ -13,19 +13,17 @@ Done this session:
 | Area | State |
 |---|---|
 | Conformance suite | Grown to 74 structurally-valid cases (committed `cde20b8 tests: extend conformance test set`, on `origin/main`). All additions use already-proven Core syntax only. |
-| [`KDR-0013`](kdr/0013-core-operators-and-integer-division.md) | **accepted** — boolean `&& \|\| !` (short-circuit), arithmetic `- / %`, truncate-toward-zero division, dividend-signed remainder, div/rem-by-zero **panics** under new code `K0204`, total escape `checked_div`/`checked_rem -> Option<Int>`. Precedence/associativity fixed in the KDR. |
-| [`KDR-0014`](kdr/0014-interpolation-brace-escaping.md) | **accepted** — literal braces via doubling `{{` / `}}`, no backslash escape. |
+| [`KDR-0013`](kdr/0013-core-operators-and-integer-division.md) | **accepted + spec written** — boolean `&& \|\| !` (short-circuit), arithmetic `- / %`, truncate-toward-zero division, dividend-signed remainder, div/rem-by-zero **panics** under code `K0204`, total escape `checked_div`/`checked_rem -> Option<Int>`. Precedence/associativity fixed in the KDR and tabulated in [`spec/04-expressions.md`](spec/04-expressions.md). |
+| [`KDR-0014`](kdr/0014-interpolation-brace-escaping.md) | **accepted + spec written** — literal braces via doubling `{{` / `}}`, no backslash escape. Encoded in [`spec/01-lexical.md`](spec/01-lexical.md); lexical code `K0004` registered. |
 | [`INDEX.md`](kdr/INDEX.md) | Both rows show `accepted`. |
 | Issues | #5 (KDR-0013) and #6 (KDR-0014) closed with maintainer-acceptance comments. |
+| Spec chapters | [`01-lexical.md`](spec/01-lexical.md) (KDR-0014) and [`04-expressions.md`](spec/04-expressions.md) (KDR-0013) written; `K0004` and `K0204` registered in [`keelc-diag`](../compiler/keelc-diag/src/registry.rs). Each chapter names the conformance cases its test PR will add. |
 
 Explicitly **not** done (these are the follow-up PRs, in order, per root
 [`AGENTS.md`](../AGENTS.md) hard rule 1 — spec → tests → impl, never mixed):
 
-- No edit to [`keel-core.md`](spec/keel-core.md) yet (still proves only `+ * > < ==`).
-- `K0204` not yet registered in [`keelc-diag`](../compiler/keelc-diag/src/registry.rs).
-- No conformance cases for the new operators, division-by-zero panic, or `{{`/`}}`.
+- No conformance cases yet for the new operators, division-by-zero panic, or `{{`/`}}` (the spec chapters name them; the test PRs add them).
 - No lexer/parser support for the new operators or brace doubling.
-- Acceptance commit `129acd5` is **local only — not pushed**.
 
 ## Dependency Chain
 
@@ -56,31 +54,36 @@ milestone; encode them as conformance cases first.
 
 ```text
 git status --short            # clean
-git log --oneline -2
-  129acd5 kdr: accept KDR-0013 ... and KDR-0014 ...   # local only
-  cde20b8 tests: extend conformance test set          # origin/main
-cargo run -p conformance-runner -- --check
-  suite ok: 74 case(s), structure valid
+git log --oneline -3
+  f4fb86c spec: expressions chapter — operators and integer division (K0204)
+  9556126 spec: lexical chapter — interpolation brace escaping (K0004)
+  7c71710 docs: add core-surface handoff note ...        # origin/main
+./scripts/preflight.sh
+  74 passed, 0 failed, 0 skipped
+  preflight: green
 ```
 
-KDR acceptance was docs-only; `scripts/preflight.sh` was not re-run because no
-compiler code changed.
+The spec chapters added two stable codes (`K0004`, `K0204`) but no new
+conformance cases yet, so the suite count is unchanged at 74. The two spec
+commits are **local only — not pushed**.
 
 ## Next Work
 
 In strict order, each its own PR:
 
-1. **Spec PR — KDR-0014:** open chapter `01-lexical` (or extend `keel-core.md` §1)
-   stating `{{`→`{`, `}}`→`}`, lone `}` / unterminated `{` are lexical errors.
-   Name the conformance cases it will add (band `0xx`).
-2. **Spec PR — KDR-0013:** chapter `02-types`/`04-expressions` (or `keel-core.md`
-   §2/§4): operator set, precedence table, truncation + dividend-signed `%`,
-   div/rem-by-zero panic, `checked_div`/`checked_rem`. Register `K0204` at
-   spec-writing time. Name the `1xx`/`4xx` cases.
-3. **Conformance PRs:** add the cases the spec PRs named (accept: arithmetic,
-   booleans short-circuit, `{{`/`}}`; reject: `K0202` on mixed operands; `K0204`
-   is a runtime panic → M3-gated case via `case.toml`).
-4. **Compiler PRs:** lexer tokens + brace doubling, then parser precedence, then
+1. **Conformance PR — KDR-0014 (band `0xx`):** add the cases named in
+   [`spec/01-lexical.md` §1.3](spec/01-lexical.md): `014-brace-escape-literal`,
+   `015-brace-escape-with-interpolation` (accept); `016-lone-close-brace`,
+   `017-unterminated-interpolation` (reject `K0004`).
+2. **Conformance PR — KDR-0013 (bands `1xx`/`4xx`):** add the cases named in
+   [`spec/04-expressions.md` §4.5](spec/04-expressions.md): arithmetic/boolean
+   accepts `112`–`119`, `120-mixed-operand-type` (reject `K0202`),
+   `411-comparison-no-chaining` (reject `K0003`), and the M3-gated
+   `121`/`122` div/rem-by-zero panics (`K0204`, via `case.toml`). The exact
+   encoding of a *runtime* panic expectation is a conformance-format decision —
+   confirm it against [`tests/conformance/README.md`](../tests/conformance/README.md)
+   before writing, do not invent a new expectation file kind.
+3. **Compiler PRs:** lexer tokens + brace doubling, then parser precedence, then
    M2 typing, then M3 lowering — each referencing the cases it makes pass.
 
 Still-open spec questions surfaced during analysis (decide via KDR/issue before
