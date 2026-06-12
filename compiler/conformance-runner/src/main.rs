@@ -5,6 +5,8 @@
 //! Contract with keelc (the runner side of compiler/ARCHITECTURE.md):
 //!   * M1 syntax mode (`--milestone M1`): `keelc check <main.keel>` exits 0 for
 //!     parseable cases; syntax-stage reject-cases must emit the expected code.
+//!   * M2 semantic mode (`--milestone M2`): `keelc check <main.keel>` exits 0
+//!     for accepted cases; reject-cases must emit the expected code.
 //!   * M3+ run mode: `keelc run <main.keel>` exits 0; stdout must equal
 //!     `expected.stdout` (trailing-newline normalized).
 //!   * reject-case: keelc exits non-zero and stderr contains the diagnostic
@@ -255,8 +257,10 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
         }
     }
 
-    if current_milestone == Some(1) {
-        return check_m1_syntax(case, keelc);
+    match current_milestone {
+        Some(1) => return check_m1_syntax(case, keelc),
+        Some(2) => return check_m2_semantics(case, keelc),
+        _ => {}
     }
 
     let out = match invoke_keelc(case, keelc, "run") {
@@ -283,6 +287,48 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             if out.status.success() {
                 return Outcome::Fail(format!(
                     "expected compile error {code}, but program ran successfully"
+                ));
+            }
+            if !stderr.contains(code.as_str()) {
+                return Outcome::Fail(format!(
+                    "expected diagnostic {code} in stderr\n--- stderr ---\n{stderr}"
+                ));
+            }
+            if let Some(n) = line {
+                let needle = format!("main.keel:{n}");
+                if !stderr.contains(&needle) {
+                    return Outcome::Fail(format!(
+                        "expected primary span at {needle}\n--- stderr ---\n{stderr}"
+                    ));
+                }
+            }
+            Outcome::Pass
+        }
+    }
+}
+
+fn check_m2_semantics(case: &Case, keelc: &str) -> Outcome {
+    let out = match invoke_keelc(case, keelc, "check") {
+        Ok(o) => o,
+        Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    match &case.expectation {
+        Expectation::Stdout(_) => {
+            if out.status.success() {
+                Outcome::Pass
+            } else {
+                Outcome::Fail(format!(
+                    "expected successful M2 semantic check, keelc exited {:?}\n--- stderr ---\n{stderr}",
+                    out.status.code()
+                ))
+            }
+        }
+        Expectation::Error { code, line } => {
+            if out.status.success() {
+                return Outcome::Fail(format!(
+                    "expected compile error {code}, but semantic check succeeded"
                 ));
             }
             if !stderr.contains(code.as_str()) {
