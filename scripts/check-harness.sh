@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Agent-harness self-check: keeps the AGENTS.md/CLAUDE.md guidance layers, the
-# preflight entry point, and the .claude/ config from drifting apart as the
+# preflight entry point, and the .agents/.claude config from drifting apart as the
 # repo grows. CI runs this on every commit; scripts/preflight.sh runs it locally.
 #
 # Growing the harness (see root AGENTS.md, "The agent harness"): when a new
@@ -40,10 +40,18 @@ for s in scripts/preflight.sh scripts/check-harness.sh; do
   [ -x "$s" ] || err "$s missing or not executable"
 done
 
-# 4. Claude Code layer: settings plus every slash command referenced from AGENTS.md.
-[ -f .claude/settings.json ] || err ".claude/settings.json missing"
-for c in preflight new-case new-kdr; do
-  [ -f ".claude/commands/$c.md" ] || err ".claude/commands/$c.md missing"
+# 4. Shared agent layer: .agents is canonical; .claude is only a compatibility
+#    symlink so all agent surfaces read identical config and commands.
+[ -d .agents ] || err ".agents directory missing"
+if [ ! -L .claude ]; then
+  err ".claude must be a symlink to .agents"
+elif [ "$(readlink .claude)" != ".agents" ]; then
+  err ".claude points to $(readlink .claude), expected .agents"
+fi
+[ -f .agents/settings.json ] || err ".agents/settings.json missing"
+for c in preflight new-case new-kdr wiki-note; do
+  [ -f ".agents/commands/$c.md" ] || err ".agents/commands/$c.md missing"
+  [ -f ".claude/commands/$c.md" ] || err ".claude/commands/$c.md missing via .claude symlink"
 done
 
 if [ "$fail" -ne 0 ]; then

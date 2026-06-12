@@ -73,10 +73,24 @@ code (`scripts/check-harness.sh`):
   wins and the nested file has a bug.
 - **`scripts/preflight.sh`** is the executable definition of done. Run it from
   the repo root before declaring any task complete.
-- **`.claude/`** holds the Claude Code layer: a permission allowlist and slash
-  commands (`/preflight`, `/new-case`, `/new-kdr`). Everything they invoke is a
-  plain script or documented workflow, so other agents and humans share the
-  same entry points.
+- **`.agents/`** holds the shared agent layer: a permission allowlist and slash
+  commands (`/preflight`, `/new-case`, `/new-kdr`, `/wiki-note`). `.claude` is
+  a symlink to `.agents` so Claude Code and other agent surfaces load the same
+  files instead of drifting.
+
+### LLM wiki notes
+
+Implementation status and "what happened / what depends on it / what comes
+next" notes belong in standalone wiki-style files under `docs/`, not in
+`README.md`, KDRs, specs, or conformance cases. These notes are non-normative
+and should link the governing docs instead of restating them. A good note has:
+
+- status: what is done and what is explicitly not done
+- dependency chain: linked specs, KDRs, architecture docs, tests, and harness
+  files that constrain the work
+- milestone boundary: what the roadmap allows next
+- validation snapshot: exact commands and summary lines
+- next work: concrete entry points, without inventing behavior
 
 ### Growing the harness
 
@@ -86,5 +100,6 @@ crate group needs its own rules: add an `AGENTS.md` there, symlink
 `scripts/check-harness.sh` — CI fails if the pieces drift apart. Keep nested
 files short (~30 lines): rules agents actually violate, not documentation;
 prose belongs in the README/ARCHITECTURE file the nested `AGENTS.md` points
-to. Harness changes are their own concern under hard rule 1 — never bundle
-them with spec, conformance, or compiler changes.
+to. Shared agent commands live in `.agents/`; keep `.claude` as a symlink, not
+a second copy. Harness changes are their own concern under hard rule 1 — never
+bundle them with spec, conformance, or compiler changes.
