@@ -1,3 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["compiler/conformance-runner"]
+members = [
+    "compiler/conformance-runner",
+    "compiler/keelc-span",
+    "compiler/keelc-diag",
+    "compiler/keelc-lex",
+    "compiler/keelc-ast",
+    "compiler/keelc-parse",
+]

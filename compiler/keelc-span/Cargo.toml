@@ -1,0 +1,7 @@
+[package]
+name = "keelc-span"
+version = "0.1.0"
+edition = "2021"
+description = "Source file identifiers and spans for keelc diagnostics."
+
+[dependencies]
