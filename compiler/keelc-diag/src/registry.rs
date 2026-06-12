@@ -17,6 +17,7 @@ pub const K0102: Code = Code::new("K0102");
 pub const K0201: Code = Code::new("K0201");
 pub const K0202: Code = Code::new("K0202");
 pub const K0203: Code = Code::new("K0203");
+pub const K0204: Code = Code::new("K0204");
 pub const K0301: Code = Code::new("K0301");
 pub const K0302: Code = Code::new("K0302");
 pub const K0303: Code = Code::new("K0303");
@@ -71,6 +72,10 @@ pub const ALL_CODES: &[RegistryEntry] = &[
     RegistryEntry {
         code: K0203,
         summary: "integer overflow rule violation",
+    },
+    RegistryEntry {
+        code: K0204,
+        summary: "division or remainder by zero",
     },
     RegistryEntry {
         code: K0301,
