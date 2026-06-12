@@ -1,0 +1,8 @@
+fn run() -> Int {
+    await fetch_user()      // no async/await in Keel — see KDR-0002 (K0908)
+    0
+}
+
+fn main() {
+    print("unused")
+}

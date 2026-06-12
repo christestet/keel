@@ -1,0 +1,9 @@
+struct Config {
+    host: String
+    port: Int = 8080
+}
+
+fn main() {
+    let c = Config{ host: "localhost", port: 9090 }   // explicit value overrides the default
+    print("{c.host}:{c.port}")
+}

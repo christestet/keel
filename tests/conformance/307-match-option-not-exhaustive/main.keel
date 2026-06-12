@@ -1,0 +1,9 @@
+fn describe(o: Option<Int>) -> String {
+    match o {           // missing variant: None
+        Some(n) => "{n}",
+    }
+}
+
+fn main() {
+    print(describe(Some(1)))
+}

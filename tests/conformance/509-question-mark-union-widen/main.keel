@@ -1,0 +1,25 @@
+enum ParseError {
+    BadDigit,
+}
+
+enum RangeError {
+    TooBig,
+}
+
+fn parse_one(s: String) -> Result<Int, ParseError> {
+    if s == "1" { Ok(1) } else { Err(BadDigit) }
+}
+
+// `?` widens a single-type error (ParseError) into the wider union the
+// enclosing function declares. This is the behavior 506 relies on, isolated.
+fn widen(s: String) -> Result<Int, ParseError | RangeError> {
+    let n = parse_one(s)?
+    Ok(n)
+}
+
+fn main() {
+    match widen("1") {
+        Ok(v)  => print("ok: {v}"),
+        Err(_) => print("err"),
+    }
+}

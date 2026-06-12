@@ -1,0 +1,20 @@
+struct User {
+    name: String
+}
+
+enum Event {
+    Login(user: User),
+    Logout,
+}
+
+fn describe(e: Event) -> String {
+    match e {
+        Login(u) => "login: {u.name}",
+        Logout   => "logout",
+    }
+}
+
+fn main() {
+    print(describe(Login(User{ name: "ada" })))
+    print(describe(Logout))
+}

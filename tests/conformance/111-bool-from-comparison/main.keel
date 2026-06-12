@@ -1,0 +1,6 @@
+fn main() {
+    let positive = 5 > 0
+    if positive {
+        print("yes")
+    }
+}

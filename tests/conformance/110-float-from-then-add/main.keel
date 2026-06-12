@@ -1,0 +1,6 @@
+fn main() {
+    let x = Float.from(1) + 2.5      // explicit conversion makes Int usable in Float arithmetic
+    if x == 3.5 {
+        print("ok")
+    }
+}

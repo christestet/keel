@@ -1,0 +1,9 @@
+struct User {
+    name: String
+    email: Option<String>
+}
+
+fn main() {
+    let u = User{ name: "ada" }   // Option field is not auto-None (K0301)
+    print(u.name)
+}

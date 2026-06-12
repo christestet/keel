@@ -1,0 +1,10 @@
+fn main() {
+    let limit = 0
+    mut i = 0
+    print("before")
+    while i < limit {           // condition false on entry: body runs zero times
+        print("body")
+        i = i + 1
+    }
+    print("after")
+}

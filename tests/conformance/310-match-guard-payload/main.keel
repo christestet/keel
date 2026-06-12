@@ -1,0 +1,13 @@
+fn classify(o: Option<Int>) -> String {
+    match o {
+        Some(n) if n > 0 => "positive",
+        Some(n)          => "non-positive",
+        None             => "none",
+    }
+}
+
+fn main() {
+    print(classify(Some(7)))
+    print(classify(Some(0)))
+    print(classify(None))
+}
