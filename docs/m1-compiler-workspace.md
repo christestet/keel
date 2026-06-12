@@ -135,3 +135,9 @@ Immediate next work:
 4. Keep semantic failures such as missing struct fields, assignment to immutable
    bindings, type mismatches, `?` context errors, and exhaustiveness in M2; do
    not backfill them into parser recovery.
+
+Frontend surface grew after this note: KDR-0013 (operators `&& || ! - / %`,
+precedence) and KDR-0014 (interpolation brace doubling `{{`/`}}`) were accepted
+and now bind the lexer and parser. The implementation pipeline they unblock is
+tracked in [`docs/core-surface-operators-and-interpolation.md`](core-surface-operators-and-interpolation.md);
+land its spec and conformance PRs before adding the lexer/parser support.
