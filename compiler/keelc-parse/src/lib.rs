@@ -489,10 +489,19 @@ impl Parser {
 
     fn parse_binary(&mut self, min_prec: u8) -> Expr {
         let mut left = self.parse_postfix();
+        let mut prev_was_comparison = false;
         while let Some((op, prec)) = self.current_binary_op() {
             if prec < min_prec {
                 break;
             }
+            if prev_was_comparison && is_comparison_op(op) {
+                self.diagnostic_current(
+                    registry::K0003,
+                    "comparison operators cannot be chained; use parentheses",
+                );
+                break;
+            }
+            prev_was_comparison = is_comparison_op(op);
             self.advance();
             let right = self.parse_binary(prec + 1);
             let span = left.span().join(right.span());
@@ -562,6 +571,14 @@ impl Parser {
             Expr::Unary {
                 span: start.join(expr.span()),
                 op: UnaryOp::Negate,
+                expr: Box::new(expr),
+            }
+        } else if self.at_kind(&TokenKind::Bang) {
+            let start = self.advance().map_or_else(|| self.empty_span(), |t| t.span);
+            let expr = self.parse_unary();
+            Expr::Unary {
+                span: start.join(expr.span()),
+                op: UnaryOp::Not,
                 expr: Box::new(expr),
             }
         } else {
@@ -844,6 +861,8 @@ impl Parser {
 
     fn current_binary_op(&self) -> Option<(BinaryOp, u8)> {
         let (op, prec) = match self.current_kind()? {
+            TokenKind::PipePipe => (BinaryOp::Or, 1),
+            TokenKind::AmpAmp => (BinaryOp::And, 2),
             TokenKind::EqualEqual => (BinaryOp::Equal, 3),
             TokenKind::BangEqual => (BinaryOp::NotEqual, 3),
             TokenKind::Less => (BinaryOp::Less, 4),
@@ -1001,6 +1020,9 @@ impl Parser {
                     | TokenKind::LessEqual
                     | TokenKind::Greater
                     | TokenKind::GreaterEqual
+                    | TokenKind::AmpAmp
+                    | TokenKind::PipePipe
+                    | TokenKind::Bang
             )
         )
     }
@@ -1045,10 +1067,25 @@ impl Parser {
             TokenKind::LessEqual => "<=",
             TokenKind::Greater => ">",
             TokenKind::GreaterEqual => ">=",
+            TokenKind::AmpAmp => "&&",
+            TokenKind::PipePipe => "||",
+            TokenKind::Bang => "!",
             _ => "",
         }
         .to_owned()
     }
+}
+
+fn is_comparison_op(op: BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+    )
 }
 
 fn same_token_kind(left: &TokenKind, right: &TokenKind) -> bool {

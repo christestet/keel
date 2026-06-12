@@ -46,6 +46,9 @@ pub enum TokenKind {
     Slash,
     Percent,
     Pipe,
+    AmpAmp,
+    PipePipe,
+    Bang,
     Eof,
 }
 
@@ -140,7 +143,8 @@ impl<'a> Lexer<'a> {
                 '?' => self.single(TokenKind::Question),
                 '*' => self.single(TokenKind::Star),
                 '%' => self.single(TokenKind::Percent),
-                '|' => self.single(TokenKind::Pipe),
+                '&' => self.lex_amp(),
+                '|' => self.lex_pipe(),
                 ';' => {
                     let start = self.offset;
                     self.single(TokenKind::Semicolon);
@@ -305,11 +309,33 @@ impl<'a> Lexer<'a> {
             self.advance_char();
             self.push(TokenKind::BangEqual, start, self.offset);
         } else {
+            self.push(TokenKind::Bang, start, self.offset);
+        }
+    }
+
+    fn lex_amp(&mut self) {
+        let start = self.offset;
+        self.advance_char();
+        if self.peek_char() == Some('&') {
+            self.advance_char();
+            self.push(TokenKind::AmpAmp, start, self.offset);
+        } else {
             self.diagnostics.push(Diagnostic::error(
                 registry::K0001,
                 Span::new(self.source, start, self.offset),
-                "unrecognized character `!`",
+                "unrecognized character `&`; did you mean `&&`?",
             ));
+        }
+    }
+
+    fn lex_pipe(&mut self) {
+        let start = self.offset;
+        self.advance_char();
+        if self.peek_char() == Some('|') {
+            self.advance_char();
+            self.push(TokenKind::PipePipe, start, self.offset);
+        } else {
+            self.push(TokenKind::Pipe, start, self.offset);
         }
     }
 

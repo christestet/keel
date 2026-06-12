@@ -243,6 +243,7 @@ impl Expr {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UnaryOp {
     Negate,
+    Not,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -258,6 +259,8 @@ pub enum BinaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
+    And,
+    Or,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
