@@ -70,21 +70,28 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
     for dir in dirs {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
         let mut err = |problem: String| {
-            errors.push(StructureError { case: name.clone(), problem });
+            errors.push(StructureError {
+                case: name.clone(),
+                problem,
+            });
         };
 
         // NNN-kebab-name
         let valid_name = name.len() > 4
             && name.as_bytes()[..3].iter().all(u8::is_ascii_digit)
             && name.as_bytes()[3] == b'-'
-            && name[4..].bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+            && name[4..]
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
         if !valid_name {
             err("directory name must match NNN-kebab-name (e.g. 042-match-guards)".into());
             continue;
         }
         let number = name[..3].to_string();
         if let Some((_, prev)) = seen_numbers.iter().find(|(n, _)| *n == number) {
-            err(format!("case number {number} already used by {prev} (numbers are permanent and unique)"));
+            err(format!(
+                "case number {number} already used by {prev} (numbers are permanent and unique)"
+            ));
         }
         seen_numbers.push((number, name.clone()));
 
@@ -101,7 +108,10 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
                 continue;
             }
             (false, false) => {
-                err("has NEITHER expected.stdout nor expected.error — exactly one is required".into());
+                err(
+                    "has NEITHER expected.stdout nor expected.error — exactly one is required"
+                        .into(),
+                );
                 continue;
             }
             (true, false) => Expectation::Stdout(normalize(&read(&stdout_p))),
@@ -124,10 +134,19 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             }
         };
 
-        cases.push(Case { name, dir, expectation, milestone });
+        cases.push(Case {
+            name,
+            dir,
+            expectation,
+            milestone,
+        });
     }
 
-    if errors.is_empty() { Ok(cases) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(cases)
+    } else {
+        Err(errors)
+    }
 }
 
 fn read(p: &Path) -> String {
@@ -146,12 +165,17 @@ fn normalize(s: &str) -> String {
 
 fn parse_expected_error(text: &str) -> Result<Expectation, String> {
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    let code = lines.next().ok_or("empty file; first line must be a K#### code")?.trim().to_string();
-    let ok_code = code.len() == 5
-        && code.starts_with('K')
-        && code[1..].bytes().all(|b| b.is_ascii_digit());
+    let code = lines
+        .next()
+        .ok_or("empty file; first line must be a K#### code")?
+        .trim()
+        .to_string();
+    let ok_code =
+        code.len() == 5 && code.starts_with('K') && code[1..].bytes().all(|b| b.is_ascii_digit());
     if !ok_code {
-        return Err(format!("first line must be a diagnostic code like K0301, got `{code}`"));
+        return Err(format!(
+            "first line must be a diagnostic code like K0301, got `{code}`"
+        ));
     }
     let line = match lines.next() {
         None => None,
@@ -160,7 +184,10 @@ fn parse_expected_error(text: &str) -> Result<Expectation, String> {
             let n = l
                 .strip_prefix("line:")
                 .ok_or_else(|| format!("second line must be `line:N`, got `{l}`"))?;
-            Some(n.parse::<u32>().map_err(|_| format!("`line:{n}` is not a number"))?)
+            Some(
+                n.parse::<u32>()
+                    .map_err(|_| format!("`line:{n}` is not a number"))?,
+            )
         }
     };
     if lines.next().is_some() {
@@ -179,11 +206,16 @@ fn parse_case_toml(p: &Path) -> Result<Option<u32>, String> {
             continue;
         }
         if let Some(v) = l.strip_prefix("milestone") {
-            let v = v.trim_start().strip_prefix('=').ok_or("expected `milestone = \"MN\"`")?;
+            let v = v
+                .trim_start()
+                .strip_prefix('=')
+                .ok_or("expected `milestone = \"MN\"`")?;
             let v = v.trim().trim_matches('"');
             return Ok(Some(parse_milestone(v)?));
         }
-        return Err(format!("unrecognized key in `{l}` (only `milestone` is allowed)"));
+        return Err(format!(
+            "unrecognized key in `{l}` (only `milestone` is allowed)"
+        ));
     }
     Ok(None)
 }
@@ -236,7 +268,9 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
         }
         Expectation::Error { code, line } => {
             if out.status.success() {
-                return Outcome::Fail(format!("expected compile error {code}, but program ran successfully"));
+                return Outcome::Fail(format!(
+                    "expected compile error {code}, but program ran successfully"
+                ));
             }
             if !stderr.contains(code.as_str()) {
                 return Outcome::Fail(format!(
@@ -260,7 +294,10 @@ fn diff(what: &str, want: &str, got: &str) -> String {
     let mut s = format!("{what} mismatch\n");
     let (w, g): (Vec<_>, Vec<_>) = (want.lines().collect(), got.lines().collect());
     for i in 0..w.len().max(g.len()) {
-        let (w_l, g_l) = (w.get(i).copied().unwrap_or(""), g.get(i).copied().unwrap_or(""));
+        let (w_l, g_l) = (
+            w.get(i).copied().unwrap_or(""),
+            g.get(i).copied().unwrap_or(""),
+        );
         if w_l == g_l {
             let _ = writeln!(s, "    {w_l}");
         } else {
@@ -317,7 +354,9 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let current_milestone = milestone.as_deref().map(|m| parse_milestone(m).expect("bad --milestone"));
+    let current_milestone = milestone
+        .as_deref()
+        .map(|m| parse_milestone(m).expect("bad --milestone"));
 
     // 2. Execute.
     let (mut pass, mut fail, mut skip) = (0u32, 0u32, 0u32);
@@ -342,5 +381,9 @@ fn main() -> ExitCode {
     }
 
     println!("\n  {pass} passed, {fail} failed, {skip} skipped");
-    if fail == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+    if fail == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
