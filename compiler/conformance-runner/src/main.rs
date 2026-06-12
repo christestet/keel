@@ -258,12 +258,12 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
     }
 
     match current_milestone {
-        Some(1) => return check_m1_syntax(case, keelc),
-        Some(2) => return check_m2_semantics(case, keelc),
+        Some(1) => return check_m1_syntax(case, keelc, current_milestone),
+        Some(2) => return check_m2_semantics(case, keelc, current_milestone),
         _ => {}
     }
 
-    let out = match invoke_keelc(case, keelc, "run") {
+    let out = match invoke_keelc(case, keelc, "run", current_milestone) {
         Ok(o) => o,
         Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
     };
@@ -307,8 +307,8 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
     }
 }
 
-fn check_m2_semantics(case: &Case, keelc: &str) -> Outcome {
-    let out = match invoke_keelc(case, keelc, "check") {
+fn check_m2_semantics(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome {
+    let out = match invoke_keelc(case, keelc, "check", current_milestone) {
         Ok(o) => o,
         Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
     };
@@ -349,8 +349,8 @@ fn check_m2_semantics(case: &Case, keelc: &str) -> Outcome {
     }
 }
 
-fn check_m1_syntax(case: &Case, keelc: &str) -> Outcome {
-    let out = match invoke_keelc(case, keelc, "check") {
+fn check_m1_syntax(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome {
+    let out = match invoke_keelc(case, keelc, "check", current_milestone) {
         Ok(o) => o,
         Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
     };
@@ -400,12 +400,18 @@ fn check_m1_syntax(case: &Case, keelc: &str) -> Outcome {
     }
 }
 
-fn invoke_keelc(case: &Case, keelc: &str, command: &str) -> std::io::Result<std::process::Output> {
-    Command::new(keelc)
-        .arg(command)
-        .arg("main.keel")
-        .current_dir(&case.dir)
-        .output()
+fn invoke_keelc(
+    case: &Case,
+    keelc: &str,
+    command: &str,
+    current_milestone: Option<u32>,
+) -> std::io::Result<std::process::Output> {
+    let mut cmd = Command::new(keelc);
+    cmd.arg(command).arg("main.keel").current_dir(&case.dir);
+    if let Some(milestone) = current_milestone {
+        cmd.arg("--milestone").arg(format!("M{milestone}"));
+    }
+    cmd.output()
 }
 
 fn is_m1_syntax_code(code: &str) -> bool {

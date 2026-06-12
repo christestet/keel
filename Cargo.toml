@@ -8,4 +8,5 @@ members = [
     "compiler/keelc-lex",
     "compiler/keelc-ast",
     "compiler/keelc-parse",
+    "compiler/keelc-resolve",
 ]

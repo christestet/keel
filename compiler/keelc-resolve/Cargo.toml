@@ -1,0 +1,13 @@
+[package]
+name = "keelc-resolve"
+version = "0.1.0"
+edition = "2021"
+description = "Name-resolution and early semantic diagnostics for Keel Core."
+
+[dependencies]
+keelc-ast = { path = "../keelc-ast" }
+keelc-diag = { path = "../keelc-diag" }
+keelc-span = { path = "../keelc-span" }
+
+[dev-dependencies]
+keelc-parse = { path = "../keelc-parse" }

@@ -1,7 +1,8 @@
-//! Minimal M1 keelc driver: read one source file, run lex+parse, print diagnostics.
+//! Minimal keelc driver: read one source file, run frontend checks, print diagnostics.
 
 use keelc_diag::{Diagnostic, Severity};
 use keelc_parse::parse;
+use keelc_resolve::resolve;
 use keelc_span::{line_col, SourceId};
 use std::env;
 use std::ffi::OsStr;
@@ -21,14 +22,26 @@ fn main() -> ExitCode {
         usage();
         return ExitCode::from(2);
     };
-    if args.next().is_some() {
-        usage();
-        return ExitCode::from(2);
+    let mut milestone = 1u32;
+    while let Some(arg) = args.next() {
+        if arg != OsStr::new("--milestone") {
+            usage();
+            return ExitCode::from(2);
+        }
+        let Some(value) = args.next() else {
+            usage();
+            return ExitCode::from(2);
+        };
+        let Some(parsed) = parse_milestone(&value) else {
+            usage();
+            return ExitCode::from(2);
+        };
+        milestone = parsed;
     }
 
     if command != OsStr::new("check") {
         eprintln!(
-            "unsupported command `{}`; M1 keelc supports `check <file>`",
+            "unsupported command `{}`; keelc supports `check <file>`",
             command.to_string_lossy()
         );
         return ExitCode::from(2);
@@ -45,6 +58,9 @@ fn main() -> ExitCode {
 
     let output = parse(SourceId::new(0), &text);
     let mut diagnostics = output.diagnostics;
+    if milestone >= 2 && !diagnostics.iter().any(is_error) {
+        diagnostics.extend(resolve(&output.module).diagnostics);
+    }
     diagnostics.sort_by(|left, right| {
         left.span
             .start
@@ -53,9 +69,7 @@ fn main() -> ExitCode {
             .then_with(|| left.code.as_str().cmp(right.code.as_str()))
     });
 
-    let has_error = diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == Severity::Error);
+    let has_error = diagnostics.iter().any(is_error);
     for diagnostic in &diagnostics {
         emit_diagnostic(path, &text, diagnostic);
     }
@@ -68,7 +82,15 @@ fn main() -> ExitCode {
 }
 
 fn usage() {
-    eprintln!("usage: keelc check <main.keel>");
+    eprintln!("usage: keelc check <main.keel> [--milestone M<N>]");
+}
+
+fn parse_milestone(value: &OsStr) -> Option<u32> {
+    value.to_str()?.strip_prefix('M')?.parse().ok()
+}
+
+fn is_error(diagnostic: &Diagnostic) -> bool {
+    diagnostic.severity == Severity::Error
 }
 
 fn emit_diagnostic(path: &Path, source: &str, diagnostic: &Diagnostic) {

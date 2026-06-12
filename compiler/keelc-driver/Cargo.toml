@@ -11,4 +11,5 @@ path = "src/main.rs"
 [dependencies]
 keelc-diag = { path = "../keelc-diag" }
 keelc-parse = { path = "../keelc-parse" }
+keelc-resolve = { path = "../keelc-resolve" }
 keelc-span = { path = "../keelc-span" }

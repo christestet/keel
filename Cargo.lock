@@ -26,6 +26,7 @@ version = "0.1.0"
 dependencies = [
  "keelc-diag",
  "keelc-parse",
+ "keelc-resolve",
  "keelc-span",
 ]
 
@@ -44,6 +45,16 @@ dependencies = [
  "keelc-ast",
  "keelc-diag",
  "keelc-lex",
+ "keelc-span",
+]
+
+[[package]]
+name = "keelc-resolve"
+version = "0.1.0"
+dependencies = [
+ "keelc-ast",
+ "keelc-diag",
+ "keelc-parse",
  "keelc-span",
 ]
 
