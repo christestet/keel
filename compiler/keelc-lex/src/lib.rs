@@ -212,27 +212,116 @@ impl<'a> Lexer<'a> {
 
     fn lex_string(&mut self) {
         let start = self.offset;
-        self.advance_char();
-        let content_start = self.offset;
+        self.advance_char(); // consume opening `"`
+        let mut content = String::new();
         let mut terminated = false;
 
-        while let Some(ch) = self.peek_char() {
+        'outer: while let Some(ch) = self.peek_char() {
             match ch {
                 '"' => {
-                    let content = self.slice(content_start, self.offset).to_owned();
                     self.advance_char();
                     self.push(TokenKind::String(content), start, self.offset);
                     terminated = true;
                     break;
                 }
                 '\n' => break,
+                '{' => {
+                    self.advance_char();
+                    if self.peek_char() == Some('{') {
+                        // `{{` → literal `{`
+                        self.advance_char();
+                        content.push('{');
+                    } else {
+                        // interpolation: scan until matching `}`, tracking nested braces
+                        let interp_start = self.offset;
+                        let mut depth = 1usize;
+                        loop {
+                            match self.peek_char() {
+                                None | Some('\n') => {
+                                    // unterminated interpolation
+                                    self.diagnostics.push(Diagnostic::error(
+                                        registry::K0004,
+                                        Span::new(self.source, start, self.offset),
+                                        "unterminated string interpolation: `{` opened but never closed",
+                                    ));
+                                    terminated = true;
+                                    break 'outer;
+                                }
+                                Some('"') => {
+                                    // string ends before interpolation closes;
+                                    // consume the `"` so the outer lexer doesn't re-lex it
+                                    self.advance_char();
+                                    self.diagnostics.push(Diagnostic::error(
+                                        registry::K0004,
+                                        Span::new(self.source, start, self.offset),
+                                        "unterminated string interpolation: `{` opened but never closed",
+                                    ));
+                                    self.push(TokenKind::String(content), start, self.offset);
+                                    terminated = true;
+                                    break 'outer;
+                                }
+                                Some('{') => {
+                                    self.advance_char();
+                                    depth += 1;
+                                }
+                                Some('}') => {
+                                    self.advance_char();
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        break;
+                                    }
+                                }
+                                Some(_) => {
+                                    self.advance_char();
+                                }
+                            }
+                        }
+                        // store interpolation raw (including braces) for later stages
+                        let interp_end = self.offset - 1; // before closing `}`
+                        content.push('{');
+                        content.push_str(self.slice(interp_start, interp_end));
+                        content.push('}');
+                    }
+                }
+                '}' => {
+                    self.advance_char();
+                    if self.peek_char() == Some('}') {
+                        // `}}` → literal `}`
+                        self.advance_char();
+                        content.push('}');
+                    } else {
+                        // lone `}` — not closing an interpolation, not a `}}`
+                        // consume rest of string for error recovery
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0004,
+                            Span::new(self.source, start, self.offset),
+                            "unmatched `}` in string literal; use `}}` for a literal `}`",
+                        ));
+                        while let Some(c) = self.peek_char() {
+                            if c == '"' {
+                                self.advance_char();
+                                break;
+                            }
+                            if c == '\n' {
+                                break;
+                            }
+                            self.advance_char();
+                        }
+                        self.push(TokenKind::String(content), start, self.offset);
+                        terminated = true;
+                        break;
+                    }
+                }
                 '\\' => {
                     self.advance_char();
-                    if self.peek_char().is_some() {
+                    if let Some(c) = self.peek_char() {
+                        content.push('\\');
+                        content.push(c);
                         self.advance_char();
                     }
                 }
                 _ => {
+                    content.push(ch);
                     self.advance_char();
                 }
             }
