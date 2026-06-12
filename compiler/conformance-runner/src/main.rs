@@ -408,6 +408,7 @@ fn main() -> ExitCode {
     let mut keelc = std::env::var("KEELC").ok();
     let mut milestone = std::env::var("KEEL_MILESTONE")
         .ok()
+        .filter(|value| !value.trim().is_empty())
         .or_else(|| Some("M1".to_string()));
     let mut check_only = false;
 
