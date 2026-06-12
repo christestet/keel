@@ -1,0 +1,11 @@
+fn side() -> Bool {
+    print("evaluated")
+    true
+}
+
+fn main() {
+    if false && side() {
+        print("yes")
+    }
+    print("done")
+}

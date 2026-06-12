@@ -1,0 +1,7 @@
+fn main() {
+    let result = checked_div(10, 0)
+    match result {
+        None    => print("none")
+        Some(v) => print("{v}")
+    }
+}
