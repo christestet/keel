@@ -18,6 +18,7 @@ times, and demonstrated bug classes are.
 ## PR rules (humans and agents alike)
 
 - One concern per PR; spec / conformance-tests / compiler never mix.
+- Run `scripts/preflight.sh` before pushing — it is exactly what CI runs.
 - Compiler PRs: conformance suite green, summary pasted in description.
 - Spec PRs: must state which conformance tests will encode the change.
 - New compiler dependencies require explicit justification.

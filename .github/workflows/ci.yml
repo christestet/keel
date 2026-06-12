@@ -46,6 +46,15 @@ jobs:
           KEEL_MILESTONE: ${{ vars.keel_MILESTONE }}   # set in repo settings, e.g. M3
         run: cargo run -p conformance-runner -- --keelc target/release/keelc
 
+  # The agent harness (nested AGENTS.md/CLAUDE.md, preflight, .claude config)
+  # is code: it must not drift as the repo grows. See AGENTS.md "The agent harness".
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Agent harness self-check
+        run: scripts/check-harness.sh
+
   rust-quality:
     runs-on: ubuntu-latest
     steps:
@@ -72,6 +81,9 @@ jobs:
           base="origin/${{ github.base_ref }}"
           changed=$(git diff --name-only "$base"...HEAD)
           echo "changed files:"; echo "$changed"
+          # Agent-harness guidance files (AGENTS.md + CLAUDE.md symlinks) are a
+          # concern of their own, not spec/test/compiler changes — exclude them.
+          changed=$(echo "$changed" | grep -vE '(^|/)(AGENTS|CLAUDE)\.md$' || true)
           areas=0
           spec=$(echo "$changed" | grep -c '^docs/spec/' || true)
           tests=$(echo "$changed" | grep -c '^tests/conformance/' || true)
