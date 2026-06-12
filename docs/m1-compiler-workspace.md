@@ -32,10 +32,19 @@ Added after the scaffold:
 | Parser | [`compiler/keelc-parse`](../compiler/keelc-parse/) parses modules, declarations, function signatures, types, blocks, expressions, match/catch arms, tests, and selected Core rejection forms with stable diagnostics. |
 | Tests | Unit tests cover span mapping, lexer comment/semicolon behavior, parser function parsing, user-generic rejection, missing parameter type rejection, and `match` scrutinee/block disambiguation. |
 
-Not done yet: there is still no `keelc-driver` binary, resolver, typechecker,
-KIR, Go backend, CLI, or full conformance execution path. The parser is a
-foundation for M1; M1 exit is not complete until every M0 case is routed through
-lex/parse and produces the expected syntax-stage result.
+Added in [`m1: add keelc check driver`](https://github.com/christestet/keel/pull/2):
+
+| Area | State |
+|---|---|
+| Driver | [`compiler/keelc-driver`](../compiler/keelc-driver/) adds the `keelc` binary with `keelc check <main.keel>`, which reads one source file and runs lex+parse only. |
+| Diagnostic output | `keelc check` emits stable `error[K####]` / `warning[K####]` diagnostics with `main.keel:N:C` spans. |
+| Runner execution | [`compiler/conformance-runner`](../compiler/conformance-runner/) defaults to M1 syntax validation, invokes `keelc check`, and requires later semantic reject cases to parse successfully instead of faking M2 diagnostics in the parser. |
+
+Not done yet: there is still no resolver, typechecker, KIR, Go backend, full
+`keel` CLI, formatter implementation, or runtime execution of accept-cases.
+After PR #2, the M1 exit criterion is an implementation candidate: every M0 case
+is routed through lex/parse and either parses or emits the expected syntax-stage
+`K####` code.
 
 ## Dependency Chain
 
@@ -91,13 +100,12 @@ M1 excludes:
 M1 exit criterion: every M0 conformance case lexes and parses, or fails with the
 right `K####` syntax code.
 
-Do not start M2 resolver/typechecker work from this note. The next changes
-should stay in the M1 frontend/driver surface needed to execute the M1 exit
-criterion.
+Do not start M2 resolver/typechecker work until the M1 driver PR is reviewed and
+merged. After that, M2 is the next roadmap milestone.
 
 ## Validation Snapshot
 
-Latest local validation after adding the frontend foundations:
+Latest local validation for the M1 driver PR:
 
 ```text
 scripts/preflight.sh
@@ -107,20 +115,23 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -p conformance-runner -- --check
 suite ok: 61 case(s), structure valid
-keelc-driver not in workspace yet (pre-M3) — structure check only
+cargo build --release -p keelc-driver
+cargo run -p conformance-runner -- --keelc target/release/keelc
+conformance suite: full run
+61 passed, 0 failed, 0 skipped
 preflight: green
 ```
 
 ## Next Work
 
-Next M1 work should make the frontend executable against conformance inputs:
+Immediate next work:
 
-1. Add the smallest driver surface needed to run lex/parse over `main.keel`
-   files and print stable diagnostics with `main.keel:N` spans.
-2. Wire the conformance runner to that driver for M1 syntax validation, without
-   implementing M2 semantic checks.
-3. Exercise all M0 cases through the frontend and fix parser recovery gaps until
-   syntax-valid programs parse and syntactic reject cases report their expected
-   `K####` codes.
-4. Keep semantic failures such as missing struct fields, type mismatches, `?`
-   context errors, and exhaustiveness for M2; do not fake them in the parser.
+1. Review and merge the M1 driver PR.
+2. Treat M1 as complete only after the PR lands with `scripts/preflight.sh`
+   still green.
+3. Start M2 in a separate compiler PR. The first scoped M2 item should be the
+   resolver/typechecker skeleton that can route semantic conformance reject
+   cases to the correct stage without touching backend code.
+4. Keep semantic failures such as missing struct fields, assignment to immutable
+   bindings, type mismatches, `?` context errors, and exhaustiveness in M2; do
+   not backfill them into parser recovery.
