@@ -2,7 +2,7 @@
 
 use keelc_diag::{Diagnostic, Severity};
 use keelc_parse::parse;
-use keelc_resolve::resolve;
+use keelc_resolve::{resolve, typecheck};
 use keelc_span::{line_col, SourceId};
 use std::env;
 use std::ffi::OsStr;
@@ -60,6 +60,9 @@ fn main() -> ExitCode {
     let mut diagnostics = output.diagnostics;
     if milestone >= 2 && !diagnostics.iter().any(is_error) {
         diagnostics.extend(resolve(&output.module).diagnostics);
+        if !diagnostics.iter().any(is_error) {
+            diagnostics.extend(typecheck(&output.module).diagnostics);
+        }
     }
     diagnostics.sort_by(|left, right| {
         left.span

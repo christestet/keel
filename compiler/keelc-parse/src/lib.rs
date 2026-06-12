@@ -2,7 +2,8 @@
 
 use keelc_ast::{
     BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, Item, MatchArm, Module, Param,
-    Pattern, Stmt, StructDecl, StructLiteralField, TestDecl, Type, UnaryOp, UseDecl, VariantDecl,
+    Pattern, Stmt, StringLiteral as AstStringLiteral, StructDecl, StructLiteralField, TestDecl,
+    Type, UnaryOp, UseDecl, VariantDecl,
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_lex::{lex, Keyword, LexOutput, Token, TokenKind};
@@ -263,9 +264,9 @@ impl Parser {
             .unwrap_or_else(|| self.empty_span());
         let name = match self.advance() {
             Some(Token {
-                kind: TokenKind::String(text),
+                kind: TokenKind::String(literal),
                 span,
-            }) => Spanned::new(text, span),
+            }) => Spanned::new(literal.text, span),
             Some(token) => {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K0003,
@@ -599,7 +600,13 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::String(value),
                 span,
-            }) => Expr::String(Spanned::new(value, span)),
+            }) => Expr::String(Spanned::new(
+                AstStringLiteral {
+                    text: value.text,
+                    interpolations: value.interpolations,
+                },
+                span,
+            )),
             Some(Token {
                 kind: TokenKind::Char(value),
                 span,

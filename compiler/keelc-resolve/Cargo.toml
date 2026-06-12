@@ -7,7 +7,5 @@ description = "Name-resolution and early semantic diagnostics for Keel Core."
 [dependencies]
 keelc-ast = { path = "../keelc-ast" }
 keelc-diag = { path = "../keelc-diag" }
-keelc-span = { path = "../keelc-span" }
-
-[dev-dependencies]
 keelc-parse = { path = "../keelc-parse" }
+keelc-span = { path = "../keelc-span" }

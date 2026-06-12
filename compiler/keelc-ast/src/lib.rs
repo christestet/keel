@@ -144,11 +144,17 @@ impl Stmt {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StringLiteral {
+    pub text: String,
+    pub interpolations: Vec<Spanned<String>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     Missing(Span),
     Int(Spanned<String>),
     Float(Spanned<String>),
-    String(Spanned<String>),
+    String(Spanned<StringLiteral>),
     Char(Spanned<String>),
     Bool(Spanned<bool>),
     Name(Spanned<String>),
@@ -229,11 +235,10 @@ impl Expr {
             | Expr::Question { span, .. }
             | Expr::Catch { span, .. }
             | Expr::Return { span, .. } => *span,
-            Expr::Int(value)
-            | Expr::Float(value)
-            | Expr::String(value)
-            | Expr::Char(value)
-            | Expr::Name(value) => value.span,
+            Expr::Int(value) | Expr::Float(value) | Expr::Char(value) | Expr::Name(value) => {
+                value.span
+            }
+            Expr::String(value) => value.span,
             Expr::Bool(value) => value.span,
             Expr::Block(block) => block.span,
         }

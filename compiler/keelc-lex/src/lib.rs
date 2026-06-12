@@ -1,7 +1,7 @@
 //! Lexer for Keel Core source files.
 
 use keelc_diag::{registry, Diagnostic};
-use keelc_span::{SourceId, Span};
+use keelc_span::{SourceId, Span, Spanned};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Token {
@@ -10,11 +10,17 @@ pub struct Token {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StringLiteral {
+    pub text: String,
+    pub interpolations: Vec<Spanned<String>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TokenKind {
     Identifier(String),
     Int(String),
     Float(String),
-    String(String),
+    String(StringLiteral),
     Char(String),
     Keyword(Keyword),
     Newline,
@@ -214,13 +220,19 @@ impl<'a> Lexer<'a> {
         let start = self.offset;
         self.advance_char(); // consume opening `"`
         let mut content = String::new();
+        let mut interpolations = Vec::new();
         let mut terminated = false;
 
         'outer: while let Some(ch) = self.peek_char() {
             match ch {
                 '"' => {
                     self.advance_char();
-                    self.push(TokenKind::String(content), start, self.offset);
+                    self.push_string(
+                        std::mem::take(&mut content),
+                        std::mem::take(&mut interpolations),
+                        start,
+                        self.offset,
+                    );
                     terminated = true;
                     break;
                 }
@@ -256,7 +268,12 @@ impl<'a> Lexer<'a> {
                                         Span::new(self.source, start, self.offset),
                                         "unterminated string interpolation: `{` opened but never closed",
                                     ));
-                                    self.push(TokenKind::String(content), start, self.offset);
+                                    self.push_string(
+                                        std::mem::take(&mut content),
+                                        std::mem::take(&mut interpolations),
+                                        start,
+                                        self.offset,
+                                    );
                                     terminated = true;
                                     break 'outer;
                                 }
@@ -276,10 +293,14 @@ impl<'a> Lexer<'a> {
                                 }
                             }
                         }
-                        // store interpolation raw (including braces) for later stages
                         let interp_end = self.offset - 1; // before closing `}`
+                        let interpolation = self.slice(interp_start, interp_end).to_owned();
+                        interpolations.push(Spanned::new(
+                            interpolation.clone(),
+                            Span::new(self.source, interp_start, interp_end),
+                        ));
                         content.push('{');
-                        content.push_str(self.slice(interp_start, interp_end));
+                        content.push_str(&interpolation);
                         content.push('}');
                     }
                 }
@@ -307,7 +328,12 @@ impl<'a> Lexer<'a> {
                             }
                             self.advance_char();
                         }
-                        self.push(TokenKind::String(content), start, self.offset);
+                        self.push_string(
+                            std::mem::take(&mut content),
+                            std::mem::take(&mut interpolations),
+                            start,
+                            self.offset,
+                        );
                         terminated = true;
                         break;
                     }
@@ -485,6 +511,23 @@ impl<'a> Lexer<'a> {
         });
     }
 
+    fn push_string(
+        &mut self,
+        text: String,
+        interpolations: Vec<Spanned<String>>,
+        start: usize,
+        end: usize,
+    ) {
+        self.push(
+            TokenKind::String(StringLiteral {
+                text,
+                interpolations,
+            }),
+            start,
+            end,
+        );
+    }
+
     fn take_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
         while self.peek_char().is_some_and(&mut predicate) {
             self.advance_char();
@@ -549,7 +592,7 @@ fn match_keyword(text: &str) -> Option<Keyword> {
 
 #[cfg(test)]
 mod tests {
-    use super::{lex, Keyword, TokenKind};
+    use super::{lex, Keyword, StringLiteral, TokenKind};
     use keelc_diag::registry;
     use keelc_span::SourceId;
 
@@ -570,7 +613,10 @@ mod tests {
                 TokenKind::Newline,
                 TokenKind::Identifier("print".into()),
                 TokenKind::LeftParen,
-                TokenKind::String("hi".into()),
+                TokenKind::String(StringLiteral {
+                    text: "hi".into(),
+                    interpolations: Vec::new(),
+                }),
                 TokenKind::RightParen,
                 TokenKind::Newline,
                 TokenKind::RightBrace,
@@ -586,5 +632,34 @@ mod tests {
         let out = lex(SourceId::new(0), "fn main(){ print(\"hi\"); }\n");
 
         assert_eq!(out.diagnostics[0].code, registry::K0102);
+    }
+
+    #[test]
+    fn tracks_only_real_string_interpolations() {
+        let out = lex(
+            SourceId::new(0),
+            "fn main() {\nprint(\"{{1 + 2.0}}\")\nprint(\"{x + y}\")\n}\n",
+        );
+
+        let mut strings = out.tokens.iter().filter_map(|token| {
+            if let TokenKind::String(literal) = &token.kind {
+                Some(literal)
+            } else {
+                None
+            }
+        });
+        let escaped = strings.next().expect("escaped string token");
+        let interpolated = strings.next().expect("interpolated string token");
+
+        assert_eq!(escaped.text, "{1 + 2.0}");
+        assert!(escaped.interpolations.is_empty());
+        assert_eq!(interpolated.text, "{x + y}");
+        assert_eq!(
+            interpolated
+                .interpolations
+                .first()
+                .map(|interpolation| interpolation.value.as_str()),
+            Some("x + y")
+        );
     }
 }
