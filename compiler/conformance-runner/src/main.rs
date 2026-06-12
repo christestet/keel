@@ -3,7 +3,9 @@
 //! suite's *structure* so the executable spec itself can't rot.
 //!
 //! Contract with keelc (the runner side of compiler/ARCHITECTURE.md):
-//!   * accept-case: `keelc run <main.keel>` exits 0; stdout must equal
+//!   * M1 syntax mode (`--milestone M1`): `keelc check <main.keel>` exits 0 for
+//!     parseable cases; syntax-stage reject-cases must emit the expected code.
+//!   * M3+ run mode: `keelc run <main.keel>` exits 0; stdout must equal
 //!     `expected.stdout` (trailing-newline normalized).
 //!   * reject-case: keelc exits non-zero and stderr contains the diagnostic
 //!     code from line 1 of `expected.error` (e.g. `K0301`). If line 2 is
@@ -12,7 +14,7 @@
 //!
 //! Usage:
 //!   conformance-runner [--check] [--suite <dir>] [--keelc <path>] [--milestone M2]
-//!   env fallbacks: KEELC, KEEL_MILESTONE
+//!   env fallbacks: KEELC, KEEL_MILESTONE; default milestone: M1
 //!
 //! Exit codes: 0 = all green (or structure ok), 1 = failures, 2 = suite malformed.
 
@@ -226,6 +228,18 @@ fn parse_milestone(s: &str) -> Result<u32, String> {
         .ok_or_else(|| format!("milestone must look like M3, got `{s}`"))
 }
 
+fn resolve_keelc_arg(raw: String) -> String {
+    let path = Path::new(&raw);
+    let looks_path_like = path.is_absolute() || raw.contains('/') || raw.contains('\\');
+    if looks_path_like {
+        path.canonicalize()
+            .map(|path| path.display().to_string())
+            .unwrap_or(raw)
+    } else {
+        raw
+    }
+}
+
 // ---------- execution ----------
 
 enum Outcome {
@@ -241,12 +255,11 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
         }
     }
 
-    let out = match Command::new(keelc)
-        .arg("run")
-        .arg("main.keel")
-        .current_dir(&case.dir)
-        .output()
-    {
+    if current_milestone == Some(1) {
+        return check_m1_syntax(case, keelc);
+    }
+
+    let out = match invoke_keelc(case, keelc, "run") {
         Ok(o) => o,
         Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
     };
@@ -290,6 +303,86 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
     }
 }
 
+fn check_m1_syntax(case: &Case, keelc: &str) -> Outcome {
+    let out = match invoke_keelc(case, keelc, "check") {
+        Ok(o) => o,
+        Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    match &case.expectation {
+        Expectation::Stdout(_) => {
+            if out.status.success() {
+                Outcome::Pass
+            } else {
+                Outcome::Fail(format!(
+                    "expected successful M1 syntax check, keelc exited {:?}\n--- stderr ---\n{stderr}",
+                    out.status.code()
+                ))
+            }
+        }
+        Expectation::Error { code, line } if is_m1_syntax_code(code) => {
+            if out.status.success() {
+                return Outcome::Fail(format!(
+                    "expected M1 syntax diagnostic {code}, but check succeeded"
+                ));
+            }
+            if !stderr.contains(code.as_str()) {
+                return Outcome::Fail(format!(
+                    "expected diagnostic {code} in stderr\n--- stderr ---\n{stderr}"
+                ));
+            }
+            if let Some(n) = line {
+                let needle = format!("main.keel:{n}");
+                if !stderr.contains(&needle) {
+                    return Outcome::Fail(format!(
+                        "expected primary span at {needle}\n--- stderr ---\n{stderr}"
+                    ));
+                }
+            }
+            Outcome::Pass
+        }
+        Expectation::Error { code, .. } => {
+            if out.status.success() {
+                Outcome::Pass
+            } else {
+                Outcome::Fail(format!(
+                    "expected M1 parse success for later-stage diagnostic {code}\n--- stderr ---\n{stderr}"
+                ))
+            }
+        }
+    }
+}
+
+fn invoke_keelc(case: &Case, keelc: &str, command: &str) -> std::io::Result<std::process::Output> {
+    Command::new(keelc)
+        .arg(command)
+        .arg("main.keel")
+        .current_dir(&case.dir)
+        .output()
+}
+
+fn is_m1_syntax_code(code: &str) -> bool {
+    matches!(
+        code,
+        "K0001"
+            | "K0002"
+            | "K0003"
+            | "K0101"
+            | "K0102"
+            | "K0201"
+            | "K0302"
+            | "K0901"
+            | "K0902"
+            | "K0903"
+            | "K0904"
+            | "K0905"
+            | "K0906"
+            | "K0907"
+            | "K0908"
+    )
+}
+
 fn diff(what: &str, want: &str, got: &str) -> String {
     let mut s = format!("{what} mismatch\n");
     let (w, g): (Vec<_>, Vec<_>) = (want.lines().collect(), got.lines().collect());
@@ -313,7 +406,9 @@ fn diff(what: &str, want: &str, got: &str) -> String {
 fn main() -> ExitCode {
     let mut suite = PathBuf::from("tests/conformance");
     let mut keelc = std::env::var("KEELC").ok();
-    let mut milestone = std::env::var("KEEL_MILESTONE").ok();
+    let mut milestone = std::env::var("KEEL_MILESTONE")
+        .ok()
+        .or_else(|| Some("M1".to_string()));
     let mut check_only = false;
 
     let mut args = std::env::args().skip(1);
@@ -354,6 +449,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let keelc = resolve_keelc_arg(keelc);
     let current_milestone = milestone
         .as_deref()
         .map(|m| parse_milestone(m).expect("bad --milestone"));

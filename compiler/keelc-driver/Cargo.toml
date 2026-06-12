@@ -1,0 +1,14 @@
+[package]
+name = "keelc-driver"
+version = "0.1.0"
+edition = "2021"
+description = "M1 keelc driver surface for lexing, parsing, and diagnostics."
+
+[[bin]]
+name = "keelc"
+path = "src/main.rs"
+
+[dependencies]
+keelc-diag = { path = "../keelc-diag" }
+keelc-parse = { path = "../keelc-parse" }
+keelc-span = { path = "../keelc-span" }

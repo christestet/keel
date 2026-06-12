@@ -21,6 +21,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keelc-driver"
+version = "0.1.0"
+dependencies = [
+ "keelc-diag",
+ "keelc-parse",
+ "keelc-span",
+]
+
+[[package]]
 name = "keelc-lex"
 version = "0.1.0"
 dependencies = [
