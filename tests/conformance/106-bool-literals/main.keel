@@ -1,0 +1,10 @@
+fn main() {
+    let on = true
+    let off = false
+    if on {
+        print("on")
+    }
+    if off {
+        print("never")
+    }
+}

@@ -1,0 +1,11 @@
+fn clamp_low(n: Int) -> Int {
+    if n < 0 {
+        return 0
+    }
+    n
+}
+
+fn main() {
+    print("{clamp_low(-5)}")
+    print("{clamp_low(7)}")
+}

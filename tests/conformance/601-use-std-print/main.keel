@@ -1,0 +1,5 @@
+use std.print
+
+fn main() {
+    print("imported")
+}

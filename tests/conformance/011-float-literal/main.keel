@@ -1,0 +1,6 @@
+fn main() {
+    let pi = 3.14
+    if pi > 3.0 {
+        print("pi > 3")
+    }
+}

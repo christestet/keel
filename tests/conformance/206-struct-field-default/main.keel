@@ -1,0 +1,9 @@
+struct Config {
+    host: String
+    port: Int = 8080
+}
+
+fn main() {
+    let c = Config{ host: "localhost" }
+    print("{c.host}:{c.port}")
+}

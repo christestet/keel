@@ -1,0 +1,7 @@
+struct user {           // type names must be UpperCamelCase
+    id: Int
+}
+
+fn main() {
+    print("declared")
+}

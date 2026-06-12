@@ -1,0 +1,14 @@
+fn check(n: Int) -> Result<Int, String> {
+    if n > 0 { Ok(n) } else { Err("not positive") }
+}
+
+fn main() {
+    match check(5) {
+        Ok(v)  => print("ok {v}"),
+        Err(e) => print("err {e}"),
+    }
+    match check(0) {
+        Ok(v)  => print("ok {v}"),
+        Err(e) => print("err {e}"),
+    }
+}

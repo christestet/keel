@@ -1,0 +1,8 @@
+// `keelc run` executes main only; test blocks are for `keel test` (M4).
+fn main() {
+    print("main ran")
+}
+
+test "addition holds" {
+    assert 1 + 1 == 2
+}

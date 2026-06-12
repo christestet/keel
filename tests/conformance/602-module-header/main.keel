@@ -1,0 +1,5 @@
+module greeter
+
+fn main() {
+    print("from module greeter")
+}

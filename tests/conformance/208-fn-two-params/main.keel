@@ -1,0 +1,7 @@
+fn full_name(first: String, last: String) -> String {
+    "{first} {last}"
+}
+
+fn main() {
+    print(full_name("Grace", "Hopper"))
+}

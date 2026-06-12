@@ -1,0 +1,14 @@
+// `_` on a same-module enum lints K0403 (warning) but must still compile and run.
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn main() {
+    let c = Green
+    match c {
+        Red => print("red"),
+        _   => print("not red"),
+    }
+}

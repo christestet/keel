@@ -1,0 +1,4 @@
+fn main() {
+    let v = if true { 1 } else { "one" }    // both arms must have one type
+    print("{v}")
+}

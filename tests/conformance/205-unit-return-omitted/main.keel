@@ -1,0 +1,7 @@
+fn greet(name: String) {    // -> Unit may be omitted
+    print("hi, {name}")
+}
+
+fn main() {
+    greet("keel")
+}

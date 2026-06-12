@@ -1,0 +1,5 @@
+extern fn clock_now() -> Int
+
+fn main() {
+    print("unused")
+}

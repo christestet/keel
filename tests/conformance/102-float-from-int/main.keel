@@ -1,0 +1,6 @@
+fn main() {
+    let f = Float.from(2)
+    if f == 2.0 {
+        print("converted")
+    }
+}

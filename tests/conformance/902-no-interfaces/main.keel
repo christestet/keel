@@ -1,0 +1,7 @@
+interface Greeter {
+    fn greet() -> String
+}
+
+fn main() {
+    print("unused")
+}

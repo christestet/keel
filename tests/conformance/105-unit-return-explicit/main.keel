@@ -1,0 +1,7 @@
+fn announce(msg: String) -> Unit {
+    print(msg)
+}
+
+fn main() {
+    announce("explicit unit")
+}

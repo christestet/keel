@@ -1,0 +1,13 @@
+struct Engine {
+    power: Int
+}
+
+struct Boat {
+    name: String
+    engine: Engine
+}
+
+fn main() {
+    let b = Boat{ name: "Keel", engine: Engine{ power: 90 } }
+    print("{b.name}: {b.engine.power}")
+}
