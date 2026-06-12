@@ -1,0 +1,10 @@
+[package]
+name = "keelc-backend-go"
+version = "0.1.0"
+edition = "2021"
+description = "M3 Go source emitter for keelc."
+
+[dependencies]
+keelc-ast = { path = "../keelc-ast" }
+keelc-parse = { path = "../keelc-parse" }
+keelc-span = { path = "../keelc-span" }

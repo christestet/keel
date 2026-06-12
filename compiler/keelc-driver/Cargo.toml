@@ -9,6 +9,8 @@ name = "keelc"
 path = "src/main.rs"
 
 [dependencies]
+keelc-ast = { path = "../keelc-ast" }
+keelc-backend-go = { path = "../keelc-backend-go" }
 keelc-diag = { path = "../keelc-diag" }
 keelc-parse = { path = "../keelc-parse" }
 keelc-resolve = { path = "../keelc-resolve" }

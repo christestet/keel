@@ -1,5 +1,7 @@
 //! Minimal keelc driver: read one source file, run frontend checks, print diagnostics.
 
+use keelc_ast::Module;
+use keelc_backend_go::emit;
 use keelc_diag::{Diagnostic, Severity};
 use keelc_parse::parse;
 use keelc_resolve::{resolve, typecheck};
@@ -8,7 +10,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
-use std::process::ExitCode;
+use std::process::{Command, ExitCode, Stdio};
 
 fn main() -> ExitCode {
     let mut args = env::args_os();
@@ -39,9 +41,9 @@ fn main() -> ExitCode {
         milestone = parsed;
     }
 
-    if command != OsStr::new("check") {
+    if command != OsStr::new("check") && command != OsStr::new("run") {
         eprintln!(
-            "unsupported command `{}`; keelc supports `check <file>`",
+            "unsupported command `{}`; keelc supports `check <file>` and `run <file>`",
             command.to_string_lossy()
         );
         return ExitCode::from(2);
@@ -79,6 +81,8 @@ fn main() -> ExitCode {
 
     if has_error {
         ExitCode::FAILURE
+    } else if command == OsStr::new("run") {
+        run_module(&output.module)
     } else {
         ExitCode::SUCCESS
     }
@@ -108,6 +112,64 @@ fn emit_diagnostic(path: &Path, source: &str, diagnostic: &Diagnostic) {
     eprintln!("  --> {label}:{}:{}", loc.line, loc.column);
     if let Some(help) = &diagnostic.help {
         eprintln!("  help: {help}");
+    }
+}
+
+fn run_module(module: &Module) -> ExitCode {
+    let go_source = match emit(module) {
+        Ok(source) => source,
+        Err(err) => {
+            eprintln!("backend error: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let temp_dir = env::temp_dir().join(format!("keelc-go-{}", std::process::id()));
+    if let Err(err) = fs::create_dir_all(&temp_dir) {
+        eprintln!(
+            "could not create Go build directory {}: {err}",
+            temp_dir.display()
+        );
+        return ExitCode::from(2);
+    }
+    let go_file = temp_dir.join("main.go");
+    if let Err(err) = fs::write(&go_file, go_source) {
+        eprintln!(
+            "could not write generated Go source {}: {err}",
+            go_file.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    let go_cache = temp_dir.join("gocache");
+    if let Err(err) = fs::create_dir_all(&go_cache) {
+        eprintln!(
+            "could not create Go cache directory {}: {err}",
+            go_cache.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    let output = match Command::new("go")
+        .arg("run")
+        .arg(&go_file)
+        .env("GOCACHE", &go_cache)
+        .stdin(Stdio::null())
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("could not invoke Go toolchain: {err}");
+            return ExitCode::from(2);
+        }
+    };
+
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    if output.status.success() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
     }
 }
 

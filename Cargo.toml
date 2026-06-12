@@ -9,4 +9,5 @@ members = [
     "compiler/keelc-ast",
     "compiler/keelc-parse",
     "compiler/keelc-resolve",
+    "compiler/keelc-backend-go",
 ]
