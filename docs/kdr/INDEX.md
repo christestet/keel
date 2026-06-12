@@ -14,6 +14,8 @@
 | 0010 | One formatter, zero options, compile-enforced | accepted — stub |
 | 0011 | Package capabilities (net/fs/exec/ffi) | accepted — stub, vision.md §3 |
 | 0012 | GC + scoped arenas; no ownership/lifetimes | accepted — stub, vision.md §4 |
+| 0013 | Core operator set and integer division semantics | accepted |
+| 0014 | Brace escaping in string interpolation | accepted |
 | 0015 | Boundary doctrine: parse don't validate, strict default | accepted — stub, vision.md §6 |
 | 0101 | Compiler implemented in Rust | accepted |
 | 0102 | Go-emitting backend first, native before 1.0 | accepted |
