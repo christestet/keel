@@ -1,0 +1,7 @@
+fn add(a, b: Int) -> Int {  // every parameter needs an explicit type
+    a + b
+}
+
+fn main() {
+    print("{add(1, 2)}")
+}

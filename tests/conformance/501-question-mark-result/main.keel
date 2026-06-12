@@ -1,0 +1,19 @@
+fn check(n: Int) -> Result<Int, String> {
+    if n > 0 { Ok(n) } else { Err("not positive") }
+}
+
+fn doubled(n: Int) -> Result<Int, String> {
+    let v = check(n)?
+    Ok(v * 2)
+}
+
+fn main() {
+    match doubled(21) {
+        Ok(v)  => print("ok: {v}"),
+        Err(e) => print("err: {e}"),
+    }
+    match doubled(-1) {
+        Ok(v)  => print("ok: {v}"),
+        Err(e) => print("err: {e}"),
+    }
+}

@@ -1,0 +1,14 @@
+enum Status {
+    Active,
+    Suspended(reason: String),
+    Deleted,
+}
+
+fn main() {
+    let s = Suspended("maintenance")
+    match s {
+        Active            => print("active"),
+        Suspended(reason) => print("suspended: {reason}"),
+        Deleted           => print("deleted"),
+    }
+}

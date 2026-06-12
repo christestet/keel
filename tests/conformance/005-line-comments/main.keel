@@ -1,0 +1,5 @@
+// leading comment
+fn main() {
+    // a full-line comment
+    print("commented")   // trailing comment
+}

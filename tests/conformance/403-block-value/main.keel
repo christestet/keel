@@ -1,0 +1,7 @@
+fn main() {
+    let x = {
+        let half = 21
+        half * 2
+    }
+    print("{x}")
+}

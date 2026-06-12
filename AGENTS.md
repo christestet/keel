@@ -55,6 +55,36 @@ task seems to require violating milestone order, the task is mis-scoped — say 
 
 ## What "done" means
 
-A task is done when: the conformance runner is green, new behavior has new
-conformance cases, `keel fmt`/pretty-printer round-trips any syntax you added,
-and the PR description states which spec section it implements.
+A task is done when: `scripts/preflight.sh` is green (it runs exactly what CI
+runs), new behavior has new conformance cases, `keel fmt`/pretty-printer
+round-trips any syntax you added, and the PR description states which spec
+section it implements.
+
+## The agent harness (how this guidance scales)
+
+This guidance is a layered harness, versioned and CI-checked like any other
+code (`scripts/check-harness.sh`):
+
+- **This file holds the global rules.** Directory-local rules live in nested
+  `AGENTS.md` files (`compiler/`, `tests/conformance/`, `docs/spec/`,
+  `docs/kdr/`, `examples/`), each with a `CLAUDE.md` symlink so Claude Code
+  loads it automatically; Codex and other agents read `AGENTS.md` natively.
+  Nested files only *add* local rules — on any apparent conflict, this file
+  wins and the nested file has a bug.
+- **`scripts/preflight.sh`** is the executable definition of done. Run it from
+  the repo root before declaring any task complete.
+- **`.claude/`** holds the Claude Code layer: a permission allowlist and slash
+  commands (`/preflight`, `/new-case`, `/new-kdr`). Everything they invoke is a
+  plain script or documented workflow, so other agents and humans share the
+  same entry points.
+
+### Growing the harness
+
+The harness must grow with the repo. When a new top-level area or compiler
+crate group needs its own rules: add an `AGENTS.md` there, symlink
+`CLAUDE.md -> AGENTS.md` beside it, and register the directory in
+`scripts/check-harness.sh` — CI fails if the pieces drift apart. Keep nested
+files short (~30 lines): rules agents actually violate, not documentation;
+prose belongs in the README/ARCHITECTURE file the nested `AGENTS.md` points
+to. Harness changes are their own concern under hard rule 1 — never bundle
+them with spec, conformance, or compiler changes.

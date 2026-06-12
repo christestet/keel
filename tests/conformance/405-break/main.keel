@@ -1,0 +1,10 @@
+fn main() {
+    mut i = 0
+    while true {
+        if i == 2 {
+            break
+        }
+        print("step {i}")
+        i = i + 1
+    }
+}

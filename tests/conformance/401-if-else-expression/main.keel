@@ -1,0 +1,5 @@
+fn main() {
+    let n = 5
+    let kind = if n > 0 { "positive" } else { "non-positive" }
+    print(kind)
+}

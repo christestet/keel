@@ -1,0 +1,8 @@
+@inline
+fn fast() -> Int {
+    1
+}
+
+fn main() {
+    print("{fast()}")
+}

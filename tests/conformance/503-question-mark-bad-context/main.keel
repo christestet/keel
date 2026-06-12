@@ -1,0 +1,12 @@
+fn check(n: Int) -> Result<Int, String> {
+    if n > 0 { Ok(n) } else { Err("not positive") }
+}
+
+fn doubled(n: Int) -> Int {
+    let v = check(n)?   // return type Int cannot absorb the error
+    v * 2
+}
+
+fn main() {
+    print("{doubled(2)}")
+}

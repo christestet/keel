@@ -1,0 +1,19 @@
+fn half_of(n: Int) -> Option<Int> {
+    if n == 2 { Some(1) } else { None }
+}
+
+fn half_plus_one(n: Int) -> Option<Int> {
+    let h = half_of(n)?
+    Some(h + 1)
+}
+
+fn main() {
+    match half_plus_one(2) {
+        Some(v) => print("got {v}"),
+        None    => print("none"),
+    }
+    match half_plus_one(3) {
+        Some(v) => print("got {v}"),
+        None    => print("none"),
+    }
+}

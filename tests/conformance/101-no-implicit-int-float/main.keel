@@ -1,0 +1,4 @@
+fn main() {
+    let x = 1 + 2.5     // Int + Float: convert explicitly with Float.from
+    print("{x}")
+}

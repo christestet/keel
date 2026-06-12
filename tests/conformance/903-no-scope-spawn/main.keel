@@ -1,0 +1,9 @@
+fn work() {
+    print("working")
+}
+
+fn main() {
+    scope {
+        spawn work()
+    }
+}

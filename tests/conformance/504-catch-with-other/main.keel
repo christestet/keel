@@ -1,0 +1,27 @@
+enum DbError {
+    NotFound(id: Int),
+    Timeout,
+}
+
+fn get_name(id: Int) -> Result<String, DbError> {
+    if id == 1 { Ok("ada") } else { Err(NotFound(id)) }
+}
+
+fn lookup(id: Int) -> Result<String, DbError> {
+    let name = get_name(id) catch err {
+        NotFound(_) => return Ok("guest"),
+        other       => return Err(other),
+    }
+    Ok("user: {name}")
+}
+
+fn main() {
+    match lookup(1) {
+        Ok(v)  => print(v),
+        Err(_) => print("error"),
+    }
+    match lookup(2) {
+        Ok(v)  => print(v),
+        Err(_) => print("error"),
+    }
+}

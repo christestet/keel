@@ -1,0 +1,4 @@
+fn main() {
+    let name = nil      // no null: Option<T> is the only absence
+    print("unreachable")
+}

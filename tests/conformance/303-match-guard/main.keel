@@ -1,0 +1,17 @@
+enum Status {
+    Active,
+    Deleted,
+}
+
+fn describe(s: Status, verified: Bool) -> String {
+    match s {
+        Active if verified => "active and verified",
+        Active             => "active",
+        Deleted            => "deleted",
+    }
+}
+
+fn main() {
+    print(describe(Active, true))
+    print(describe(Active, false))
+}

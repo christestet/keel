@@ -1,0 +1,6 @@
+fn main() {
+    let c = 'k'
+    if c == 'k' {
+        print("char ok")
+    }
+}

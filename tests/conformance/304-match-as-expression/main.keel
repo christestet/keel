@@ -1,0 +1,13 @@
+enum Size {
+    Small,
+    Large,
+}
+
+fn main() {
+    let s = Large
+    let label = match s {
+        Small => "S",
+        Large => "L",
+    }
+    print(label)
+}

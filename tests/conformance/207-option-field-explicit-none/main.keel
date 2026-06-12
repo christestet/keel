@@ -1,0 +1,12 @@
+struct User {
+    name: String
+    email: Option<String>
+}
+
+fn main() {
+    let u = User{ name: "ada", email: None }
+    match u.email {
+        Some(addr) => print("email: {addr}"),
+        None       => print("no email"),
+    }
+}

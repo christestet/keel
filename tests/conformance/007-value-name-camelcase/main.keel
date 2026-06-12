@@ -1,0 +1,7 @@
+fn doThing() -> Int {   // value/function names must be snake_case
+    42
+}
+
+fn main() {
+    print("{doThing()}")
+}
