@@ -69,8 +69,8 @@ cargo build --release -p keelc-driver
 
 `keel fmt` is the AST pretty-printer and is idempotent on the Keel Core
 conformance corpus. `keel test` discovers `test "name" { assert expr }` blocks
-and runs them. `keel build` is still a stub: it checks and emits Go source but
-does not yet produce an artifact.
+and runs them. `keel build` compiles a Keel source file to a native binary
+(placed next to the source file) via the Go toolchain.
 
 ## License
 

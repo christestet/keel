@@ -11,6 +11,8 @@
 //!     `expected.stdout` (trailing-newline normalized).
 //!   * M4+ test mode: `case.toml` may set `mode = "test"`; the runner invokes
 //!     `keelc test <main.keel>` and matches stdout against `expected.stdout`.
+//!   * M4+ build mode: `case.toml` may set `mode = "build"`; the runner invokes
+//!     `keelc build <main.keel>`, runs the produced binary, and matches stdout.
 //!   * reject-case: keelc exits non-zero and stderr contains the diagnostic
 //!     code from line 1 of `expected.error` (e.g. `K0301`). If line 2 is
 //!     `line:N`, stderr must also contain `main.keel:N`. Message TEXT is
@@ -27,7 +29,7 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Stdio};
 
 // ---------- case model ----------
 
@@ -47,6 +49,7 @@ struct WarningCheck {
 enum RunMode {
     Run,
     Test,
+    Build,
 }
 
 #[derive(Debug)]
@@ -268,11 +271,12 @@ fn parse_case_toml(p: &Path) -> Result<(Option<u32>, RunMode), String> {
             let v = v
                 .trim_start()
                 .strip_prefix('=')
-                .ok_or("expected `mode = \"run\"` or `mode = \"test\"`")?;
+                .ok_or("expected `mode = \"run\"|\"test\"|\"build\"`")?;
             let v = v.trim().trim_matches('"');
             mode = match v {
                 "run" => RunMode::Run,
                 "test" => RunMode::Test,
+                "build" => RunMode::Build,
                 other => return Err(format!("unrecognized mode `{other}`")),
             };
             continue;
@@ -329,18 +333,60 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             current_milestone.unwrap_or(0)
         ));
     }
+    if case.mode == RunMode::Build && current_milestone < Some(4) {
+        return Outcome::Skip(format!(
+            "requires M4 build mode, running at M{}",
+            current_milestone.unwrap_or(0)
+        ));
+    }
 
-    let command = if case.mode == RunMode::Test {
-        "test"
-    } else {
-        "run"
+    let command = match case.mode {
+        RunMode::Test => "test",
+        RunMode::Build => "build",
+        RunMode::Run => "run",
     };
     let out = match invoke_keelc(case, keelc, command, current_milestone) {
         Ok(o) => o,
         Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
     };
-    let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    // In build mode we compare the stdout of the *produced binary*, not the
+    // compiler itself.
+    let (out, stdout, stderr) = if case.mode == RunMode::Build {
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            return Outcome::Fail(format!(
+                "expected successful build, keelc exited {:?}\n--- stderr ---\n{stderr}",
+                out.status.code()
+            ));
+        }
+        let binary = case
+            .dir
+            .join(format!("main{}", std::env::consts::EXE_SUFFIX));
+        let binary = fs::canonicalize(&binary).unwrap_or_else(|_| binary.clone());
+        let run = match Command::new(&binary)
+            .current_dir(&case.dir)
+            .stdin(Stdio::null())
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) => {
+                let _ = fs::remove_file(&binary);
+                return Outcome::Fail(format!(
+                    "could not run built binary `{}`: {e}",
+                    binary.display()
+                ));
+            }
+        };
+        let _ = fs::remove_file(&binary);
+        let stdout = normalize(&String::from_utf8_lossy(&run.stdout));
+        let stderr = String::from_utf8_lossy(&run.stderr).to_string();
+        (run, stdout, stderr)
+    } else {
+        let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        (out, stdout, stderr)
+    };
 
     match &case.expectation {
         Expectation::Stdout(want) => {

@@ -18,6 +18,7 @@ Optional `case.toml` for flags (edition, milestone gate, execution mode):
 ```toml
 milestone = "M2"     # runner skips cases beyond the current milestone
 mode = "test"        # M4+: invoke `keelc test` instead of `keelc run`
+mode = "build"       # M4+: invoke `keelc build`, then run the produced binary
 ```
 
 ## Rules
@@ -27,7 +28,7 @@ mode = "test"        # M4+: invoke `keelc test` instead of `keelc run`
 - Case numbers are permanent (like diagnostic codes). Gaps are fine; renumbering is forbidden.
 - Naming: `0xx` lexical, `1xx` types, `2xx` declarations, `3xx` struct/enum/match,
   `4xx` control flow, `5xx` errors/Result, `6xx` modules, `7xx` tests/assert,
-  `9xx` not-in-Core rejections.
+  `8xx` build/toolchain, `9xx` not-in-Core rejections.
 
 ## Runner
 
