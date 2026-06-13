@@ -5,8 +5,8 @@ criterion. Do not start milestone N+1 work while N's exit criterion fails.
 
 ## M0 — Freeze Keel Core and its conformance suite  *(no compiler code)*
 
-Define the minimal language subset in `docs/spec/keel-core.md` and express it as
-executable conformance tests in `tests/conformance/`. The subset: functions,
+Define the minimal language subset in [`docs/spec/keel-core.md`](docs/spec/keel-core.md) and express it as
+executable conformance tests in [`tests/conformance/`](tests/conformance/). The subset: functions,
 `let`/`mut`, primitive types, `String`, `struct`, `enum` (with payloads),
 `match` (exhaustive), `Option`/`Result`, `?`, `catch`, blocks/expressions,
 `List<T>`/`Map<K,V>` (built-in, not user generics yet), string interpolation,
@@ -18,7 +18,7 @@ and reject (expected compile error code) behavior, reviewed and frozen.
 
 ## M1 — Frontend: lexer, parser, AST, diagnostics
 
-Implementation language: **Rust** (see `compiler/ARCHITECTURE.md`, KDR-0101).
+Implementation language: **Rust** (see [`compiler/ARCHITECTURE.md`](compiler/ARCHITECTURE.md), [KDR-0101](docs/kdr/0101-compiler-in-rust.md)).
 Hand-written recursive-descent parser (good errors beat generated parsers).
 Diagnostics carry stable error codes (`K####`) from day one — conformance
 reject-tests match on codes, not message text.
@@ -33,7 +33,7 @@ exhaustiveness checking for `match`, no-implicit-zero struct construction,
 
 **Exit:** all M0 reject-cases produce their exact error codes; accept-cases typecheck.
 
-## M3 — First backend: compile to Go  *(KDR-0102)*
+## M3 — First backend: compile to Go  *([KDR-0102](docs/kdr/0102-go-backend-first.md))*
 
 Lower the typed AST to a Keel IR, emit Go source, drive `go build` internally.
 This buys a production-grade concurrent GC, scheduler, cross-compilation and
@@ -71,8 +71,10 @@ compiler (must exist before 1.0 even though edition 2 is years away).
 ## Performance contract (applies from M1 onward)
 
 CI tracks compile time on a growing reference corpus. Regressions > 5% block merge
-(vision.md §7). Incrementality is architecture, not a later feature: the compiler
-is query-based (salsa-style) from M1.
+([vision.md §7](docs/vision.md#7-compile-time-as-a-contract)). Incrementality is
+architecture, not a later feature: the compiler is designed for a query-based
+(salsa-style) core; see [`compiler/ARCHITECTURE.md`](compiler/ARCHITECTURE.md)
+for current status.
 
 ## Validating the active milestone
 
@@ -85,4 +87,4 @@ KEEL_MILESTONE=M3 scripts/preflight.sh
 ```
 
 The runner accepts the same value as `--milestone M<N>`; see
-`tests/conformance/README.md`.
+[`tests/conformance/README.md`](tests/conformance/README.md).

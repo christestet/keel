@@ -37,6 +37,7 @@ Use Rust, C, or Zig there — Keel's FFI will call the result. See `docs/vision.
 | `tests/conformance/` | Executable ground truth. The spec, as tests. **The most important directory for implementers.** |
 | `compiler/` | The compiler (`keelc`). See `compiler/ARCHITECTURE.md` before writing code. |
 | `examples/` | Idiomatic Keel programs the compiler must eventually accept. |
+| `docs/milestone-status.md` | Per-milestone implementation status. |
 | `ROADMAP.md` | Milestones, in dependency order. |
 | `AGENTS.md` | Mandatory rules for LLM/agent contributors. |
 | `CONTRIBUTING.md` | Rules for human contributors. |

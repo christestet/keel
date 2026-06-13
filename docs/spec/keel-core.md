@@ -112,4 +112,13 @@ structural diff requirements yet, just pass/fail and the source line).
 User generics (`K0901`), interfaces (`K0902`), `scope`/`spawn` (`K0903`),
 `arena` (`K0904`), `extern`/FFI (`K0905`), attributes/annotations of any kind
 (`K0906`), operator overloading (`K0907`), `async`/`await` as identifiers-used-
-as-keywords trap (`K0908` with a pointer to KDR-002).
+as-keywords trap (`K0908` with a pointer to [KDR-0002](../kdr/0002-no-async-await.md)).
+
+## 9. Authored spec chapters
+
+| Chapter | Covers |
+|---|---|
+| [`01-lexical.md`](01-lexical.md) | Brace escaping in string interpolation (`K0004`) — KDR-0014 |
+| [`04-expressions.md`](04-expressions.md) | Operator set, precedence, integer division, overflow (`K0202`–`K0204`, `K0003`) — KDR-0013 |
+
+See [`00-spec-plan.md`](00-spec-plan.md) for the full chapter roadmap.
