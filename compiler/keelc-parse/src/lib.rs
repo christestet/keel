@@ -1250,4 +1250,54 @@ mod tests {
             "enum E { Bad, Other }\nfn main() -> Result<Int, E> {\n    let x = f() catch err {\n        Bad => return Err(Bad),\n        other => return Err(other),\n    }\n    let y = g()?\n    Ok(y)\n}\n",
         );
     }
+
+    #[test]
+    fn formatter_idempotent_on_conformance() {
+        let manifest = std::env!("CARGO_MANIFEST_DIR");
+        let suite = std::path::Path::new(manifest).join("../../tests/conformance");
+        let mut count = 0;
+        for entry in std::fs::read_dir(&suite).expect("read conformance suite") {
+            let entry = entry.expect("read dir entry");
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let source_path = dir.join("main.keel");
+            let stdout_path = dir.join("expected.stdout");
+            if !source_path.is_file() || !stdout_path.is_file() {
+                continue;
+            }
+            let source = std::fs::read_to_string(&source_path).expect("read case");
+            let first = parse(SourceId::new(count), &source);
+            if first
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == Severity::Error)
+            {
+                continue;
+            }
+            let once = pretty_print(&first.module);
+            let reparsed = parse(SourceId::new(count + 1_000), &once);
+            assert!(
+                !reparsed
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.severity == Severity::Error),
+                "{}: formatter produced invalid source:\n{once}",
+                dir.display()
+            );
+            let twice = pretty_print(&reparsed.module);
+            assert_eq!(
+                once,
+                twice,
+                "{}: formatter is not idempotent",
+                dir.display()
+            );
+            count += 1;
+        }
+        assert!(
+            count >= 60,
+            "expected at least 60 accept cases, found {count}"
+        );
+    }
 }

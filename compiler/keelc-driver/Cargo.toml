@@ -2,11 +2,7 @@
 name = "keelc-driver"
 version = "0.1.0"
 edition = "2021"
-description = "M1 keelc driver surface for lexing, parsing, and diagnostics."
-
-[[bin]]
-name = "keelc"
-path = "src/main.rs"
+description = "Keel CLI driver library and binaries for build, run, fmt, and test."
 
 [dependencies]
 keelc-ast = { path = "../keelc-ast" }

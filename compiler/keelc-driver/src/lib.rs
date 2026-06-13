@@ -1,5 +1,6 @@
-//! Minimal keelc driver: read one source file, run frontend checks, print diagnostics.
+//! Keel CLI driver: check, run, fmt, and build Keel Core source files.
 
+use keelc_ast::pretty::pretty_print;
 use keelc_ast::Module;
 use keelc_backend_go::emit;
 use keelc_diag::{Diagnostic, Severity};
@@ -12,7 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-fn main() -> ExitCode {
+pub fn main() -> ExitCode {
     let mut args = env::args_os();
     let _program = args.next();
 
@@ -41,14 +42,6 @@ fn main() -> ExitCode {
         milestone = parsed;
     }
 
-    if command != OsStr::new("check") && command != OsStr::new("run") {
-        eprintln!(
-            "unsupported command `{}`; keelc supports `check <file>` and `run <file>`",
-            command.to_string_lossy()
-        );
-        return ExitCode::from(2);
-    }
-
     let path = Path::new(&path);
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
@@ -57,6 +50,18 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    match command.as_os_str().to_str() {
+        Some("fmt") => return fmt_file(path, &text),
+        Some("check" | "run" | "build") => {}
+        _ => {
+            eprintln!(
+                "unsupported command `{}`; keel supports `build|run|fmt|test <file>`",
+                command.to_string_lossy()
+            );
+            return ExitCode::from(2);
+        }
+    }
 
     let output = parse(SourceId::new(0), &text);
     let mut diagnostics = output.diagnostics;
@@ -80,16 +85,41 @@ fn main() -> ExitCode {
     }
 
     if has_error {
-        ExitCode::FAILURE
-    } else if command == OsStr::new("run") {
-        run_module(&output.module)
-    } else {
-        ExitCode::SUCCESS
+        return ExitCode::FAILURE;
+    }
+
+    match command.as_os_str().to_str() {
+        Some("run") => run_module(&output.module),
+        Some("build") => build_module(&output.module),
+        _ => ExitCode::SUCCESS,
     }
 }
 
 fn usage() {
-    eprintln!("usage: keelc check <main.keel> [--milestone M<N>]");
+    eprintln!("usage: keel <build|run|fmt|test> <file.keel> [--milestone M<N>]");
+}
+
+fn fmt_file(path: &Path, text: &str) -> ExitCode {
+    let output = parse(SourceId::new(0), text);
+    let has_error = output.diagnostics.iter().any(is_error);
+    for diagnostic in &output.diagnostics {
+        emit_diagnostic(path, text, diagnostic);
+    }
+    if has_error {
+        return ExitCode::FAILURE;
+    }
+    print!("{}", pretty_print(&output.module));
+    ExitCode::SUCCESS
+}
+
+fn build_module(module: &Module) -> ExitCode {
+    match emit(module) {
+        Ok(_source) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("backend error: {err}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn parse_milestone(value: &OsStr) -> Option<u32> {

@@ -260,7 +260,7 @@ impl Printer {
                     .map(|field| self.struct_literal_field(field, base_indent))
                     .collect::<Vec<_>>()
                     .join(", ");
-                (format!("{} {{{fields}}}", name.value), 100)
+                (format!("{} {{ {fields} }}", name.value), 100)
             }
             Expr::Block(block) => (self.inline_block(block, base_indent), 10),
             Expr::If {
@@ -287,10 +287,9 @@ impl Printer {
                     .map(|arm| self.match_arm(arm, base_indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
-                let open = self.indent_line("{", base_indent + 1);
-                let close = self.indent_line("}", base_indent + 1);
+                let close = self.indent_line("}", base_indent);
                 let result = format!(
-                    "match {} {open}\n{arms}\n{close}",
+                    "match {} {{\n{arms}\n{close}",
                     self.expr(scrutinee, 0, base_indent)
                 );
                 (result, 10)
@@ -320,10 +319,9 @@ impl Printer {
                     .map(|arm| self.match_arm(arm, base_indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
-                let open = self.indent_line("{", base_indent + 1);
-                let close = self.indent_line("}", base_indent + 1);
+                let close = self.indent_line("}", base_indent);
                 let result = format!(
-                    "{} catch {} {open}\n{arms}\n{close}",
+                    "{} catch {} {{\n{arms}\n{close}",
                     self.expr(expr, 0, base_indent),
                     error_name.value
                 );
@@ -370,7 +368,7 @@ impl Printer {
             result.push_str(&self.indent_line(&line, content_indent));
             result.push('\n');
         }
-        result.push_str(&self.indent_line("}", base_indent + 1));
+        result.push_str(&self.indent_line("}", base_indent));
         result
     }
 
