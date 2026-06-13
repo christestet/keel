@@ -1,0 +1,20 @@
+interface Stringer {
+    fn to_string(self) -> String
+}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+impl Stringer for Point {
+    fn to_string(self) -> String {
+        "({self.x}, {self.y})"
+    }
+}
+
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    let s: Stringer = p
+    print(s.to_string())
+}

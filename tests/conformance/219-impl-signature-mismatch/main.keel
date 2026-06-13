@@ -1,0 +1,17 @@
+interface Stringer {
+    fn to_string(self) -> String
+}
+
+struct Point {
+    x: Int
+}
+
+impl Stringer for Point {
+    fn to_string(self) -> Int {
+        self.x
+    }
+}
+
+fn main() {
+    print("unused")
+}

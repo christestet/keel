@@ -1,0 +1,18 @@
+interface Stringer {
+    fn to_string(self) -> String
+}
+
+struct Point {
+    x: Int
+}
+
+impl Stringer for Point {
+    fn to_string(self) -> String {
+        "{self.x}"
+    }
+}
+
+fn main() {
+    let s: Stringer = Point { x: 1 }
+    print(s.not_a_method())
+}

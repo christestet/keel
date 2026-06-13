@@ -1,0 +1,7 @@
+interface Stringer {
+    fn to_string(self) -> String
+}
+
+fn main() {
+    print("ok")
+}

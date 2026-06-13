@@ -1,0 +1,13 @@
+interface Stringer {
+    fn to_string(self) -> String
+}
+
+struct Point {
+    x: Int
+}
+
+fn main() {
+    let p = Point { x: 1 }
+    let s: Stringer = p
+    print("unused")
+}

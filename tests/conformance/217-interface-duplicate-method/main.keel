@@ -1,0 +1,8 @@
+interface Dup {
+    fn m(self) -> Unit
+    fn m(self) -> Unit
+}
+
+fn main() {
+    print("unused")
+}

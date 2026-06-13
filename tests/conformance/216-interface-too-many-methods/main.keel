@@ -1,0 +1,12 @@
+interface Many {
+    fn m1(self) -> Unit
+    fn m2(self) -> Unit
+    fn m3(self) -> Unit
+    fn m4(self) -> Unit
+    fn m5(self) -> Unit
+    fn m6(self) -> Unit
+}
+
+fn main() {
+    print("unused")
+}
