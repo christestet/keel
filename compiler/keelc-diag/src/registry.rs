@@ -27,6 +27,13 @@ pub const K0403: Code = Code::new("K0403");
 pub const K0501: Code = Code::new("K0501");
 pub const K0502: Code = Code::new("K0502");
 pub const K0503: Code = Code::new("K0503");
+pub const K0601: Code = Code::new("K0601");
+pub const K0602: Code = Code::new("K0602");
+pub const K0603: Code = Code::new("K0603");
+pub const K0604: Code = Code::new("K0604");
+pub const K0605: Code = Code::new("K0605");
+pub const K0606: Code = Code::new("K0606");
+pub const K0607: Code = Code::new("K0607");
 pub const K0901: Code = Code::new("K0901");
 pub const K0902: Code = Code::new("K0902");
 pub const K0903: Code = Code::new("K0903");
@@ -112,6 +119,34 @@ pub const ALL_CODES: &[RegistryEntry] = &[
     RegistryEntry {
         code: K0503,
         summary: "union error match is not exhaustive",
+    },
+    RegistryEntry {
+        code: K0601,
+        summary: "interface declares more than five methods",
+    },
+    RegistryEntry {
+        code: K0602,
+        summary: "duplicate method name in interface",
+    },
+    RegistryEntry {
+        code: K0603,
+        summary: "missing method in impl",
+    },
+    RegistryEntry {
+        code: K0604,
+        summary: "method signature mismatch in impl",
+    },
+    RegistryEntry {
+        code: K0605,
+        summary: "type does not implement interface",
+    },
+    RegistryEntry {
+        code: K0606,
+        summary: "method not found in interface",
+    },
+    RegistryEntry {
+        code: K0607,
+        summary: "extraneous method in impl",
     },
     RegistryEntry {
         code: K0901,
