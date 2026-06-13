@@ -9,7 +9,7 @@ use keelc_span::{line_col, SourceId};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
 fn main() -> ExitCode {
@@ -115,6 +115,14 @@ fn emit_diagnostic(path: &Path, source: &str, diagnostic: &Diagnostic) {
     }
 }
 
+struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn run_module(module: &Module) -> ExitCode {
     let go_source = match emit(module) {
         Ok(source) => source,
@@ -132,6 +140,8 @@ fn run_module(module: &Module) -> ExitCode {
         );
         return ExitCode::from(2);
     }
+    let _guard = TempDir(temp_dir.clone());
+
     let go_file = temp_dir.join("main.go");
     if let Err(err) = fs::write(&go_file, go_source) {
         eprintln!(
