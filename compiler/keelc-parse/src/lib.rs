@@ -655,36 +655,15 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Scope | Keyword::Spawn),
                 span,
-            }) => {
-                self.diagnostics.push(Diagnostic::error(
-                    registry::K0903,
-                    span,
-                    "scope/spawn are not in Keel Core",
-                ));
-                Expr::Missing(span)
-            }
+            }) => self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core"),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Arena),
                 span,
-            }) => {
-                self.diagnostics.push(Diagnostic::error(
-                    registry::K0904,
-                    span,
-                    "arena is not in Keel Core",
-                ));
-                Expr::Missing(span)
-            }
+            }) => self.banned_expr(span, registry::K0904, "arena is not in Keel Core"),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Async | Keyword::Await),
                 span,
-            }) => {
-                self.diagnostics.push(Diagnostic::error(
-                    registry::K0908,
-                    span,
-                    "async/await are not in Keel Core",
-                ));
-                Expr::Missing(span)
-            }
+            }) => self.banned_expr(span, registry::K0908, "async/await are not in Keel Core"),
             Some(Token {
                 kind: TokenKind::LeftParen,
                 span: _,
@@ -901,6 +880,12 @@ impl Parser {
                 _ => {}
             }
         }
+    }
+
+    fn banned_expr(&mut self, span: Span, code: keelc_diag::Code, message: &str) -> Expr {
+        self.diagnostics
+            .push(Diagnostic::error(code, span, message));
+        Expr::Missing(span)
     }
 
     fn banned_keyword(&mut self, keyword: Keyword, code: keelc_diag::Code, message: &str) {
