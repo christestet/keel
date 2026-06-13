@@ -13,7 +13,7 @@ Planned chapters:
 | 04 | Expressions | [KDR-0013](kdr/0013-core-operators-and-integer-division.md), [KDR-0009](kdr/0009-no-operator-overloading.md) |
 | 05 | Errors | [KDR-0005](kdr/0005-no-exceptions.md) |
 | 06 | Modules / packages | [KDR-0011](kdr/0011-package-capabilities.md), [KDR-0017](kdr/0017-function-capabilities.md) |
-| 07 | Interfaces | [KDR-0003](kdr/0003-no-inheritance.md) |
+| 07 | Interfaces | [KDR-0003](kdr/0003-no-inheritance.md) — **landed**, see [`07-interfaces.md`](07-interfaces.md) and [`docs/milestone-status.md`](../milestone-status.md) §M5 |
 | 08 | Generics | — |
 | 09 | Concurrency (scope/spawn) | [KDR-0002](kdr/0002-no-async-await.md) |
 | 10 | Memory (GC + arena) | [KDR-0012](kdr/0012-gc-plus-scoped-arenas.md), [KDR-0016](kdr/0016-scope-implicit-arenas.md) |

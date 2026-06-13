@@ -53,8 +53,11 @@ first release — formatting freezes *now*, while the corpus is small.
 
 ## M5 — Language completion wave 1
 
-Interfaces (≤5 methods, compiler-enforced), user generics (interface-constrained
-only), `scope`/`spawn` structured concurrency on the Go runtime, resource scoping.
+- **Interfaces** (≤5 methods, compiler-enforced) — complete; see
+  [`docs/spec/07-interfaces.md`](docs/spec/07-interfaces.md) and
+  [`docs/milestone-status.md`](docs/milestone-status.md) §M5.
+- **User generics** (interface-constrained only) — not started.
+- **`scope`/`spawn` structured concurrency** on the Go runtime, resource scoping — not started.
 
 ## M6 — Stdlib slice + the demo service
 

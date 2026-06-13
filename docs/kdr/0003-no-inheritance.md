@@ -39,7 +39,8 @@ untraceable behaviour.
 
 ## Consequences
 
-- All polymorphism is explicit via interface declarations and implementations.
+- All polymorphism is explicit via interface declarations and implementations,
+  specified in [`docs/spec/07-interfaces.md`](../spec/07-interfaces.md).
   You can `grep` for every type that satisfies a given interface.
 - Testing is simpler: mock objects are explicit structs implementing an
   interface, not inheritance chains.

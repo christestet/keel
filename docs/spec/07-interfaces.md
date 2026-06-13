@@ -6,6 +6,9 @@ It does not restate the frozen rules in [`keel-core.md`](keel-core.md); on any
 conflict with `keel-core.md`, file an issue rather than reconciling silently
 (the prime directive in the root [`AGENTS.md`](../../AGENTS.md)).
 
+Implementation status: complete as of M5; see
+[`docs/milestone-status.md`](../milestone-status.md) §M5.
+
 Interfaces in Keel are intentionally small and explicit:
 
 - An interface declares a list of method signatures.

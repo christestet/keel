@@ -250,7 +250,7 @@ impl Expr {
         match self {
             Expr::Missing(span)
             | Expr::Wildcard(span)
-            |             Expr::Unary { span, .. }
+            | Expr::Unary { span, .. }
             | Expr::Binary { span, .. }
             | Expr::Call { span, .. }
             | Expr::Field { span, .. }

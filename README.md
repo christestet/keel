@@ -3,7 +3,7 @@
 > A typed, compiled, garbage-collected language for backend services that should
 > still be readable, reviewable, and deployable after five years of team churn.
 
-**Status: compiler under active development.** Start with
+**Status: M5 interfaces complete; generics and `scope`/`spawn` remain.** Start with
 [`docs/vision.md`](docs/vision.md) and [`ROADMAP.md`](ROADMAP.md).
 
 ## What Keel is
@@ -49,7 +49,7 @@ Milestone 0 is not code. It is freezing **Keel Core** (`docs/spec/keel-core.md`)
 minimal subset — and writing conformance tests for it. Every subsequent PR makes one
 more conformance test pass. See `ROADMAP.md`.
 
-## Current CLI (M4 snapshot)
+## Current CLI (M5 snapshot)
 
 The compiler builds two binaries from `compiler/keelc-driver`:
 
@@ -65,12 +65,14 @@ cargo build --release -p keelc-driver
 ./target/release/keel test tests/conformance/702-keel-test-runs-blocks/main.keel
 ./target/release/keel fmt tests/conformance/001-hello-world/main.keel
 ./target/release/keel build tests/conformance/001-hello-world/main.keel
+./target/release/keel run tests/conformance/214-interface-method-call/main.keel --milestone M5
 ```
 
-`keel fmt` is the AST pretty-printer and is idempotent on the Keel Core
-conformance corpus. `keel test` discovers `test "name" { assert expr }` blocks
-and runs them. `keel build` compiles a Keel source file to a native binary
-(placed next to the source file) via the Go toolchain.
+`keel fmt` is the AST pretty-printer and is idempotent on the Keel Core and M5
+interface conformance corpus. `keel test` discovers `test "name" { assert expr }`
+blocks and runs them. `keel build` compiles a Keel source file to a native binary
+(placed next to the source file) via the Go toolchain. Interfaces require the
+`--milestone M5` gate until M5 is declared the default.
 
 ## License
 

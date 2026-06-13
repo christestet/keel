@@ -63,6 +63,22 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 
 **Known limitations:** formatter strips comments (comments are not stored in the AST). `examples/users-service/main.keel` uses post-Core features and cannot be formatted yet.
 
+## M5 — Language completion wave 1
+
+| Area | State |
+|---|---|
+| Interfaces | Implemented end-to-end: [`docs/spec/07-interfaces.md`](spec/07-interfaces.md) is ratified, parser/typechecker/Go backend/formatter support nominal interfaces with explicit `impl`. |
+| `interface` / `impl` | `interface Name { fn method(self) -> T }` and `impl Interface for Type { ... }` parse, typecheck, and lower to Go interfaces and receiver methods. |
+| Method calls | `receiver.method(args)` resolves through explicit impls or interface declarations; dynamically dispatched through interface values. |
+| Interface types | Interface names may be used as parameter/return/local types; concrete values assigned to interface types require a matching `impl`. |
+| Diagnostics | `K0601`–`K0607` registered and emitted for interface/impl violations. |
+| Formatter | `keel fmt` round-trips interface and impl syntax. |
+| Conformance | Cases `212-interface-declaration` through `222-impl-extra-method` exercise accept and reject behavior. |
+
+**Remaining M5 work:** user generics ([`docs/spec/00-spec-plan.md`](spec/00-spec-plan.md) chapter 08) and `scope`/`spawn` structured concurrency (chapter 09).
+
+**Known limitations:** interfaces are limited to ≤5 methods (KDR-0003); no default methods, inheritance, or structural subtyping.
+
 ## Milestone key
 
 | # | Title | Exit criterion |
@@ -90,6 +106,13 @@ M4 adds `keel test` execution; validate with:
 
 ```sh
 KEEL_MILESTONE=M4 scripts/preflight.sh
+```
+
+M5 adds interfaces; validate with:
+
+```sh
+KEEL_MILESTONE=M5 scripts/preflight.sh
+# → 103 passed, 0 failed, 1 skipped
 ```
 
 ## Dependency chain

@@ -406,10 +406,7 @@ impl<'a> Typechecker<'a> {
                         }
                     }
                 }
-                Item::Interface(_)
-                | Item::Impl(_)
-                | Item::Enum(_)
-                | Item::Use(_) => {}
+                Item::Interface(_) | Item::Impl(_) | Item::Enum(_) | Item::Use(_) => {}
             }
         }
 
@@ -490,10 +487,7 @@ impl<'a> Typechecker<'a> {
         }
 
         for expected in &interface.methods {
-            let found = decl
-                .methods
-                .iter()
-                .find(|m| m.name.value == expected.name);
+            let found = decl.methods.iter().find(|m| m.name.value == expected.name);
             match found {
                 None => {
                     self.diagnostics.push(Diagnostic::error(
@@ -506,8 +500,11 @@ impl<'a> Typechecker<'a> {
                     ));
                 }
                 Some(actual) => {
-                    let interface_names: Vec<String> =
-                        self.interfaces.iter().map(|info| info.name.clone()).collect();
+                    let interface_names: Vec<String> = self
+                        .interfaces
+                        .iter()
+                        .map(|info| info.name.clone())
+                        .collect();
                     let actual_info = method_from_decl(actual, &interface_names);
                     if actual_info.params != expected.params
                         || actual_info.return_type != expected.return_type
@@ -526,7 +523,11 @@ impl<'a> Typechecker<'a> {
         }
 
         for actual in &decl.methods {
-            if !interface.methods.iter().any(|m| m.name == actual.name.value) {
+            if !interface
+                .methods
+                .iter()
+                .any(|m| m.name == actual.name.value)
+            {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K0607,
                     actual.span,
@@ -608,9 +609,14 @@ impl<'a> Typechecker<'a> {
 
     fn check_stmt(&mut self, statement: &Stmt) -> TypeInfo {
         match statement {
-            Stmt::Let { name, ty, value, .. } => {
+            Stmt::Let {
+                name, ty, value, ..
+            } => {
                 let value_type = self.infer_expr(value);
-                let annotated = ty.as_ref().map(TypeInfo::from_ast).map(|ty| self.resolve_type(&ty).clone());
+                let annotated = ty
+                    .as_ref()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty).clone());
                 if let Some(expected) = annotated {
                     self.check_assignable(&value_type, &expected, value.span());
                     self.define_value(name, expected);
@@ -825,7 +831,8 @@ impl<'a> Typechecker<'a> {
                     self.check_call_args(&params, args, name.span);
                     return return_type;
                 }
-                self.enum_variant_type(&name.value).unwrap_or(TypeInfo::Unknown)
+                self.enum_variant_type(&name.value)
+                    .unwrap_or(TypeInfo::Unknown)
             }
             Expr::Field { target, field, .. }
                 if matches!(target.as_ref(), Expr::Name(name) if name.value == "Float")
@@ -861,6 +868,10 @@ impl<'a> Typechecker<'a> {
         args: &[Expr],
         span: Span,
     ) -> TypeInfo {
+        if matches!(receiver, Expr::Name(name) if name.value == "Float") && method.value == "from" {
+            self.check_call_args(&[TypeInfo::Int], args, method.span);
+            return TypeInfo::Float;
+        }
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
             self.infer_expr(arg);
@@ -871,7 +882,11 @@ impl<'a> Typechecker<'a> {
                     Some(info) => info,
                     None => return TypeInfo::Unknown,
                 };
-                interface.methods.iter().find(|m| m.name == method.value).cloned()
+                interface
+                    .methods
+                    .iter()
+                    .find(|m| m.name == method.value)
+                    .cloned()
             }
             TypeInfo::Named(type_name) => self
                 .impls
@@ -891,10 +906,7 @@ impl<'a> Typechecker<'a> {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K0606,
                     self.diagnostic_span(span),
-                    format!(
-                        "method `{}` not found on `{}`",
-                        method.value, receiver_type
-                    ),
+                    format!("method `{}` not found on `{}`", method.value, receiver_type),
                 ));
                 TypeInfo::Unknown
             }
@@ -1126,9 +1138,7 @@ impl<'a> Typechecker<'a> {
 
     fn resolve_type(&self, ty: &TypeInfo) -> TypeInfo {
         match ty {
-            TypeInfo::Named(name)
-                if self.interfaces.iter().any(|info| info.name == *name) =>
-            {
+            TypeInfo::Named(name) if self.interfaces.iter().any(|info| info.name == *name) => {
                 TypeInfo::Interface(name.clone())
             }
             _ => ty.clone(),
@@ -1154,6 +1164,24 @@ impl<'a> Typechecker<'a> {
                 format!("type `{actual}` does not implement interface `{expected}`"),
             ));
             return;
+        }
+        if let (
+            TypeInfo::Generic {
+                name: actual_name,
+                args: actual_args,
+            },
+            TypeInfo::Generic {
+                name: expected_name,
+                args: expected_args,
+            },
+        ) = (actual, expected)
+        {
+            if actual_name == expected_name && actual_args.len() == expected_args.len() {
+                for (actual_arg, expected_arg) in actual_args.iter().zip(expected_args.iter()) {
+                    self.check_assignable(actual_arg, expected_arg, span);
+                }
+                return;
+            }
         }
         if actual != expected {
             self.diagnostics.push(Diagnostic::error(

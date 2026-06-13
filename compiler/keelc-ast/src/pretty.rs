@@ -1,8 +1,8 @@
 //! AST pretty-printer — the canonical formatter for Keel Core.
 
 use crate::{
-    BinaryOp, Block, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item, MatchArm, Module,
-    Param, Pattern, Stmt, StructLiteralField, TestDecl, Type, UnaryOp, VariantDecl,
+    BinaryOp, Block, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item, MatchArm,
+    Module, Param, Pattern, Stmt, StructLiteralField, TestDecl, Type, UnaryOp, VariantDecl,
 };
 
 /// Render a module to its canonical Keel Core source form.
@@ -115,11 +115,15 @@ impl Printer {
                 signature.push_str(&format!(" -> {ty}"));
             }
         }
-        signature.push(' ');
         match &decl.body {
             Some(body) => {
-                self.write(&signature);
-                self.block(body);
+                self.line(&format!("{signature} {{"));
+                self.indent();
+                for statement in &body.statements {
+                    self.stmt(statement);
+                }
+                self.dedent();
+                self.line("}");
             }
             None => self.line(&signature),
         }

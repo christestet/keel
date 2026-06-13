@@ -76,6 +76,26 @@ struct FunctionInfo {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct InterfaceInfo {
+    name: String,
+    methods: Vec<MethodInfo>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ImplInfo {
+    interface_name: String,
+    type_name: String,
+    methods: Vec<MethodInfo>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MethodInfo {
+    name: String,
+    params: Vec<(String, TypeInfo)>,
+    return_type: TypeInfo,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct Binding {
     name: String,
     ty: TypeInfo,
@@ -87,6 +107,8 @@ struct Emitter<'a> {
     structs: Vec<StructInfo>,
     enums: Vec<EnumInfo>,
     functions: Vec<FunctionInfo>,
+    interfaces: Vec<InterfaceInfo>,
+    impls: Vec<ImplInfo>,
     scopes: Vec<Vec<Binding>>,
     current_return_type: TypeInfo,
     output: String,
@@ -110,6 +132,8 @@ impl<'a> Emitter<'a> {
             structs: collect_structs(module),
             enums: collect_enums(module),
             functions: collect_functions(module),
+            interfaces: collect_interfaces(module),
+            impls: collect_impls(module),
             scopes: Vec::new(),
             current_return_type: TypeInfo::Unit,
             output: String::new(),
@@ -123,11 +147,29 @@ impl<'a> Emitter<'a> {
     }
 
     fn go_type(&self, ty: &TypeInfo) -> String {
-        go_type(ty, &self.struct_names())
+        go_type(
+            ty,
+            &self.struct_names(),
+            &self
+                .interfaces
+                .iter()
+                .map(|i| i.name.as_str())
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn payload_expr(&self, value: &str, index: usize, ty: &TypeInfo) -> String {
-        payload_expr(value, index, ty, &self.struct_names())
+        payload_expr(
+            value,
+            index,
+            ty,
+            &self.struct_names(),
+            &self
+                .interfaces
+                .iter()
+                .map(|i| i.name.as_str())
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn emit(mut self) -> Result<String, BackendError> {
@@ -136,6 +178,12 @@ impl<'a> Emitter<'a> {
         self.line("import \"fmt\"")?;
         self.line("")?;
         self.emit_runtime()?;
+
+        let interfaces = self.interfaces.clone();
+        for interface in &interfaces {
+            self.emit_interface_decl(interface)?;
+            self.line("")?;
+        }
 
         for item in &self.module.items {
             match item {
@@ -146,6 +194,14 @@ impl<'a> Emitter<'a> {
                 | Item::Test(_)
                 | Item::Interface(_)
                 | Item::Impl(_) => {}
+            }
+        }
+
+        let impls = self.impls.clone();
+        for impl_decl in &impls {
+            for method in &impl_decl.methods {
+                self.emit_impl_method(impl_decl, method)?;
+                self.line("")?;
             }
         }
 
@@ -167,6 +223,12 @@ impl<'a> Emitter<'a> {
         self.line("")?;
         self.emit_runtime()?;
 
+        let interfaces = self.interfaces.clone();
+        for interface in &interfaces {
+            self.emit_interface_decl(interface)?;
+            self.line("")?;
+        }
+
         for item in &self.module.items {
             match item {
                 Item::Struct(decl) => self.emit_struct_decl(decl)?,
@@ -176,6 +238,14 @@ impl<'a> Emitter<'a> {
                 | Item::Test(_)
                 | Item::Interface(_)
                 | Item::Impl(_) => {}
+            }
+        }
+
+        let impls = self.impls.clone();
+        for impl_decl in &impls {
+            for method in &impl_decl.methods {
+                self.emit_impl_method(impl_decl, method)?;
+                self.line("")?;
             }
         }
 
@@ -282,6 +352,94 @@ impl<'a> Emitter<'a> {
         self.line("}")?;
         self.line("")?;
         Ok(())
+    }
+
+    fn emit_interface_decl(&mut self, interface: &InterfaceInfo) -> Result<(), BackendError> {
+        self.line(&format!("type {} interface {{", interface.name))?;
+        self.indent += 1;
+        for method in &interface.methods {
+            let params = method
+                .params
+                .iter()
+                .map(|(name, ty)| format!("{} {}", name, self.go_type(ty)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let ret = self.go_type(&method.return_type);
+            if ret.is_empty() {
+                self.line(&format!("{}({})", method.name, params))?;
+            } else {
+                self.line(&format!("{}({}) {}", method.name, params, ret))?;
+            }
+        }
+        self.indent -= 1;
+        self.line("}")?;
+        Ok(())
+    }
+
+    fn emit_impl_method(
+        &mut self,
+        impl_decl: &ImplInfo,
+        method: &MethodInfo,
+    ) -> Result<(), BackendError> {
+        write!(
+            self.output,
+            "func (self {}) {}(",
+            impl_decl.type_name, method.name
+        )?;
+        for (index, (name, ty)) in method.params.iter().enumerate() {
+            if index > 0 {
+                self.output.push_str(", ");
+            }
+            write!(self.output, "{} {}", name, self.go_type(ty))?;
+        }
+        self.output.push(')');
+        let return_type = &method.return_type;
+        if *return_type != TypeInfo::Unit {
+            self.output.push(' ');
+            self.output.push_str(&self.go_type(return_type));
+        }
+        self.output.push_str(" {\n");
+
+        let previous_return_type =
+            std::mem::replace(&mut self.current_return_type, return_type.clone());
+        self.push_scope();
+        self.define("self", TypeInfo::Named(impl_decl.type_name.clone()));
+        for (name, ty) in &method.params {
+            self.define(name, ty.clone());
+        }
+        self.indent += 1;
+
+        let body = self.find_impl_body(impl_decl, method);
+        match body {
+            Some(body) => {
+                self.emit_block_statements(body, self.current_return_type != TypeInfo::Unit)?
+            }
+            None => self.line("panic(\"missing impl body\")")?,
+        }
+
+        self.indent -= 1;
+        self.pop_scope();
+        self.current_return_type = previous_return_type;
+
+        self.line("}")?;
+        Ok(())
+    }
+
+    fn find_impl_body(&self, impl_decl: &ImplInfo, method: &MethodInfo) -> Option<&'a Block> {
+        for item in &self.module.items {
+            if let Item::Impl(decl) = item {
+                if decl.interface_name.value == impl_decl.interface_name
+                    && decl.type_name.value == impl_decl.type_name
+                {
+                    for impl_method in &decl.methods {
+                        if impl_method.name.value == method.name {
+                            return impl_method.body.as_ref();
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn emit_checked_op(
@@ -712,8 +870,20 @@ impl<'a> Emitter<'a> {
         method: &keelc_span::Spanned<String>,
         args: &[Expr],
     ) -> Result<String, BackendError> {
-        let _ = (receiver, method, args);
-        Err(BackendError::unsupported("method calls"))
+        if matches!(receiver, Expr::Name(name) if name.value == "Float") && method.value == "from" {
+            let arg = args
+                .first()
+                .ok_or_else(|| BackendError::unsupported("Float.from without argument"))?;
+            let arg_expr = self.emit_expr(arg)?;
+            return Ok(format!("float64({arg_expr})"));
+        }
+        let receiver_expr = self.emit_expr(receiver)?;
+        let args = args
+            .iter()
+            .map(|arg| self.emit_expr(arg))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        Ok(format!("{receiver_expr}.{}({args})", method.value))
     }
 
     fn emit_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<String, BackendError> {
@@ -1426,9 +1596,67 @@ fn collect_functions(module: &Module) -> Vec<FunctionInfo> {
     functions
 }
 
-fn go_type(ty: &TypeInfo, struct_names: &[&str]) -> String {
+fn collect_interfaces(module: &Module) -> Vec<InterfaceInfo> {
+    let mut interfaces = Vec::new();
+    for item in &module.items {
+        if let Item::Interface(decl) = item {
+            interfaces.push(InterfaceInfo {
+                name: decl.name.value.clone(),
+                methods: decl.methods.iter().map(method_from_decl).collect(),
+            });
+        }
+    }
+    interfaces.sort_by(|left, right| left.name.cmp(&right.name));
+    interfaces
+}
+
+fn collect_impls(module: &Module) -> Vec<ImplInfo> {
+    let mut impls = Vec::new();
+    for item in &module.items {
+        if let Item::Impl(decl) = item {
+            impls.push(ImplInfo {
+                interface_name: decl.interface_name.value.clone(),
+                type_name: decl.type_name.value.clone(),
+                methods: decl.methods.iter().map(method_from_decl).collect(),
+            });
+        }
+    }
+    impls.sort_by(|left, right| {
+        left.type_name
+            .cmp(&right.type_name)
+            .then_with(|| left.interface_name.cmp(&right.interface_name))
+    });
+    impls
+}
+
+fn method_from_decl(decl: &FunctionDecl) -> MethodInfo {
+    let params = decl
+        .params
+        .iter()
+        .filter(|param| param.name.value != "self")
+        .map(|param| {
+            let ty = param
+                .ty
+                .as_ref()
+                .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
+            (param.name.value.clone(), ty)
+        })
+        .collect();
+    let return_type = decl
+        .return_type
+        .as_ref()
+        .map_or(TypeInfo::Unit, TypeInfo::from_ast);
+    MethodInfo {
+        name: decl.name.value.clone(),
+        params,
+        return_type,
+    }
+}
+
+fn go_type(ty: &TypeInfo, struct_names: &[&str], interface_names: &[&str]) -> String {
     match ty {
         TypeInfo::Named(name) if struct_names.contains(&name.as_str()) => name.clone(),
+        TypeInfo::Named(name) if interface_names.contains(&name.as_str()) => name.clone(),
         TypeInfo::Int => "int64".to_string(),
         TypeInfo::Float => "float64".to_string(),
         TypeInfo::Bool => "bool".to_string(),
@@ -1438,7 +1666,7 @@ fn go_type(ty: &TypeInfo, struct_names: &[&str]) -> String {
         TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => {
             "KeelEnum".to_string()
         }
-        TypeInfo::Interface(_) => "any".to_string(),
+        TypeInfo::Interface(name) => name.clone(),
         TypeInfo::Unknown => "any".to_string(),
     }
 }
@@ -1449,11 +1677,17 @@ fn question_success_type(ty: &TypeInfo) -> Option<TypeInfo> {
         .cloned()
 }
 
-fn payload_expr(value: &str, index: usize, ty: &TypeInfo, struct_names: &[&str]) -> String {
+fn payload_expr(
+    value: &str,
+    index: usize,
+    ty: &TypeInfo,
+    struct_names: &[&str],
+    interface_names: &[&str],
+) -> String {
     let raw = format!("{value}.values[{index}]");
     match ty {
         TypeInfo::Unknown => raw,
-        _ => format!("{raw}.({})", go_type(ty, struct_names)),
+        _ => format!("{raw}.({})", go_type(ty, struct_names, interface_names)),
     }
 }
 
