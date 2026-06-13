@@ -2,10 +2,10 @@
 
 use keelc_ast::{
     BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, Item, MatchArm, Module, Pattern,
-    Stmt, StringLiteral, StructDecl, StructLiteralField, UnaryOp, VariantDecl,
+    Stmt, StringLiteral, StructDecl, StructLiteralField, TestDecl, UnaryOp, VariantDecl,
 };
 use keelc_parse::parse;
-use keelc_span::SourceId;
+use keelc_span::{line_col, SourceId, Span};
 use keelc_types::{merge_types, TypeInfo};
 use std::fmt::{self, Write as _};
 
@@ -32,6 +32,10 @@ impl std::error::Error for BackendError {}
 
 pub fn emit(module: &Module) -> Result<String, BackendError> {
     Emitter::new(module).emit()
+}
+
+pub fn emit_tests(module: &Module, source: &str) -> Result<String, BackendError> {
+    Emitter::new_for_tests(module, source).emit_test_runner()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,6 +83,7 @@ struct Binding {
 
 struct Emitter<'a> {
     module: &'a Module,
+    source: Option<&'a str>,
     structs: Vec<StructInfo>,
     enums: Vec<EnumInfo>,
     functions: Vec<FunctionInfo>,
@@ -91,8 +96,17 @@ struct Emitter<'a> {
 
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module) -> Self {
+        Self::with_source(module, None)
+    }
+
+    fn new_for_tests(module: &'a Module, source: &'a str) -> Self {
+        Self::with_source(module, Some(source))
+    }
+
+    fn with_source(module: &'a Module, source: Option<&'a str>) -> Self {
         Self {
             module,
+            source,
             structs: collect_structs(module),
             enums: collect_enums(module),
             functions: collect_functions(module),
@@ -137,6 +151,64 @@ impl<'a> Emitter<'a> {
                 self.line("")?;
             }
         }
+
+        Ok(self.output)
+    }
+
+    fn emit_test_runner(mut self) -> Result<String, BackendError> {
+        self.line("package main")?;
+        self.line("")?;
+        self.line("import \"fmt\"")?;
+        self.line("import \"os\"")?;
+        self.line("")?;
+        self.emit_runtime()?;
+
+        for item in &self.module.items {
+            match item {
+                Item::Struct(decl) => self.emit_struct_decl(decl)?,
+                Item::Enum(decl) => self.emit_enum_decl(decl)?,
+                Item::Function(_) | Item::Use(_) | Item::Test(_) => {}
+            }
+        }
+
+        for item in &self.module.items {
+            if let Item::Function(function) = item {
+                if function.name.value == "main" {
+                    continue;
+                }
+                self.emit_function(function)?;
+                self.line("")?;
+            }
+        }
+
+        self.line("func main() {")?;
+        self.indent += 1;
+        let tests: Vec<&TestDecl> = self
+            .module
+            .items
+            .iter()
+            .filter_map(|item| {
+                if let Item::Test(test) = item {
+                    Some(test)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for test in &tests {
+            self.line(&format!(
+                "fmt.Printf(\"test %q ... \", {})",
+                go_string_literal(&test.name.value)
+            ))?;
+            self.line("func() {")?;
+            self.indent += 1;
+            self.emit_block_statements(&test.body, false)?;
+            self.indent -= 1;
+            self.line("}()")?;
+            self.line("fmt.Println(\"ok\")")?;
+        }
+        self.indent -= 1;
+        self.line("}")?;
 
         Ok(self.output)
     }
@@ -395,10 +467,33 @@ impl<'a> Emitter<'a> {
                 let expr = self.emit_expr(expr)?;
                 self.line(&expr)
             }
-            Stmt::Assert { .. } => Err(BackendError::unsupported("test assertions")),
+            Stmt::Assert { value, span } => self.emit_assert(value, *span),
             Stmt::Break(_) => self.line("break"),
             Stmt::Continue(_) => self.line("continue"),
         }
+    }
+
+    fn emit_assert(&mut self, value: &Expr, span: Span) -> Result<(), BackendError> {
+        if self.source.is_none() {
+            return Err(BackendError::unsupported(
+                "test assertions outside test blocks",
+            ));
+        }
+        let expr = self.emit_expr(value)?;
+        let line = self.assert_line(span);
+        self.line(&format!("if !({expr}) {{"))?;
+        self.indent += 1;
+        self.line(&format!(
+            "fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", {line})"
+        ))?;
+        self.line("os.Exit(1)")?;
+        self.indent -= 1;
+        self.line("}")
+    }
+
+    fn assert_line(&self, span: Span) -> usize {
+        self.source
+            .map_or(0, |source| line_col(source, span.start).line)
     }
 
     fn emit_return_stmt(&mut self, value: Option<&Expr>) -> Result<(), BackendError> {
@@ -811,11 +906,22 @@ impl<'a> Emitter<'a> {
                     Ok("return;".to_string())
                 }
             }
-            Stmt::Assert { .. } => Err(BackendError::unsupported("test assertions")),
+            Stmt::Assert { value, span } => self.emit_assert_inline(value, *span),
             Stmt::Break(_) | Stmt::Continue(_) => Err(BackendError::unsupported(
                 "break/continue in block expressions",
             )),
         }
+    }
+
+    fn emit_assert_inline(&mut self, value: &Expr, span: Span) -> Result<String, BackendError> {
+        if self.source.is_none() {
+            return Err(BackendError::unsupported(
+                "test assertions outside test blocks",
+            ));
+        }
+        let expr = self.emit_expr(value)?;
+        let line = self.assert_line(span);
+        Ok(format!("if !({expr}) {{ fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", {line}); os.Exit(1) }}"))
     }
 
     fn emit_match_expr(
@@ -1345,6 +1451,23 @@ fn zero_value(ty: &TypeInfo) -> &'static str {
     }
 }
 
+fn go_string_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn go_binary_op(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "+",
@@ -1368,5 +1491,55 @@ impl From<fmt::Error> for BackendError {
         Self {
             message: "failed to write generated Go source".to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::emit_tests;
+    use keelc_parse::parse;
+    use keelc_span::SourceId;
+
+    #[test]
+    fn emits_test_runner_with_assertion_check() {
+        let source = r#"test "addition holds" {
+    assert 1 + 1 == 2
+}
+"#;
+        let output = parse(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{output:?}");
+        let go = emit_tests(&output.module, source).expect("emission should succeed");
+        assert!(go.contains("import \"fmt\""));
+        assert!(go.contains("import \"os\""));
+        assert!(go.contains("func main() {"));
+        assert!(go.contains(r#"fmt.Printf("test %q ... ", "addition holds")"#));
+        assert!(go.contains("fmt.Println(\"ok\")"));
+        assert!(go.contains("if !(((1 + 1) == 2)) {"));
+        assert!(go.contains("fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", 2)"));
+        assert!(go.contains("os.Exit(1)"));
+    }
+
+    #[test]
+    fn test_runner_excludes_user_main() {
+        let source = r#"fn main() {
+    print("hello")
+}
+
+test "example" {
+    assert true
+}
+"#;
+        let output = parse(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{output:?}");
+        let go = emit_tests(&output.module, source).expect("emission should succeed");
+        let matches: Vec<_> = go
+            .lines()
+            .filter(|line| line.starts_with("func main()"))
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "test runner must define exactly one main function"
+        );
     }
 }

@@ -2,7 +2,7 @@
 
 use keelc_ast::pretty::pretty_print;
 use keelc_ast::Module;
-use keelc_backend_go::emit;
+use keelc_backend_go::{emit, emit_tests};
 use keelc_diag::{Diagnostic, Severity};
 use keelc_parse::parse;
 use keelc_resolve::{resolve, typecheck};
@@ -53,7 +53,7 @@ pub fn main() -> ExitCode {
 
     match command.as_os_str().to_str() {
         Some("fmt") => return fmt_file(path, &text),
-        Some("check" | "run" | "build") => {}
+        Some("check" | "run" | "build" | "test") => {}
         _ => {
             eprintln!(
                 "unsupported command `{}`; keel supports `build|run|fmt|test <file>`",
@@ -90,6 +90,7 @@ pub fn main() -> ExitCode {
 
     match command.as_os_str().to_str() {
         Some("run") => run_module(&output.module),
+        Some("test") => run_tests(&output.module, &text),
         Some("build") => build_module(&output.module),
         _ => ExitCode::SUCCESS,
     }
@@ -163,6 +164,66 @@ fn run_module(module: &Module) -> ExitCode {
     };
 
     let temp_dir = env::temp_dir().join(format!("keelc-go-{}", std::process::id()));
+    if let Err(err) = fs::create_dir_all(&temp_dir) {
+        eprintln!(
+            "could not create Go build directory {}: {err}",
+            temp_dir.display()
+        );
+        return ExitCode::from(2);
+    }
+    let _guard = TempDir(temp_dir.clone());
+
+    let go_file = temp_dir.join("main.go");
+    if let Err(err) = fs::write(&go_file, go_source) {
+        eprintln!(
+            "could not write generated Go source {}: {err}",
+            go_file.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    let go_cache = temp_dir.join("gocache");
+    if let Err(err) = fs::create_dir_all(&go_cache) {
+        eprintln!(
+            "could not create Go cache directory {}: {err}",
+            go_cache.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    let output = match Command::new("go")
+        .arg("run")
+        .arg(&go_file)
+        .env("GOCACHE", &go_cache)
+        .stdin(Stdio::null())
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("could not invoke Go toolchain: {err}");
+            return ExitCode::from(2);
+        }
+    };
+
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    if output.status.success() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn run_tests(module: &Module, source: &str) -> ExitCode {
+    let go_source = match emit_tests(module, source) {
+        Ok(source) => source,
+        Err(err) => {
+            eprintln!("backend error: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let temp_dir = env::temp_dir().join(format!("keelc-go-tests-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
         eprintln!(
             "could not create Go build directory {}: {err}",
