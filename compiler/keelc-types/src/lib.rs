@@ -54,6 +54,13 @@ impl TypeInfo {
         }
     }
 
+    pub fn generic(name: impl Into<String>, args: Vec<Self>) -> Self {
+        Self::Generic {
+            name: name.into(),
+            args,
+        }
+    }
+
     pub fn result_parts(&self) -> Option<(&Self, &Self)> {
         match self {
             Self::Generic { name, args } if name == "Result" && args.len() == 2 => {
@@ -85,11 +92,7 @@ impl fmt::Display for TypeInfo {
     }
 }
 
-fn write_type_list(
-    f: &mut fmt::Formatter<'_>,
-    types: &[TypeInfo],
-    separator: &str,
-) -> fmt::Result {
+fn write_type_list(f: &mut fmt::Formatter<'_>, types: &[TypeInfo], separator: &str) -> fmt::Result {
     let mut first = true;
     for ty in types {
         if first {

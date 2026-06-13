@@ -8,3 +8,4 @@ description = "M3 Go source emitter for keelc."
 keelc-ast = { path = "../keelc-ast" }
 keelc-parse = { path = "../keelc-parse" }
 keelc-span = { path = "../keelc-span" }
+keelc-types = { path = "../keelc-types" }

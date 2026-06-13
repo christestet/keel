@@ -20,6 +20,7 @@ dependencies = [
  "keelc-ast",
  "keelc-parse",
  "keelc-span",
+ "keelc-types",
 ]
 
 [[package]]

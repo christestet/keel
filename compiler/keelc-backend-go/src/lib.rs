@@ -2,10 +2,11 @@
 
 use keelc_ast::{
     BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, Item, MatchArm, Module, Pattern,
-    Stmt, StringLiteral, StructDecl, StructLiteralField, Type, UnaryOp, VariantDecl,
+    Stmt, StringLiteral, StructDecl, StructLiteralField, UnaryOp, VariantDecl,
 };
 use keelc_parse::parse;
 use keelc_span::SourceId;
+use keelc_types::{merge_types, TypeInfo};
 use std::fmt::{self, Write as _};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,22 +32,6 @@ impl std::error::Error for BackendError {}
 
 pub fn emit(module: &Module) -> Result<String, BackendError> {
     Emitter::new(module).emit()
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum TypeInfo {
-    Int,
-    Float,
-    Bool,
-    String,
-    Char,
-    Unit,
-    Struct(String),
-    Enum(String),
-    Option(Box<TypeInfo>),
-    Result(Box<TypeInfo>, Box<TypeInfo>),
-    Union(Vec<TypeInfo>),
-    Unknown,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -198,7 +183,7 @@ impl<'a> Emitter<'a> {
             self.line(&format!(
                 "{} {}",
                 field.name.value,
-                go_type(&type_from_ast(&field.ty))
+                go_type(&TypeInfo::from_ast(&field.ty))
             ))?;
         }
         self.indent -= 1;
@@ -257,7 +242,7 @@ impl<'a> Emitter<'a> {
                 self.output,
                 "{} {}",
                 field.name.value,
-                go_type(&type_from_ast(&field.ty))
+                go_type(&TypeInfo::from_ast(&field.ty))
             )?;
         }
         self.output.push_str(") KeelEnum {\n");
@@ -297,7 +282,7 @@ impl<'a> Emitter<'a> {
                 self.output,
                 "{} {}",
                 param.name.value,
-                go_type(&type_from_ast(ty))
+                go_type(&TypeInfo::from_ast(ty))
             )?;
         }
         self.output.push(')');
@@ -305,7 +290,7 @@ impl<'a> Emitter<'a> {
         let return_type = function
             .return_type
             .as_ref()
-            .map_or(TypeInfo::Unit, type_from_ast);
+            .map_or(TypeInfo::Unit, TypeInfo::from_ast);
         if return_type != TypeInfo::Unit {
             self.output.push(' ');
             self.output.push_str(&go_type(&return_type));
@@ -315,7 +300,10 @@ impl<'a> Emitter<'a> {
         let previous_return_type = std::mem::replace(&mut self.current_return_type, return_type);
         self.push_scope();
         for param in &function.params {
-            let ty = param.ty.as_ref().map_or(TypeInfo::Unknown, type_from_ast);
+            let ty = param
+                .ty
+                .as_ref()
+                .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
             self.define(&param.name.value, ty);
         }
         self.indent += 1;
@@ -416,32 +404,30 @@ impl<'a> Emitter<'a> {
         let success_type = question_success_type(&expr_type).unwrap_or(TypeInfo::Unknown);
         let expr = self.emit_expr(expr)?;
         self.line(&format!("{temp} := {expr}"))?;
-        match expr_type {
-            TypeInfo::Result(_, _) => {
-                self.line(&format!("if {temp}.tag == \"Err\" {{"))?;
-                self.indent += 1;
-                self.line(&format!("return Err({}.values[0])", temp))?;
-                self.indent -= 1;
-                self.line("}")?;
-                self.line(&format!(
-                    "{} := {}",
-                    name,
-                    payload_expr(&temp, 0, &success_type)
-                ))
-            }
-            TypeInfo::Option(_) => {
-                self.line(&format!("if {temp}.tag == \"None\" {{"))?;
-                self.indent += 1;
-                self.line("return None")?;
-                self.indent -= 1;
-                self.line("}")?;
-                self.line(&format!(
-                    "{} := {}",
-                    name,
-                    payload_expr(&temp, 0, &success_type)
-                ))
-            }
-            _ => Err(BackendError::unsupported("? on non-Result/Option value")),
+        if expr_type.result_parts().is_some() {
+            self.line(&format!("if {temp}.tag == \"Err\" {{"))?;
+            self.indent += 1;
+            self.line(&format!("return Err({}.values[0])", temp))?;
+            self.indent -= 1;
+            self.line("}")?;
+            self.line(&format!(
+                "{} := {}",
+                name,
+                payload_expr(&temp, 0, &success_type)
+            ))
+        } else if expr_type.option_inner().is_some() {
+            self.line(&format!("if {temp}.tag == \"None\" {{"))?;
+            self.indent += 1;
+            self.line("return None")?;
+            self.indent -= 1;
+            self.line("}")?;
+            self.line(&format!(
+                "{} := {}",
+                name,
+                payload_expr(&temp, 0, &success_type)
+            ))
+        } else {
+            Err(BackendError::unsupported("? on non-Result/Option value"))
         }
     }
 
@@ -455,10 +441,10 @@ impl<'a> Emitter<'a> {
         let temp = self.next_temp();
         let err_temp = self.next_temp();
         let expr_type = self.infer_expr(expr);
-        let (success_type, error_type) = match expr_type {
-            TypeInfo::Result(ok, err) => (*ok, *err),
-            _ => (TypeInfo::Unknown, TypeInfo::Unknown),
-        };
+        let (success_type, error_type) = expr_type
+            .result_parts()
+            .map(|(ok, err)| (ok.clone(), err.clone()))
+            .unwrap_or((TypeInfo::Unknown, TypeInfo::Unknown));
         let expr = self.emit_expr(expr)?;
         self.line(&format!("{temp} := {expr}"))?;
         self.line(&format!("var {} {}", name, go_type(&success_type)))?;
@@ -960,14 +946,25 @@ impl<'a> Emitter<'a> {
     }
 
     fn pattern_payload_types(&self, scrutinee_ty: &TypeInfo, pattern_name: &str) -> Vec<TypeInfo> {
-        match scrutinee_ty {
-            TypeInfo::Option(inner) if pattern_name == "Some" => vec![inner.as_ref().clone()],
-            TypeInfo::Result(ok, _) if pattern_name == "Ok" => vec![ok.as_ref().clone()],
-            TypeInfo::Result(_, err) if pattern_name == "Err" => vec![err.as_ref().clone()],
-            TypeInfo::Enum(enum_name) | TypeInfo::Struct(enum_name) => self
+        if pattern_name == "Some" {
+            if let Some(inner) = scrutinee_ty.option_inner() {
+                return vec![inner.clone()];
+            }
+        }
+        if pattern_name == "Ok" || pattern_name == "Err" {
+            if let Some((ok, err)) = scrutinee_ty.result_parts() {
+                return vec![if pattern_name == "Ok" {
+                    ok.clone()
+                } else {
+                    err.clone()
+                }];
+            }
+        }
+        if let TypeInfo::Named(name) = scrutinee_ty {
+            return self
                 .enums
                 .iter()
-                .find(|info| info.name == *enum_name)
+                .find(|info| info.name == *name)
                 .and_then(|info| {
                     info.variants
                         .iter()
@@ -980,9 +977,9 @@ impl<'a> Emitter<'a> {
                         .map(|field| field.ty.clone())
                         .collect()
                 })
-                .unwrap_or_default(),
-            _ => Vec::new(),
+                .unwrap_or_default();
         }
+        Vec::new()
     }
 
     fn infer_block_type(&self, block: &Block) -> TypeInfo {
@@ -1036,7 +1033,7 @@ impl<'a> Emitter<'a> {
                 self.field_type(&target_ty, &field.value)
                     .unwrap_or(TypeInfo::Unknown)
             }
-            Expr::StructLiteral { name, .. } => TypeInfo::Struct(name.value.clone()),
+            Expr::StructLiteral { name, .. } => TypeInfo::Named(name.value.clone()),
             Expr::If {
                 then_block,
                 else_branch,
@@ -1055,10 +1052,12 @@ impl<'a> Emitter<'a> {
             Expr::Question { expr, .. } => {
                 question_success_type(&self.infer_expr(expr)).unwrap_or(TypeInfo::Unknown)
             }
-            Expr::Catch { expr, .. } => match self.infer_expr(expr) {
-                TypeInfo::Result(ok, _) => *ok,
-                _ => TypeInfo::Unknown,
-            },
+            Expr::Catch { expr, .. } => self
+                .infer_expr(expr)
+                .result_parts()
+                .map(|(ok, _)| ok)
+                .cloned()
+                .unwrap_or(TypeInfo::Unknown),
             Expr::Return { .. } => TypeInfo::Unit,
         }
     }
@@ -1068,18 +1067,25 @@ impl<'a> Emitter<'a> {
         match callee {
             Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
             Expr::Name(name) if name.value == "checked_div" || name.value == "checked_rem" => {
-                TypeInfo::Option(Box::new(TypeInfo::Int))
+                TypeInfo::generic("Option", vec![TypeInfo::Int])
             }
-            Expr::Name(name) if name.value == "Some" => TypeInfo::Option(Box::new(
-                arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
-            )),
-            Expr::Name(name) if name.value == "Ok" => TypeInfo::Result(
-                Box::new(arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)),
-                Box::new(TypeInfo::Unknown),
+            Expr::Name(name) if name.value == "Some" => TypeInfo::generic(
+                "Option",
+                vec![arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)],
             ),
-            Expr::Name(name) if name.value == "Err" => TypeInfo::Result(
-                Box::new(TypeInfo::Unknown),
-                Box::new(arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)),
+            Expr::Name(name) if name.value == "Ok" => TypeInfo::generic(
+                "Result",
+                vec![
+                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
+                    TypeInfo::Unknown,
+                ],
+            ),
+            Expr::Name(name) if name.value == "Err" => TypeInfo::generic(
+                "Result",
+                vec![
+                    TypeInfo::Unknown,
+                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
+                ],
             ),
             Expr::Name(name) => self
                 .function_return_type(&name.value)
@@ -1096,7 +1102,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn field_type(&self, target_ty: &TypeInfo, field_name: &str) -> Option<TypeInfo> {
-        let TypeInfo::Struct(name) = target_ty else {
+        let TypeInfo::Named(name) = target_ty else {
             return None;
         };
         self.structs
@@ -1110,7 +1116,7 @@ impl<'a> Emitter<'a> {
 
     fn builtin_value_type(&self, name: &str) -> Option<TypeInfo> {
         match name {
-            "None" => Some(TypeInfo::Option(Box::new(TypeInfo::Unknown))),
+            "None" => Some(TypeInfo::generic("Option", vec![TypeInfo::Unknown])),
             _ => None,
         }
     }
@@ -1123,7 +1129,7 @@ impl<'a> Emitter<'a> {
                     .iter()
                     .any(|variant| variant.name == variant_name)
             })
-            .map(|info| TypeInfo::Enum(info.name.clone()))
+            .map(|info| TypeInfo::Named(info.name.clone()))
     }
 
     fn function_return_type(&self, name: &str) -> Option<TypeInfo> {
@@ -1227,7 +1233,7 @@ fn collect_structs(module: &Module) -> Vec<StructInfo> {
 fn struct_field_info(field: &FieldDecl) -> StructFieldInfo {
     StructFieldInfo {
         name: field.name.value.clone(),
-        ty: type_from_ast(&field.ty),
+        ty: TypeInfo::from_ast(&field.ty),
         default: field.default.clone(),
     }
 }
@@ -1254,7 +1260,7 @@ fn variant_info(variant: &VariantDecl) -> VariantInfo {
             .iter()
             .map(|field| VariantFieldInfo {
                 name: field.name.value.clone(),
-                ty: type_from_ast(&field.ty),
+                ty: TypeInfo::from_ast(&field.ty),
             })
             .collect(),
     }
@@ -1269,37 +1275,12 @@ fn collect_functions(module: &Module) -> Vec<FunctionInfo> {
                 return_type: decl
                     .return_type
                     .as_ref()
-                    .map_or(TypeInfo::Unit, type_from_ast),
+                    .map_or(TypeInfo::Unit, TypeInfo::from_ast),
             });
         }
     }
     functions.sort_by(|left, right| left.name.cmp(&right.name));
     functions
-}
-
-fn type_from_ast(ty: &Type) -> TypeInfo {
-    match ty {
-        Type::Named { name, args, .. } if args.is_empty() => match name.value.as_str() {
-            "Int" => TypeInfo::Int,
-            "Float" => TypeInfo::Float,
-            "Bool" => TypeInfo::Bool,
-            "String" => TypeInfo::String,
-            "Char" => TypeInfo::Char,
-            "Unit" => TypeInfo::Unit,
-            other => TypeInfo::Struct(other.to_string()),
-        },
-        Type::Named { name, args, .. } if name.value == "Option" && args.len() == 1 => {
-            TypeInfo::Option(Box::new(type_from_ast(&args[0])))
-        }
-        Type::Named { name, args, .. } if name.value == "Result" && args.len() == 2 => {
-            TypeInfo::Result(
-                Box::new(type_from_ast(&args[0])),
-                Box::new(type_from_ast(&args[1])),
-            )
-        }
-        Type::Named { name, .. } => TypeInfo::Struct(name.value.clone()),
-        Type::Union { members, .. } => TypeInfo::Union(members.iter().map(type_from_ast).collect()),
-    }
 }
 
 fn go_type(ty: &TypeInfo) -> String {
@@ -1310,41 +1291,17 @@ fn go_type(ty: &TypeInfo) -> String {
         TypeInfo::String => "string".to_string(),
         TypeInfo::Char => "rune".to_string(),
         TypeInfo::Unit => String::new(),
-        TypeInfo::Struct(name) => name.clone(),
-        TypeInfo::Enum(_) | TypeInfo::Option(_) | TypeInfo::Result(_, _) | TypeInfo::Union(_) => {
+        TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => {
             "KeelEnum".to_string()
         }
         TypeInfo::Unknown => "any".to_string(),
     }
 }
 
-fn merge_types(left: &TypeInfo, right: &TypeInfo) -> TypeInfo {
-    if matches!(left, TypeInfo::Unknown) {
-        return right.clone();
-    }
-    if matches!(right, TypeInfo::Unknown) || left == right {
-        return left.clone();
-    }
-    match (left, right) {
-        (TypeInfo::Option(left), TypeInfo::Option(right)) => {
-            TypeInfo::Option(Box::new(merge_types(left, right)))
-        }
-        (TypeInfo::Result(left_ok, left_err), TypeInfo::Result(right_ok, right_err)) => {
-            TypeInfo::Result(
-                Box::new(merge_types(left_ok, right_ok)),
-                Box::new(merge_types(left_err, right_err)),
-            )
-        }
-        _ => TypeInfo::Unknown,
-    }
-}
-
 fn question_success_type(ty: &TypeInfo) -> Option<TypeInfo> {
-    match ty {
-        TypeInfo::Option(inner) => Some(inner.as_ref().clone()),
-        TypeInfo::Result(ok, _) => Some(ok.as_ref().clone()),
-        _ => None,
-    }
+    ty.option_inner()
+        .or_else(|| ty.result_parts().map(|(ok, _)| ok))
+        .cloned()
 }
 
 fn payload_expr(value: &str, index: usize, ty: &TypeInfo) -> String {
@@ -1370,11 +1327,7 @@ fn zero_value(ty: &TypeInfo) -> &'static str {
         TypeInfo::Bool => "false",
         TypeInfo::String => "\"\"",
         TypeInfo::Unit => "",
-        TypeInfo::Struct(_)
-        | TypeInfo::Enum(_)
-        | TypeInfo::Option(_)
-        | TypeInfo::Result(_, _)
-        | TypeInfo::Union(_) => "KeelEnum{}",
+        TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => "KeelEnum{}",
         TypeInfo::Unknown => "nil",
     }
 }

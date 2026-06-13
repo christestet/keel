@@ -1,8 +1,6 @@
 //! Name resolution and early semantic diagnostics for Keel Core.
 
-use keelc_ast::{
-    BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, StringLiteral,
-};
+use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, StringLiteral};
 use keelc_diag::{registry, Diagnostic};
 use keelc_parse::parse;
 use keelc_span::{Span, Spanned};
@@ -509,7 +507,8 @@ impl<'a> Typechecker<'a> {
                 span,
             } => {
                 let result_type = self.infer_expr(expr);
-                let (success_type, error_type) = result_type.result_parts()
+                let (success_type, error_type) = result_type
+                    .result_parts()
                     .map_or((TypeInfo::Unknown, TypeInfo::Unknown), |(ok, err)| {
                         (ok.clone(), err.clone())
                     });
