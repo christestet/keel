@@ -51,6 +51,17 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 
 **Not done:** no `keelc-kir` crate (backend emits from AST using backend-local type env). Backend reuses canonical `TypeInfo` from `keelc-types` but type env is still backend-local.
 
+## M4 — Toolchain skeleton: CLI, fmt, test
+
+| Area | State |
+|---|---|
+| `keel` / `keelc` binaries | Split `keelc-driver` into a library plus `keel` and `keelc` binary shims. |
+| `keel fmt` | Implemented via the AST pretty-printer; idempotent on all M0 accept cases in `tests/conformance/`. |
+| `keel build` | Stub: runs frontend checks and Go emission (no artifact written yet). |
+| `keel test` | Not implemented. |
+
+**Known limitations:** formatter strips comments (comments are not stored in the AST). `examples/users-service/main.keel` uses post-Core features and cannot be formatted yet.
+
 ## Milestone key
 
 | # | Title | Exit criterion |
