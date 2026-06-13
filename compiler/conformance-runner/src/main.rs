@@ -59,6 +59,9 @@ struct Case {
     expectation: Expectation,
     /// Minimum milestone (e.g. 2 for "M2") at which this case must pass.
     milestone: Option<u32>,
+    /// Maximum milestone (e.g. 4 for "M4") at which this case must pass.
+    /// Cases with an `until` are skipped once the milestone exceeds it.
+    until: Option<u32>,
     /// Optional expected warning (for accept-cases that also emit a warning).
     expected_warning: Option<WarningCheck>,
     /// How to execute an accept-case: `keelc run` (default) or `keelc test`.
@@ -173,10 +176,11 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             None
         };
 
-        // optional case.toml — only `milestone = "MN"` and `mode = "run|test"`
-        // are recognized; hand-parsed to keep the runner dependency-free.
-        let (milestone, mode) = match parse_case_toml(&dir.join("case.toml")) {
-            Ok(pair) => pair,
+        // optional case.toml — `milestone = "MN"`, `until = "MN"`, and
+        // `mode = "run|test|build"` are recognized; hand-parsed to keep the
+        // runner dependency-free.
+        let (milestone, until, mode) = match parse_case_toml(&dir.join("case.toml")) {
+            Ok(triple) => triple,
             Err(p) => {
                 err(format!("case.toml: {p}"));
                 continue;
@@ -188,6 +192,7 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             dir,
             expectation,
             milestone,
+            until,
             expected_warning,
             mode,
         });
@@ -247,11 +252,12 @@ fn parse_diagnostic_code(text: &str) -> Result<Expectation, String> {
     Ok(Expectation::Error { code, line })
 }
 
-fn parse_case_toml(p: &Path) -> Result<(Option<u32>, RunMode), String> {
+fn parse_case_toml(p: &Path) -> Result<(Option<u32>, Option<u32>, RunMode), String> {
     if !p.is_file() {
-        return Ok((None, RunMode::Run));
+        return Ok((None, None, RunMode::Run));
     }
     let mut milestone = None;
+    let mut until = None;
     let mut mode = RunMode::Run;
     for raw in read(p).lines() {
         let l = raw.split('#').next().unwrap_or("").trim();
@@ -265,6 +271,15 @@ fn parse_case_toml(p: &Path) -> Result<(Option<u32>, RunMode), String> {
                 .ok_or("expected `milestone = \"MN\"`")?;
             let v = v.trim().trim_matches('"');
             milestone = Some(parse_milestone(v)?);
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("until") {
+            let v = v
+                .trim_start()
+                .strip_prefix('=')
+                .ok_or("expected `until = \"MN\"`")?;
+            let v = v.trim().trim_matches('"');
+            until = Some(parse_milestone(v)?);
             continue;
         }
         if let Some(v) = l.strip_prefix("mode") {
@@ -282,10 +297,10 @@ fn parse_case_toml(p: &Path) -> Result<(Option<u32>, RunMode), String> {
             continue;
         }
         return Err(format!(
-            "unrecognized key in `{l}` (only `milestone` and `mode` are allowed)"
+            "unrecognized key in `{l}` (only `milestone`, `until`, and `mode` are allowed)"
         ));
     }
-    Ok((milestone, mode))
+    Ok((milestone, until, mode))
 }
 
 fn parse_milestone(s: &str) -> Result<u32, String> {
@@ -318,6 +333,11 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
     if let (Some(need), Some(cur)) = (case.milestone, current_milestone) {
         if need > cur {
             return Outcome::Skip(format!("requires M{need}, running at M{cur}"));
+        }
+    }
+    if let (Some(until), Some(cur)) = (case.until, current_milestone) {
+        if cur > until {
+            return Outcome::Skip(format!("only valid through M{until}, running at M{cur}"));
         }
     }
 
