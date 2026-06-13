@@ -897,24 +897,7 @@ impl<'a> Emitter<'a> {
         args: &[Pattern],
         payload_types: &[TypeInfo],
     ) -> Result<(), BackendError> {
-        for (index, pattern) in args.iter().enumerate() {
-            let ty = payload_types
-                .get(index)
-                .cloned()
-                .unwrap_or(TypeInfo::Unknown);
-            if let Pattern::Name { name, args, .. } = pattern {
-                if !args.is_empty() {
-                    return Err(BackendError::unsupported("nested pattern bindings"));
-                }
-                self.line(&format!(
-                    "{} := {}",
-                    name.value,
-                    payload_expr(temp, index, &ty)
-                ))?;
-                self.line(&format!("_ = {}", name.value))?;
-                self.define(&name.value, ty);
-            }
-        }
+        self.emit_pattern_bindings_inner(temp, args, payload_types, false)?;
         Ok(())
     }
 
@@ -923,6 +906,16 @@ impl<'a> Emitter<'a> {
         temp: &str,
         args: &[Pattern],
         payload_types: &[TypeInfo],
+    ) -> Result<String, BackendError> {
+        self.emit_pattern_bindings_inner(temp, args, payload_types, true)
+    }
+
+    fn emit_pattern_bindings_inner(
+        &mut self,
+        temp: &str,
+        args: &[Pattern],
+        payload_types: &[TypeInfo],
+        inline: bool,
     ) -> Result<String, BackendError> {
         let mut out = String::new();
         for (index, pattern) in args.iter().enumerate() {
@@ -934,13 +927,22 @@ impl<'a> Emitter<'a> {
                 if !args.is_empty() {
                     return Err(BackendError::unsupported("nested pattern bindings"));
                 }
-                write!(
-                    out,
-                    "{} := {}; _ = {}; ",
-                    name.value,
-                    payload_expr(temp, index, &ty),
-                    name.value
-                )?;
+                if inline {
+                    write!(
+                        out,
+                        "{} := {}; _ = {}; ",
+                        name.value,
+                        payload_expr(temp, index, &ty),
+                        name.value
+                    )?;
+                } else {
+                    self.line(&format!(
+                        "{} := {}",
+                        name.value,
+                        payload_expr(temp, index, &ty)
+                    ))?;
+                    self.line(&format!("_ = {}", name.value))?;
+                }
                 self.define(&name.value, ty);
             }
         }
