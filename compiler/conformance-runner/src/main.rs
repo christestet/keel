@@ -13,6 +13,8 @@
 //!     code from line 1 of `expected.error` (e.g. `K0301`). If line 2 is
 //!     `line:N`, stderr must also contain `main.keel:N`. Message TEXT is
 //!     never matched — codes are the stable API.
+//!   * warning-case: optional `expected.warning` alongside `expected.stdout`;
+//!     program must compile and its stderr must contain the warning code.
 //!
 //! Usage:
 //!   conformance-runner [--check] [--suite <dir>] [--keelc <path>] [--milestone M2]
@@ -34,12 +36,20 @@ enum Expectation {
 }
 
 #[derive(Debug)]
+struct WarningCheck {
+    code: String,
+    line: Option<u32>,
+}
+
+#[derive(Debug)]
 struct Case {
     name: String,
     dir: PathBuf,
     expectation: Expectation,
     /// Minimum milestone (e.g. 2 for "M2") at which this case must pass.
     milestone: Option<u32>,
+    /// Optional expected warning (for accept-cases that also emit a warning).
+    expected_warning: Option<WarningCheck>,
 }
 
 #[derive(Debug)]
@@ -106,6 +116,13 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
 
         let stdout_p = dir.join("expected.stdout");
         let error_p = dir.join("expected.error");
+        let warning_p = dir.join("expected.warning");
+
+        if warning_p.is_file() && error_p.is_file() {
+            err("cannot have both expected.warning and expected.error".into());
+            continue;
+        }
+
         let expectation = match (stdout_p.is_file(), error_p.is_file()) {
             (true, true) => {
                 err("has BOTH expected.stdout and expected.error — exactly one is required".into());
@@ -119,13 +136,28 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
                 continue;
             }
             (true, false) => Expectation::Stdout(normalize(&read(&stdout_p))),
-            (false, true) => match parse_expected_error(&read(&error_p)) {
+            (false, true) => match parse_diagnostic_code(&read(&error_p)) {
                 Ok(exp) => exp,
                 Err(p) => {
                     err(format!("expected.error: {p}"));
                     continue;
                 }
             },
+        };
+
+        let expected_warning = if warning_p.is_file() {
+            match parse_diagnostic_code(&read(&warning_p)) {
+                Ok(exp) => match exp {
+                    Expectation::Error { code, line } => Some(WarningCheck { code, line }),
+                    _ => unreachable!(),
+                },
+                Err(p) => {
+                    err(format!("expected.warning: {p}"));
+                    continue;
+                }
+            }
+        } else {
+            None
         };
 
         // optional case.toml — only `milestone = "MN"` is recognized; hand-parsed
@@ -143,6 +175,7 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             dir,
             expectation,
             milestone,
+            expected_warning,
         });
     }
 
@@ -167,7 +200,7 @@ fn normalize(s: &str) -> String {
     s
 }
 
-fn parse_expected_error(text: &str) -> Result<Expectation, String> {
+fn parse_diagnostic_code(text: &str) -> Result<Expectation, String> {
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let code = lines
         .next()
@@ -281,6 +314,11 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             if &stdout != want {
                 return Outcome::Fail(diff("stdout", want, &stdout));
             }
+            if let Some(warning) = &case.expected_warning {
+                if let Some(fail) = check_warning(&stderr, warning) {
+                    return Outcome::Fail(fail);
+                }
+            }
             Outcome::Pass
         }
         Expectation::Error { code, line } => check_expected_error(
@@ -303,6 +341,11 @@ fn check_m2_semantics(case: &Case, keelc: &str, current_milestone: Option<u32>) 
     match &case.expectation {
         Expectation::Stdout(_) => {
             if out.status.success() {
+                if let Some(warning) = &case.expected_warning {
+                    if let Some(fail) = check_warning(&stderr, warning) {
+                        return Outcome::Fail(fail);
+                    }
+                }
                 Outcome::Pass
             } else {
                 Outcome::Fail(format!(
@@ -356,6 +399,24 @@ fn check_m1_syntax(case: &Case, keelc: &str, current_milestone: Option<u32>) -> 
             }
         }
     }
+}
+
+fn check_warning(stderr: &str, warning: &WarningCheck) -> Option<String> {
+    if !stderr.contains(&warning.code) {
+        return Some(format!(
+            "expected warning {} in stderr\n--- stderr ---\n{stderr}",
+            warning.code
+        ));
+    }
+    if let Some(n) = warning.line {
+        let needle = format!("main.keel:{n}");
+        if !stderr.contains(&needle) {
+            return Some(format!(
+                "expected warning span at {needle}\n--- stderr ---\n{stderr}"
+            ));
+        }
+    }
+    None
 }
 
 fn check_expected_error(

@@ -743,6 +743,24 @@ impl<'a> Typechecker<'a> {
             registry::K0402,
             "match is not exhaustive",
         );
+
+        // K0403: warn on wildcard `_` against a same-module enum
+        if let TypeInfo::Named(name) = scrutinee_type {
+            if self.enums.iter().any(|info| info.name == *name) {
+                if let Some(arm) = arms
+                    .iter()
+                    .find(|arm| arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard(_)))
+                {
+                    self.diagnostics.push(Diagnostic::warning(
+                        registry::K0403,
+                        arm.pattern.span(),
+                        format!(
+                            "wildcard `_` matches all variants of `{name}`; prefer naming variants explicitly"
+                        ),
+                    ));
+                }
+            }
+        }
     }
 
     fn check_catch_exhaustive(&mut self, error_type: &TypeInfo, arms: &[MatchArm], span: Span) {
