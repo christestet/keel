@@ -91,7 +91,7 @@ pub fn main() -> ExitCode {
     match command.as_os_str().to_str() {
         Some("run") => run_module(&output.module),
         Some("test") => run_tests(&output.module, &text),
-        Some("build") => build_module(&output.module),
+        Some("build") => build_module(&output.module, path),
         _ => ExitCode::SUCCESS,
     }
 }
@@ -113,13 +113,75 @@ fn fmt_file(path: &Path, text: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn build_module(module: &Module) -> ExitCode {
-    match emit(module) {
-        Ok(_source) => ExitCode::SUCCESS,
+fn build_module(module: &Module, source_path: &Path) -> ExitCode {
+    let go_source = match emit(module) {
+        Ok(source) => source,
         Err(err) => {
             eprintln!("backend error: {err}");
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
+    };
+
+    let temp_dir = env::temp_dir().join(format!("keelc-build-{}", std::process::id()));
+    if let Err(err) = fs::create_dir_all(&temp_dir) {
+        eprintln!(
+            "could not create Go build directory {}: {err}",
+            temp_dir.display()
+        );
+        return ExitCode::from(2);
+    }
+    let _guard = TempDir(temp_dir.clone());
+
+    let go_file = temp_dir.join("main.go");
+    if let Err(err) = fs::write(&go_file, go_source) {
+        eprintln!(
+            "could not write generated Go source {}: {err}",
+            go_file.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    let go_cache = temp_dir.join("gocache");
+    if let Err(err) = fs::create_dir_all(&go_cache) {
+        eprintln!(
+            "could not create Go cache directory {}: {err}",
+            go_cache.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    let binary_name = source_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("keel-out");
+    let binary_name = format!("{binary_name}{}", std::env::consts::EXE_SUFFIX);
+    let output_dir = source_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let binary_path = output_dir.join(&binary_name);
+
+    let output = match Command::new("go")
+        .arg("build")
+        .arg("-o")
+        .arg(&binary_path)
+        .arg(&go_file)
+        .env("GOCACHE", &go_cache)
+        .stdin(Stdio::null())
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("could not invoke Go toolchain: {err}");
+            return ExitCode::from(2);
+        }
+    };
+
+    if output.status.success() {
+        ExitCode::SUCCESS
+    } else {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        ExitCode::FAILURE
     }
 }
 
