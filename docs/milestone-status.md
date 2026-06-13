@@ -38,19 +38,18 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 | Area | State |
 |---|---|
 | Go runtime shim (`keelc-backend-go`) | `KeelEnum`, `Some`/`None`, `Ok`/`Err`, `checked_div`, `checked_rem`, div/rem-by-zero panics with `K0204`. |
-| Structs | Declarations, literals, field defaults, **nested struct field access broken** — struct literal used as `KeelEnum` interface in field position (305). |
-| Enums and payloads | Tagged values with payload storage and constructor functions. **Enum variant holding struct broken** — payload binding typed as `KeelEnum` instead of concrete struct type (308). |
+| Structs | Declarations, literals, field defaults, nested struct field access. |
+| Enums and payloads | Tagged values with payload storage and constructor functions; enum variants can hold struct payloads. |
 | `match` | Match expressions and statement-position matches — wildcard arms, guards, payload bindings. |
 | `Option` / `Result` | M3 tagged representation. |
 | `?` | `let value = expr?` lowers to temporary + early `return`. |
 | `catch` | `let value = expr catch err { ... }` — success extraction, matched error arms, `other` fallback. |
-| **Conformance score** | **89 / 91 passed** (M3 milestone). 2 failures: 305-nested-struct, 308-enum-variant-holds-struct. |
+| Driver (`keelc-driver`) | `keelc check` and `keelc run`; `run` cleans up its temporary Go build directory. |
+| **Conformance score** | **91 / 91 passed** (M3 milestone). Exit criterion met. |
 
-**Known failures:**
-- **305-nested-struct**: struct-typed field access emits `KeelEnum` interface type instead of concrete struct, breaking field access (`b.engine.power` fails).
-- **308-enum-variant-holds-struct**: enum variant payload binding uses `KeelEnum` type instead of concrete struct type, preventing field access on matched payload (`Login(u) => u.name` fails).
+**Known failures:** none.
 
-**Not done:** no `keelc-kir` crate (backend emits from AST using backend-local type env). Backend reuses canonical `TypeInfo` from `keelc-types` but type env is still backend-local. M4 CLI/formatter/test-runner remain future work.
+**Not done:** no `keelc-kir` crate (backend emits from AST using backend-local type env). Backend reuses canonical `TypeInfo` from `keelc-types` but type env is still backend-local.
 
 ## Milestone key
 
