@@ -1,0 +1,18 @@
+enum ParseError {
+    BadDigit,
+}
+
+enum RangeError {
+    TooBig,
+}
+
+fn parse(s: String) -> Result<Int, ParseError | RangeError> {
+    if s == "1" { Ok(1) } else { Err(BadDigit) }
+}
+
+fn main() {
+    let v = parse("x") catch err {
+        BadDigit => 0,
+    }
+    print("{v}")
+}

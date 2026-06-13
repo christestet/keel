@@ -746,14 +746,17 @@ impl<'a> Typechecker<'a> {
     }
 
     fn check_catch_exhaustive(&mut self, error_type: &TypeInfo, arms: &[MatchArm], span: Span) {
-        self.check_exhaustive(
-            error_type,
-            arms,
-            span,
-            is_catch_fallback_arm,
-            registry::K0502,
-            "catch is not exhaustive",
-        );
+        let code = if matches!(error_type, TypeInfo::Union(_)) {
+            registry::K0503
+        } else {
+            registry::K0502
+        };
+        let message = if matches!(error_type, TypeInfo::Union(_)) {
+            "union error match is not exhaustive"
+        } else {
+            "catch is not exhaustive"
+        };
+        self.check_exhaustive(error_type, arms, span, is_catch_fallback_arm, code, message);
     }
 
     fn exhaustive_variants(&self, ty: &TypeInfo) -> Option<Vec<String>> {
