@@ -73,3 +73,16 @@ compiler (must exist before 1.0 even though edition 2 is years away).
 CI tracks compile time on a growing reference corpus. Regressions > 5% block merge
 (vision.md §7). Incrementality is architecture, not a later feature: the compiler
 is query-based (salsa-style) from M1.
+
+## Validating the active milestone
+
+`scripts/preflight.sh` is the executable definition of done. When validating a
+specific milestone, set `KEEL_MILESTONE=M<N>` so the conformance runner uses the
+same milestone gate as the roadmap item being claimed. Example for M3:
+
+```sh
+KEEL_MILESTONE=M3 scripts/preflight.sh
+```
+
+The runner accepts the same value as `--milestone M<N>`; see
+`tests/conformance/README.md`.

@@ -47,3 +47,8 @@ Run locally:
     cargo run -p conformance-runner -- --check                 # structure only (pre-M1)
     cargo run -p conformance-runner -- --keelc target/release/keelc
     cargo run -p conformance-runner -- --keelc ... --milestone M3   # skip later-milestone cases
+
+`--milestone M<N>` can also be supplied through `KEEL_MILESTONE=M<N>`. Use the
+current roadmap milestone when validating "done"; for example, during M3:
+
+    KEEL_MILESTONE=M3 scripts/preflight.sh
