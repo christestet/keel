@@ -9,6 +9,8 @@
 //!     for accepted cases; reject-cases must emit the expected code.
 //!   * M3+ run mode: `keelc run <main.keel>` exits 0; stdout must equal
 //!     `expected.stdout` (trailing-newline normalized).
+//!   * M4+ test mode: `case.toml` may set `mode = "test"`; the runner invokes
+//!     `keelc test <main.keel>` and matches stdout against `expected.stdout`.
 //!   * reject-case: keelc exits non-zero and stderr contains the diagnostic
 //!     code from line 1 of `expected.error` (e.g. `K0301`). If line 2 is
 //!     `line:N`, stderr must also contain `main.keel:N`. Message TEXT is
@@ -41,6 +43,12 @@ struct WarningCheck {
     line: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunMode {
+    Run,
+    Test,
+}
+
 #[derive(Debug)]
 struct Case {
     name: String,
@@ -50,6 +58,8 @@ struct Case {
     milestone: Option<u32>,
     /// Optional expected warning (for accept-cases that also emit a warning).
     expected_warning: Option<WarningCheck>,
+    /// How to execute an accept-case: `keelc run` (default) or `keelc test`.
+    mode: RunMode,
 }
 
 #[derive(Debug)]
@@ -160,10 +170,10 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             None
         };
 
-        // optional case.toml — only `milestone = "MN"` is recognized; hand-parsed
-        // to keep the runner dependency-free.
-        let milestone = match parse_case_toml(&dir.join("case.toml")) {
-            Ok(m) => m,
+        // optional case.toml — only `milestone = "MN"` and `mode = "run|test"`
+        // are recognized; hand-parsed to keep the runner dependency-free.
+        let (milestone, mode) = match parse_case_toml(&dir.join("case.toml")) {
+            Ok(pair) => pair,
             Err(p) => {
                 err(format!("case.toml: {p}"));
                 continue;
@@ -176,6 +186,7 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             expectation,
             milestone,
             expected_warning,
+            mode,
         });
     }
 
@@ -233,10 +244,12 @@ fn parse_diagnostic_code(text: &str) -> Result<Expectation, String> {
     Ok(Expectation::Error { code, line })
 }
 
-fn parse_case_toml(p: &Path) -> Result<Option<u32>, String> {
+fn parse_case_toml(p: &Path) -> Result<(Option<u32>, RunMode), String> {
     if !p.is_file() {
-        return Ok(None);
+        return Ok((None, RunMode::Run));
     }
+    let mut milestone = None;
+    let mut mode = RunMode::Run;
     for raw in read(p).lines() {
         let l = raw.split('#').next().unwrap_or("").trim();
         if l.is_empty() {
@@ -248,13 +261,27 @@ fn parse_case_toml(p: &Path) -> Result<Option<u32>, String> {
                 .strip_prefix('=')
                 .ok_or("expected `milestone = \"MN\"`")?;
             let v = v.trim().trim_matches('"');
-            return Ok(Some(parse_milestone(v)?));
+            milestone = Some(parse_milestone(v)?);
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("mode") {
+            let v = v
+                .trim_start()
+                .strip_prefix('=')
+                .ok_or("expected `mode = \"run\"` or `mode = \"test\"`")?;
+            let v = v.trim().trim_matches('"');
+            mode = match v {
+                "run" => RunMode::Run,
+                "test" => RunMode::Test,
+                other => return Err(format!("unrecognized mode `{other}`")),
+            };
+            continue;
         }
         return Err(format!(
-            "unrecognized key in `{l}` (only `milestone` is allowed)"
+            "unrecognized key in `{l}` (only `milestone` and `mode` are allowed)"
         ));
     }
-    Ok(None)
+    Ok((milestone, mode))
 }
 
 fn parse_milestone(s: &str) -> Result<u32, String> {
@@ -296,7 +323,19 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
         _ => {}
     }
 
-    let out = match invoke_keelc(case, keelc, "run", current_milestone) {
+    if case.mode == RunMode::Test && current_milestone < Some(4) {
+        return Outcome::Skip(format!(
+            "requires M4 test mode, running at M{}",
+            current_milestone.unwrap_or(0)
+        ));
+    }
+
+    let command = if case.mode == RunMode::Test {
+        "test"
+    } else {
+        "run"
+    };
+    let out = match invoke_keelc(case, keelc, command, current_milestone) {
         Ok(o) => o,
         Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
     };
