@@ -104,6 +104,18 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    fn struct_names(&self) -> Vec<&str> {
+        self.structs.iter().map(|s| s.name.as_str()).collect()
+    }
+
+    fn go_type(&self, ty: &TypeInfo) -> String {
+        go_type(ty, &self.struct_names())
+    }
+
+    fn payload_expr(&self, value: &str, index: usize, ty: &TypeInfo) -> String {
+        payload_expr(value, index, ty, &self.struct_names())
+    }
+
     fn emit(mut self) -> Result<String, BackendError> {
         self.line("package main")?;
         self.line("")?;
@@ -183,7 +195,7 @@ impl<'a> Emitter<'a> {
             self.line(&format!(
                 "{} {}",
                 field.name.value,
-                go_type(&TypeInfo::from_ast(&field.ty))
+                self.go_type(&TypeInfo::from_ast(&field.ty))
             ))?;
         }
         self.indent -= 1;
@@ -242,7 +254,7 @@ impl<'a> Emitter<'a> {
                 self.output,
                 "{} {}",
                 field.name.value,
-                go_type(&TypeInfo::from_ast(&field.ty))
+                self.go_type(&TypeInfo::from_ast(&field.ty))
             )?;
         }
         self.output.push_str(") KeelEnum {\n");
@@ -282,7 +294,7 @@ impl<'a> Emitter<'a> {
                 self.output,
                 "{} {}",
                 param.name.value,
-                go_type(&TypeInfo::from_ast(ty))
+                self.go_type(&TypeInfo::from_ast(ty))
             )?;
         }
         self.output.push(')');
@@ -293,7 +305,7 @@ impl<'a> Emitter<'a> {
             .map_or(TypeInfo::Unit, TypeInfo::from_ast);
         if return_type != TypeInfo::Unit {
             self.output.push(' ');
-            self.output.push_str(&go_type(&return_type));
+            self.output.push_str(&self.go_type(&return_type));
         }
         self.output.push_str(" {\n");
 
@@ -413,7 +425,7 @@ impl<'a> Emitter<'a> {
             self.line(&format!(
                 "{} := {}",
                 name,
-                payload_expr(&temp, 0, &success_type)
+                self.payload_expr(&temp, 0, &success_type)
             ))
         } else if expr_type.option_inner().is_some() {
             self.line(&format!("if {temp}.tag == \"None\" {{"))?;
@@ -424,7 +436,7 @@ impl<'a> Emitter<'a> {
             self.line(&format!(
                 "{} := {}",
                 name,
-                payload_expr(&temp, 0, &success_type)
+                self.payload_expr(&temp, 0, &success_type)
             ))
         } else {
             Err(BackendError::unsupported("? on non-Result/Option value"))
@@ -447,12 +459,12 @@ impl<'a> Emitter<'a> {
             .unwrap_or((TypeInfo::Unknown, TypeInfo::Unknown));
         let expr = self.emit_expr(expr)?;
         self.line(&format!("{temp} := {expr}"))?;
-        self.line(&format!("var {} {}", name, go_type(&success_type)))?;
+        self.line(&format!("var {} {}", name, self.go_type(&success_type)))?;
         self.line(&format!("if {temp}.tag == \"Ok\" {{"))?;
         self.indent += 1;
         self.line(&format!(
             "{name} = {}",
-            payload_expr(&temp, 0, &success_type)
+            self.payload_expr(&temp, 0, &success_type)
         ))?;
         self.indent -= 1;
         self.line("} else {")?;
@@ -460,7 +472,7 @@ impl<'a> Emitter<'a> {
         self.line(&format!(
             "{} := {}",
             err_temp,
-            payload_expr(&temp, 0, &error_type)
+            self.payload_expr(&temp, 0, &error_type)
         ))?;
         self.define(error_name, error_type.clone());
         self.emit_catch_arms(&err_temp, &error_type, arms)?;
@@ -703,7 +715,7 @@ impl<'a> Emitter<'a> {
             return Err(BackendError::unsupported("if expressions without else"));
         };
         let condition = self.emit_expr(condition)?;
-        let ty = go_type(&self.infer_expr(else_branch));
+        let ty = self.go_type(&self.infer_expr(else_branch));
         let then_body = self.emit_returning_block(then_block)?;
         let else_body = match else_branch {
             Expr::Block(block) => self.emit_returning_block(block)?,
@@ -745,7 +757,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_block_expr(&mut self, block: &Block) -> Result<String, BackendError> {
-        let ty = go_type(&self.infer_block_type(block));
+        let ty = self.go_type(&self.infer_block_type(block));
         let body = self.emit_returning_block(block)?;
         Ok(format!("func() {ty} {{ {body} }}()"))
     }
@@ -814,7 +826,7 @@ impl<'a> Emitter<'a> {
         let scrutinee_ty = self.infer_expr(scrutinee);
         let result_ty = infer_match_result(self, arms);
         let returns_value = result_ty != TypeInfo::Unit;
-        let result_go_type = go_type(&result_ty);
+        let result_go_type = self.go_type(&result_ty);
         let temp = self.next_temp();
         let scrutinee_expr = self.emit_expr(scrutinee)?;
         let mut out = String::new();
@@ -928,14 +940,14 @@ impl<'a> Emitter<'a> {
                         out,
                         "{} := {}; _ = {}; ",
                         name.value,
-                        payload_expr(temp, index, &ty),
+                        self.payload_expr(temp, index, &ty),
                         name.value
                     )?;
                 } else {
                     self.line(&format!(
                         "{} := {}",
                         name.value,
-                        payload_expr(temp, index, &ty)
+                        self.payload_expr(temp, index, &ty)
                     ))?;
                     self.line(&format!("_ = {}", name.value))?;
                 }
@@ -1283,8 +1295,9 @@ fn collect_functions(module: &Module) -> Vec<FunctionInfo> {
     functions
 }
 
-fn go_type(ty: &TypeInfo) -> String {
+fn go_type(ty: &TypeInfo, struct_names: &[&str]) -> String {
     match ty {
+        TypeInfo::Named(name) if struct_names.contains(&name.as_str()) => name.clone(),
         TypeInfo::Int => "int64".to_string(),
         TypeInfo::Float => "float64".to_string(),
         TypeInfo::Bool => "bool".to_string(),
@@ -1304,11 +1317,11 @@ fn question_success_type(ty: &TypeInfo) -> Option<TypeInfo> {
         .cloned()
 }
 
-fn payload_expr(value: &str, index: usize, ty: &TypeInfo) -> String {
+fn payload_expr(value: &str, index: usize, ty: &TypeInfo, struct_names: &[&str]) -> String {
     let raw = format!("{value}.values[{index}]");
     match ty {
         TypeInfo::Unknown => raw,
-        _ => format!("{raw}.({})", go_type(ty)),
+        _ => format!("{raw}.({})", go_type(ty, struct_names)),
     }
 }
 
