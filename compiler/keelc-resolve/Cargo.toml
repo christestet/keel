@@ -9,3 +9,4 @@ keelc-ast = { path = "../keelc-ast" }
 keelc-diag = { path = "../keelc-diag" }
 keelc-parse = { path = "../keelc-parse" }
 keelc-span = { path = "../keelc-span" }
+keelc-types = { path = "../keelc-types" }

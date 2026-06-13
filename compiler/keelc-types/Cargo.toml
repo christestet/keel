@@ -1,0 +1,8 @@
+[package]
+name = "keelc-types"
+version = "0.1.0"
+edition = "2021"
+description = "Shared type definitions (TypeInfo) for the keelc pipeline."
+
+[dependencies]
+keelc-ast = { path = "../keelc-ast" }
