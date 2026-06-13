@@ -172,34 +172,10 @@ impl<'a> Emitter<'a> {
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;
-        self.line("func checked_div(left int64, right int64) KeelEnum {")?;
-        self.indent += 1;
-        self.line("if right == 0 { return None }")?;
-        self.line("return Some(left / right)")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.line("func checked_rem(left int64, right int64) KeelEnum {")?;
-        self.indent += 1;
-        self.line("if right == 0 { return None }")?;
-        self.line("return Some(left % right)")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.line("func keelDiv(left int64, right int64) int64 {")?;
-        self.indent += 1;
-        self.line("if right == 0 { panic(\"K0204: division by zero\") }")?;
-        self.line("return left / right")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.line("func keelRem(left int64, right int64) int64 {")?;
-        self.indent += 1;
-        self.line("if right == 0 { panic(\"K0204: remainder by zero\") }")?;
-        self.line("return left % right")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
+        self.emit_checked_op("checked_div", "KeelEnum", "/", "return None", "Some")?;
+        self.emit_checked_op("checked_rem", "KeelEnum", "%", "return None", "Some")?;
+        self.emit_checked_op("keelDiv", "int64", "/", r#"panic("K0204: division by zero")"#, "")?;
+        self.emit_checked_op("keelRem", "int64", "%", r#"panic("K0204: remainder by zero")"#, "")?;
         Ok(())
     }
 
@@ -212,6 +188,28 @@ impl<'a> Emitter<'a> {
                 field.name.value,
                 go_type(&type_from_ast(&field.ty))
             ))?;
+        }
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
+        Ok(())
+    }
+
+    fn emit_checked_op(
+        &mut self,
+        name: &str,
+        ret: &str,
+        op: &str,
+        none_branch: &str,
+        ok_prefix: &str,
+    ) -> Result<(), BackendError> {
+        self.line(&format!("func {name}(left int64, right int64) {ret} {{"))?;
+        self.indent += 1;
+        self.line(&format!("if right == 0 {{ {none_branch} }}"))?;
+        if ok_prefix.is_empty() {
+            self.line(&format!("return left {op} right"))?;
+        } else {
+            self.line(&format!("return {}(left {op} right)", ok_prefix))?;
         }
         self.indent -= 1;
         self.line("}")?;
