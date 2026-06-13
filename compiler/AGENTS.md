@@ -16,8 +16,9 @@ Structure rules:
 
 - New crates follow the `keelc-<stage>` layout in `ARCHITECTURE.md`. A crate
   not listed there needs an issue first, not a drive-by addition.
-- Every stage is a salsa-style memoized query keyed on inputs. Do not bolt side
-  effects (I/O, global state) onto query functions.
+- The target architecture is a salsa-style memoized query graph. Do not bolt
+  side effects (I/O, global state) onto stage functions — the transition to
+  query-based incrementality must not require rewriting stage internals.
 - New diagnostics: register the next free `K####` in the `keelc-diag` registry
   file (append-only — never reuse or renumber), then encode the behavior in a
   conformance reject-case in a *separate* PR.

@@ -98,7 +98,8 @@ let row = db.get(id) catch err {
 
 One module per file. `module name` header optional in single-file programs.
 `use std.print` style imports (Core stdlib surface: `print`, `String`, `Int`
-methods, `List`/`Map` methods only — the real stdlib is M6).
+methods, `List`/`Map` methods, `checked_div`, `checked_rem` — the real stdlib
+is M6).
 
 ## 7. Entry point and tests
 

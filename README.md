@@ -3,8 +3,8 @@
 > A typed, compiled, garbage-collected language for backend services that should
 > still be readable, reviewable, and deployable after five years of team churn.
 
-**Status: design phase.** There is no compiler yet. This repository exists to turn
-the design into one. Start with [`docs/vision.md`](docs/vision.md).
+**Status: compiler under active development.** Start with
+[`docs/vision.md`](docs/vision.md) and [`ROADMAP.md`](ROADMAP.md).
 
 ## What Keel is
 

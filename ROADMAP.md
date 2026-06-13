@@ -18,7 +18,7 @@ and reject (expected compile error code) behavior, reviewed and frozen.
 
 ## M1 — Frontend: lexer, parser, AST, diagnostics
 
-Implementation language: **Rust** (see `compiler/ARCHITECTURE.md`, KDR-101).
+Implementation language: **Rust** (see `compiler/ARCHITECTURE.md`, KDR-0101).
 Hand-written recursive-descent parser (good errors beat generated parsers).
 Diagnostics carry stable error codes (`K####`) from day one — conformance
 reject-tests match on codes, not message text.
@@ -33,7 +33,7 @@ exhaustiveness checking for `match`, no-implicit-zero struct construction,
 
 **Exit:** all M0 reject-cases produce their exact error codes; accept-cases typecheck.
 
-## M3 — First backend: compile to Go  *(KDR-102)*
+## M3 — First backend: compile to Go  *(KDR-0102)*
 
 Lower the typed AST to a Keel IR, emit Go source, drive `go build` internally.
 This buys a production-grade concurrent GC, scheduler, cross-compilation and

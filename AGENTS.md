@@ -48,8 +48,9 @@ task seems to require violating milestone order, the task is mis-scoped — say 
 
 ## Style
 
-- Rust: default rustfmt + clippy::pedantic minus documented exceptions in
-  `compiler/lints.toml`. No `unsafe` in keelc without a KDR.
+- Rust: default rustfmt + clippy::pedantic (no per-crate clippy.toml exists
+  yet; suppress locally or open a KDR for project-wide rules). No `unsafe` in
+  keelc without a KDR.
 - Commit messages: `m2: typecheck exhaustive match (K0301, K0302)` — milestone
   prefix, imperative, error codes when relevant.
 

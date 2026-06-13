@@ -7,12 +7,12 @@
 ## Decision
 Keel Core gains the boolean operators `&&`, `||`, `!` with **short-circuit**
 evaluation, and the arithmetic operators `-`, `/`, `%` (joining the existing
-`+`, `*`). Operands must already share a type (no implicit conversion, KDR-0009;
-`K0202` otherwise). For `Int`:
+`+`, `*`). Operands must already share a type (no implicit conversion, KDR-0009,
+[`INDEX.md`](INDEX.md); `K0202` otherwise). For `Int`:
 
 - Division `/` truncates toward zero; remainder `%` takes the sign of the
   dividend (`-7 / 2 == -3`, `-7 % 2 == -1`).
-- Division or remainder by zero **panics** (uncatchable, per KDR-0005),
+- Division or remainder by zero **panics** (uncatchable, per KDR-0005, [`INDEX.md`](INDEX.md)),
   reported under the stable runtime code `K0204`. The total, non-panicking
   alternative is explicit: `checked_div(a, b)` and `checked_rem(a, b)` return
   `Option<Int>` (`None` on a zero divisor) — absence is modeled with `Option`,
@@ -43,6 +43,7 @@ side effects.
 - **Division by zero returns `Result`/`Option` for the bare `/` operator**
   (rejected: makes the common, provably-safe case syntactically heavy — every
   `/` would need `?`/`match` — while the bug case is exactly what KDR-0005 says
+  ([`INDEX.md`](INDEX.md))
   should panic; the `checked_*` functions give the total form to those who want
   it, keeping the operator clean).
 - **Floor division + divisor-signed modulo (Python model)** (rejected: Keel's
@@ -58,7 +59,7 @@ Makes ordinary arithmetic and boolean logic expressible and unambiguous across
 backends. Forces a defined runtime panic path (`K0204`) and its `checked_*`
 escape into the Core stdlib surface (§6). Comparison non-chaining means `a < b <
 c` is a parse error, not a silent `(a < b) < c`. No operator is user-definable
-(KDR-0009 stands); this KDR only fixes the *built-in* set and its semantics.
+(KDR-0009 stands, [`INDEX.md`](INDEX.md)); this KDR only fixes the *built-in* set and its semantics.
 
 ## Reopening clause
 Corpus evidence that truncating division or dividend-signed remainder is the

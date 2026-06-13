@@ -1,6 +1,6 @@
 # keelc — Compiler Architecture
 
-## Implementation language: Rust (KDR-101)
+## Implementation language: Rust (KDR-0101)
 
 Chosen for: memory-safe compiler internals, excellent error-handling ergonomics
 for diagnostics, `salsa` for query-based incremental compilation, mature parser
@@ -15,10 +15,12 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
             +----------+-----  diagnostics (stable K#### codes)  -------------+
 ```
 
-- **Query-based core (salsa-style) from day one.** Every stage is a memoized
-  query keyed on inputs. This is how the vision.md §7 budget (incremental < 1s,
-  `keel check` < 300ms) stays achievable. Retrofitting incrementality is the
-  single most expensive mistake a compiler project makes (see: rustc).
+- **Query-based core (salsa-style) is the target architecture.** Every stage is
+  designed as a memoized query keyed on inputs. This is how the vision.md §7
+  budget (incremental < 1s, `keel check` < 300ms) stays achievable. The salsa
+  integration is not yet implemented; the frontend currently drives stages
+  directly. Retrofitting incrementality is the single most expensive mistake a
+  compiler project makes (see: rustc).
 - **Lexer/parser:** hand-written recursive descent. Parser must recover from
   errors (parse the whole file, report many diagnostics, never crash).
 - **AST → typed HIR:** name resolution, then type checking. Explicit function
@@ -26,7 +28,7 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
   of typechecking, not a lint.
 - **KIR (Keel IR):** small, explicitly-typed, desugared (e.g. `?` and `catch`
   become explicit match-and-return). All backends consume KIR only.
-- **Backends:** `backend-go` first (KDR-102) — emits readable Go, drives the Go
+- **Backends:** `backend-go` first (KDR-0102) — emits readable Go, drives the Go
   toolchain for codegen, GC, scheduler, cross-compile, static linking.
   `backend-native` (LLVM or cranelift) replaces it later; the conformance suite
   is the equivalence proof.

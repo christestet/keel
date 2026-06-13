@@ -8,8 +8,8 @@
 Inside a string literal, `{expr}` is interpolation; a **literal brace** is
 written by doubling: `{{` produces `{` and `}}` produces `}`. No backslash
 escape for braces exists. An unmatched single `}` and an unterminated `{…` are
-lexical errors (`K0002` family / a dedicated interpolation code assigned when
-the lexical spec chapter lands). This is the only escaping mechanism for braces;
+lexical errors (`K0004`, assigned in the lexical spec chapter
+[`01-lexical.md`](../spec/01-lexical.md)). This is the only escaping mechanism for braces;
 there is one way to write a literal brace.
 
 ## Context

@@ -41,7 +41,7 @@ Every package manifest must declare what it touches: `net`, `fs`, `exec`, `env`,
 
 `keel audit` then becomes a one-screen answer to the supply-chain question: *which of my 9 dependencies can open a network connection, and which cross the FFI boundary?* A left-pad-style utility package that requests `net` is visibly absurd before anyone reads its source. This addresses the npm-culture rejection structurally rather than by registry policy: micro-dependencies become low-risk by construction, and high-capability packages concentrate scrutiny where it matters.
 
-FFI specifically: `extern` blocks are the only door, they require the `ffi` capability, every crossing appears in the audit report and the SBOM, and `extern` code is excluded from Keel's safety guarantees with a mandatory documented contract (what the C side may do with each pointer). Builds themselves are sandboxed and hermetic — no build scripts, no arbitrary code execution at compile time (KDR-007), so `keel build` on untrusted code is safe by definition.
+FFI specifically: `extern` blocks are the only door, they require the `ffi` capability, every crossing appears in the audit report and the SBOM, and `extern` code is excluded from Keel's safety guarantees with a mandatory documented contract (what the C side may do with each pointer). Builds themselves are sandboxed and hermetic — no build scripts, no arbitrary code execution at compile time (KDR-0007), so `keel build` on untrusted code is safe by definition.
 
 ## 4. The memory model, completed: GC plus scoped arenas
 
@@ -56,13 +56,13 @@ fn parse_huge_feed(input: Bytes) -> Summary {
 }
 ```
 
-An `arena` block is region allocation with the same shape as `scope` blocks in concurrency and resource cleanup: lexical, visible, impossible to leak, and checked — the compiler's escape analysis forbids arena references from outliving the block (this is the *same analysis* the GC already needs, pointed at a new rule, so it costs no new conceptual machinery). There is no manual `free`, no lifetimes annotation syntax, no second memory paradigm to learn. Hot paths — parsers, request-scoped object graphs, caches rebuilt per tick — get deterministic, GC-invisible allocation; everyone else never types the keyword. KDR-012 records the rejected alternatives (ownership annotations, `sync.Pool`-style folklore, "just use Rust via FFI") and the reopening clause (evidence of significant real-world workloads that arenas + GC cannot serve).
+An `arena` block is region allocation with the same shape as `scope` blocks in concurrency and resource cleanup: lexical, visible, impossible to leak, and checked — the compiler's escape analysis forbids arena references from outliving the block (this is the *same analysis* the GC already needs, pointed at a new rule, so it costs no new conceptual machinery). There is no manual `free`, no lifetimes annotation syntax, no second memory paradigm to learn. Hot paths — parsers, request-scoped object graphs, caches rebuilt per tick — get deterministic, GC-invisible allocation; everyone else never types the keyword. KDR-0012 records the rejected alternatives (ownership annotations, `sync.Pool`-style folklore, "just use Rust via FFI") and the reopening clause (evidence of significant real-world workloads that arenas + GC cannot serve).
 
 The container-awareness promise from v0.1 stands and extends: the runtime reads cgroup limits, and `keel build` can emit a **runtime profile** (`--profile latency` vs `--profile throughput`) that tunes GC pacing — a build-time choice, not a 40-environment-variable tuning surface.
 
 ## 5. Evolution: editions with teeth, on a clock
 
-Keel adopts Rust's editions model with two hardenings, recorded as KDR-001 because everything else depends on it.
+Keel adopts Rust's editions model with two hardenings, recorded as KDR-0001 because everything else depends on it.
 
 **Editions are exclusive.** When an edition replaces an idiom, the old idiom becomes a *compile error* in the new edition — not a deprecation warning that lives forever. The "one way to do things" promise is therefore scoped per edition and mechanically enforced. Code on old editions keeps compiling forever (the compiler supports all editions), so nobody is forced to migrate — but a codebase cannot mix eras within one module.
 
@@ -72,7 +72,7 @@ Editions arrive on a fixed three-year cadence (predictability beats perfection),
 
 ## 6. The boundary doctrine: parse, don't validate — ergonomically
 
-Inside a Keel program, illegal states are unrepresentable. The network does not care. KDR-015 fixes the doctrine for the edge:
+Inside a Keel program, illegal states are unrepresentable. The network does not care. KDR-0015 fixes the doctrine for the edge:
 
 External data enters only through explicit parse points (`json.parse<T>`, `proto.decode<T>`, `sql` row mapping), and the type `T` must honestly describe the wire reality: any field the schema does not guarantee is `Option<T>` — the compiler rejects a required field for optional wire data when a schema is available to check against. Parsing is **strict by default** (unknown fields are errors, catching typos and contract drift in dev) with an explicit, visible relaxation for the real world: `json.parse<T>(body, mode: .tolerant)` ignores unknown fields and logs a structured `schema_drift` event to OTel. Tolerance is a choice you can grep for and an event you can alert on — not a silent default (Go) or an all-or-nothing wall.
 

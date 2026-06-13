@@ -21,9 +21,9 @@ Core defines exactly these built-in operators:
 - Comparison: `<`, `<=`, `>`, `>=`, `==`, `!=`.
 
 Operands must already **share a type**; there are no implicit conversions
-(KDR-0009). Mixing types — e.g. `Int + Float` — is `K0202`; convert explicitly
-with `Float.from(i)`. `==` and `!=` are defined for the primitive types in Core
-(`Int`, `Float`, `Bool`, `String`, `Char`).
+(KDR-0009, [`kdr/INDEX.md`](../kdr/INDEX.md)). Mixing types — e.g. `Int + Float` —
+is `K0202`; convert explicitly with `Float.from(i)`. `==` and `!=` are defined
+for the primitive types in Core (`Int`, `Float`, `Bool`, `String`, `Char`).
 
 ## 4.2 Precedence and associativity
 
@@ -122,7 +122,8 @@ arithmetic/boolean values and `4xx` expression control flow, see
 - Frozen base: [`keel-core.md` §2 (types)](keel-core.md) and
   [§4 (expressions)](keel-core.md).
 - Related decisions honoured: KDR-0005 (panics uncatchable), KDR-0009 (no
-  implicit conversion / no overloading), KDR-0102 (Go backend semantics).
+  implicit conversion / no overloading), KDR-0102 (Go backend semantics). See
+  [`kdr/INDEX.md`](../kdr/INDEX.md) for stub locations.
 - Code registry: `K0204` registered in
   [`compiler/keelc-diag/src/registry.rs`](../../compiler/keelc-diag/src/registry.rs)
   at spec-writing time ([`docs/spec/AGENTS.md`](AGENTS.md)). `K0202`, `K0203`,
