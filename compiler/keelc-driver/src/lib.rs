@@ -141,15 +141,6 @@ fn build_module(module: &Module, source_path: &Path) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let go_cache = temp_dir.join("gocache");
-    if let Err(err) = fs::create_dir_all(&go_cache) {
-        eprintln!(
-            "could not create Go cache directory {}: {err}",
-            go_cache.display()
-        );
-        return ExitCode::from(2);
-    }
-
     let binary_name = source_path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -166,7 +157,6 @@ fn build_module(module: &Module, source_path: &Path) -> ExitCode {
         .arg("-o")
         .arg(&binary_path)
         .arg(&go_file)
-        .env("GOCACHE", &go_cache)
         .stdin(Stdio::null())
         .output()
     {
@@ -244,19 +234,9 @@ fn run_module(module: &Module) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let go_cache = temp_dir.join("gocache");
-    if let Err(err) = fs::create_dir_all(&go_cache) {
-        eprintln!(
-            "could not create Go cache directory {}: {err}",
-            go_cache.display()
-        );
-        return ExitCode::from(2);
-    }
-
     let output = match Command::new("go")
         .arg("run")
         .arg(&go_file)
-        .env("GOCACHE", &go_cache)
         .stdin(Stdio::null())
         .output()
     {
@@ -304,19 +284,9 @@ fn run_tests(module: &Module, source: &str) -> ExitCode {
         return ExitCode::from(2);
     }
 
-    let go_cache = temp_dir.join("gocache");
-    if let Err(err) = fs::create_dir_all(&go_cache) {
-        eprintln!(
-            "could not create Go cache directory {}: {err}",
-            go_cache.display()
-        );
-        return ExitCode::from(2);
-    }
-
     let output = match Command::new("go")
         .arg("run")
         .arg(&go_file)
-        .env("GOCACHE", &go_cache)
         .stdin(Stdio::null())
         .output()
     {

@@ -28,6 +28,7 @@ if cargo metadata --no-deps --format-version 1 | grep -q '"name":"keelc-driver"'
   step "build keelc"
   cargo build --release -p keelc-driver
   step "conformance suite: full run"
+  export GOCACHE="$PWD/target/gocache"
   cargo run -p conformance-runner -- --keelc target/release/keelc \
     ${KEEL_MILESTONE:+--milestone "$KEEL_MILESTONE"}
 else
