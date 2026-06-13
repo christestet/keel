@@ -102,18 +102,10 @@ A permanent "Who Keel is not for" document ships next to the tutorial. Keel is w
 
 ---
 
-## Appendix A — Initial Decision Register (rejections, with reopening clauses)
+## Appendix — Canonical reference documents
 
-**KDR-002 — No async/await.** Runtime-scheduled concurrency only; no function coloring. Reopens only if corpus evidence shows workload classes where the runtime scheduler is the bottleneck *and* arenas/FFI cannot serve them.
-**KDR-003 — No inheritance.** Composition + interfaces (≤5 methods). No reopening clause; foundational.
-**KDR-004 — No macros / compile-time metaprogramming.** Pressure valve is stdlib + `keel gen`. Reopens per the corpus-boilerplate test in §1.
-**KDR-005 — No exceptions.** `Result` + `?` + `catch`; panics are uncatchable across task boundaries.
-**KDR-006 — No feature flags / conditional compilation** beyond OS/arch. Prevents 2^n untested configurations.
-**KDR-007 — No build scripts.** Builds are hermetic and sandboxed; `keel.toml` is data.
-**KDR-008 — No reflection.** Closes the door on mocking frameworks, DI containers, and annotation magic; codegen is the sanctioned alternative.
-**KDR-009 — No operator overloading, no implicit conversions.**
-**KDR-010 — One formatter, zero options**, enforced at compile time.
-
-## Appendix B — Build order (what kills Keel if sequenced wrong)
-
-Phase 0: compiler core with incrementality + the benchmark contract (§7) — performance cannot be retrofitted. Phase 1: stdlib backend slice + `keel gen` for proto/OpenAPI (§2) — the ecosystem multiplier must exist before the first external user. Phase 2: capabilities + audit + hermetic builds (§3) — the security story is the differentiator at evaluation time. Phase 3: the landing kit (§9) and `x.keel.dev` with the funding treaty (§2). Editions machinery (§5) must be in the compiler before 1.0 even though edition 2 is years away — Go proved that bolting on evolution later costs a decade.
+| Topic | Location |
+|---|---|
+| Decision records | [`docs/kdr/INDEX.md`](kdr/INDEX.md) — all KDRs, including stubs derived from this document |
+| Build order / milestone sequence | [`ROADMAP.md`](../ROADMAP.md) — exit criteria and ordering constraints |
+| Implementation status | [`docs/milestone-status.md`](milestone-status.md) — current build-out per milestone |
