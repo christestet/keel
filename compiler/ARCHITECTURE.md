@@ -50,7 +50,7 @@ compiler/
   keelc-parse       parser -> AST
   keelc-ast         AST definitions (+ pretty printer = the formatter's core)
   keelc-resolve     name resolution
-  keelc-types       typechecker -> typed HIR
+  keelc-types       type definitions (TypeInfo, merge, collect) + typechecker -> typed HIR
   keelc-kir         IR + lowering
   keelc-backend-go  Go emission
   keelc-driver      query database, CLI entry (`keel` binary)

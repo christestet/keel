@@ -31,7 +31,7 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 | `catch` typing | Reports `K0502` for non-exhaustive error handling. |
 | Constructor typing | `Some`, `None`, `Ok`, `Err`, enum variants, `checked_div`, `checked_rem` — temporary type info for the current conformance surface. |
 
-**Not done:** no typed-HIR crate yet; type info still local to `keelc-resolve`. Generic constructor typing uses `TypeInfo::Unknown` as scaffolding (not the final unification model). Pattern exhaustiveness is whole-variant only, not a general matrix. `K0503` registered but not yet covered by conformance.
+**Not done:** no typed-HIR crate yet; shared type info extracted into `keelc-types` but typechecker still lives in `keelc-resolve`. Generic constructor typing uses `TypeInfo::Unknown` as scaffolding (not the final unification model). Pattern exhaustiveness is whole-variant only, not a general matrix. `K0503` registered but not yet covered by conformance.
 
 ## M3 — Go backend
 
@@ -45,7 +45,7 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 | `?` | `let value = expr?` lowers to temporary + early `return`. |
 | `catch` | `let value = expr catch err { ... }` — success extraction, matched error arms, `other` fallback. |
 
-**Not done:** no `keelc-kir` crate (backend emits from AST using backend-local type env). Backend-local `TypeInfo` is scaffolding, not final typed HIR. M4 CLI/formatter/test-runner remain future work.
+**Not done:** no `keelc-kir` crate (backend emits from AST using backend-local type env). Backend reuses canonical `TypeInfo` from `keelc-types` but type env is still backend-local. M4 CLI/formatter/test-runner remain future work.
 
 ## Milestone key
 
