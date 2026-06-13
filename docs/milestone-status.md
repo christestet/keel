@@ -58,7 +58,7 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 | `keel` / `keelc` binaries | Split `keelc-driver` into a library plus `keel` and `keelc` binary shims. |
 | `keel fmt` | Implemented via the AST pretty-printer; idempotent on all M0 accept cases in `tests/conformance/`. |
 | `keel build` | Stub: runs frontend checks and Go emission (no artifact written yet). |
-| `keel test` | Not implemented. |
+| `keel test` | Discovers `test "name" { ... }` blocks, runs each in an isolated Go harness, reports assertion failures with source line. |
 
 **Known limitations:** formatter strips comments (comments are not stored in the AST). `examples/users-service/main.keel` uses post-Core features and cannot be formatted yet.
 
