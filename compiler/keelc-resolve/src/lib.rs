@@ -85,7 +85,11 @@ impl<'a> Resolver<'a> {
                     self.resolve_block(&test.body);
                     self.pop_scope();
                 }
-                Item::Struct(_) | Item::Enum(_) | Item::Use(_) => {}
+                Item::Struct(_)
+                | Item::Enum(_)
+                | Item::Use(_)
+                | Item::Interface(_)
+                | Item::Impl(_) => {}
             }
         }
 
@@ -155,6 +159,12 @@ impl<'a> Resolver<'a> {
                 }
             }
             Expr::Field { target, .. } => self.resolve_expr(target),
+            Expr::MethodCall { receiver, args, .. } => {
+                self.resolve_expr(receiver);
+                for arg in args {
+                    self.resolve_expr(arg);
+                }
+            }
             Expr::StructLiteral { name, fields, .. } => {
                 self.check_struct_literal(name, fields);
                 for field in fields {
@@ -358,7 +368,10 @@ impl<'a> Typechecker<'a> {
                         }
                     }
                 }
-                Item::Enum(_) | Item::Use(_) => {}
+                Item::Interface(_)
+                | Item::Impl(_)
+                | Item::Enum(_)
+                | Item::Use(_) => {}
             }
         }
 
@@ -458,6 +471,13 @@ impl<'a> Typechecker<'a> {
             Expr::Call { callee, args, .. } => self.infer_call(callee, args),
             Expr::Field { target, .. } => {
                 self.infer_expr(target);
+                TypeInfo::Unknown
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                self.infer_expr(receiver);
+                for arg in args {
+                    self.infer_expr(arg);
+                }
                 TypeInfo::Unknown
             }
             Expr::StructLiteral { name, fields, .. } => {

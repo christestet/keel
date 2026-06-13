@@ -16,6 +16,8 @@ pub enum Item {
     Struct(StructDecl),
     Enum(EnumDecl),
     Function(FunctionDecl),
+    Interface(InterfaceDecl),
+    Impl(ImplDecl),
     Test(TestDecl),
 }
 
@@ -60,6 +62,21 @@ pub struct FunctionDecl {
     pub params: Vec<Param>,
     pub return_type: Option<Type>,
     pub body: Option<Block>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InterfaceDecl {
+    pub name: Spanned<String>,
+    pub methods: Vec<FunctionDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImplDecl {
+    pub interface_name: Spanned<String>,
+    pub type_name: Spanned<String>,
+    pub methods: Vec<FunctionDecl>,
     pub span: Span,
 }
 
@@ -182,6 +199,12 @@ pub enum Expr {
         field: Spanned<String>,
         span: Span,
     },
+    MethodCall {
+        receiver: Box<Expr>,
+        method: Spanned<String>,
+        args: Vec<Expr>,
+        span: Span,
+    },
     StructLiteral {
         name: Spanned<String>,
         fields: Vec<StructLiteralField>,
@@ -226,10 +249,11 @@ impl Expr {
         match self {
             Expr::Missing(span)
             | Expr::Wildcard(span)
-            | Expr::Unary { span, .. }
+            |             Expr::Unary { span, .. }
             | Expr::Binary { span, .. }
             | Expr::Call { span, .. }
             | Expr::Field { span, .. }
+            | Expr::MethodCall { span, .. }
             | Expr::StructLiteral { span, .. }
             | Expr::If { span, .. }
             | Expr::Match { span, .. }

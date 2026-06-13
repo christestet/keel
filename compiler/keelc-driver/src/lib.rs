@@ -4,7 +4,7 @@ use keelc_ast::pretty::pretty_print;
 use keelc_ast::Module;
 use keelc_backend_go::{emit, emit_tests};
 use keelc_diag::{Diagnostic, Severity};
-use keelc_parse::parse;
+use keelc_parse::parse_with_milestone;
 use keelc_resolve::{resolve, typecheck};
 use keelc_span::{line_col, SourceId};
 use std::env;
@@ -63,7 +63,7 @@ pub fn main() -> ExitCode {
         }
     }
 
-    let output = parse(SourceId::new(0), &text);
+    let output = parse_with_milestone(SourceId::new(0), &text, milestone);
     let mut diagnostics = output.diagnostics;
     if milestone >= 2 && !diagnostics.iter().any(is_error) {
         diagnostics.extend(resolve(&output.module).diagnostics);
@@ -101,7 +101,7 @@ fn usage() {
 }
 
 fn fmt_file(path: &Path, text: &str) -> ExitCode {
-    let output = parse(SourceId::new(0), text);
+    let output = parse_with_milestone(SourceId::new(0), text, 5);
     let has_error = output.diagnostics.iter().any(is_error);
     for diagnostic in &output.diagnostics {
         emit_diagnostic(path, text, diagnostic);

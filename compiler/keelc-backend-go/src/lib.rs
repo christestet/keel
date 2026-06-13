@@ -141,7 +141,11 @@ impl<'a> Emitter<'a> {
             match item {
                 Item::Struct(decl) => self.emit_struct_decl(decl)?,
                 Item::Enum(decl) => self.emit_enum_decl(decl)?,
-                Item::Function(_) | Item::Use(_) | Item::Test(_) => {}
+                Item::Function(_)
+                | Item::Use(_)
+                | Item::Test(_)
+                | Item::Interface(_)
+                | Item::Impl(_) => {}
             }
         }
 
@@ -167,7 +171,11 @@ impl<'a> Emitter<'a> {
             match item {
                 Item::Struct(decl) => self.emit_struct_decl(decl)?,
                 Item::Enum(decl) => self.emit_enum_decl(decl)?,
-                Item::Function(_) | Item::Use(_) | Item::Test(_) => {}
+                Item::Function(_)
+                | Item::Use(_)
+                | Item::Test(_)
+                | Item::Interface(_)
+                | Item::Impl(_) => {}
             }
         }
 
@@ -658,6 +666,12 @@ impl<'a> Emitter<'a> {
                 let target = self.emit_expr(target)?;
                 Ok(format!("{target}.{}", field.value))
             }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => self.emit_method_call(receiver, method, args),
             Expr::StructLiteral { name, fields, .. } => {
                 self.emit_struct_literal(name.value.as_str(), fields)
             }
@@ -690,6 +704,16 @@ impl<'a> Emitter<'a> {
                 Err(BackendError::unsupported("missing expressions"))
             }
         }
+    }
+
+    fn emit_method_call(
+        &mut self,
+        receiver: &Expr,
+        method: &keelc_span::Spanned<String>,
+        args: &[Expr],
+    ) -> Result<String, BackendError> {
+        let _ = (receiver, method, args);
+        Err(BackendError::unsupported("method calls"))
     }
 
     fn emit_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<String, BackendError> {
@@ -1151,6 +1175,7 @@ impl<'a> Emitter<'a> {
                 self.field_type(&target_ty, &field.value)
                     .unwrap_or(TypeInfo::Unknown)
             }
+            Expr::MethodCall { receiver, .. } => self.infer_expr(receiver),
             Expr::StructLiteral { name, .. } => TypeInfo::Named(name.value.clone()),
             Expr::If {
                 then_block,

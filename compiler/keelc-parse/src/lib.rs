@@ -1,9 +1,9 @@
 //! Recursive-descent parser for Keel Core source files.
 
 use keelc_ast::{
-    BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, Item, MatchArm, Module, Param,
-    Pattern, Stmt, StringLiteral as AstStringLiteral, StructDecl, StructLiteralField, TestDecl,
-    Type, UnaryOp, UseDecl, VariantDecl,
+    BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item,
+    MatchArm, Module, Param, Pattern, Stmt, StringLiteral as AstStringLiteral, StructDecl,
+    StructLiteralField, TestDecl, Type, UnaryOp, UseDecl, VariantDecl,
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_lex::{lex, Keyword, LexOutput, Token, TokenKind};
@@ -17,11 +17,16 @@ pub struct ParseOutput {
 
 #[must_use]
 pub fn parse(source: SourceId, text: &str) -> ParseOutput {
+    parse_with_milestone(source, text, 1)
+}
+
+#[must_use]
+pub fn parse_with_milestone(source: SourceId, text: &str, milestone: u32) -> ParseOutput {
     let LexOutput {
         tokens,
         diagnostics,
     } = lex(source, text);
-    Parser::new(source, tokens, diagnostics).parse_module()
+    Parser::new(source, tokens, diagnostics, milestone).parse_module()
 }
 
 struct Parser {
@@ -30,16 +35,23 @@ struct Parser {
     pos: usize,
     diagnostics: Vec<Diagnostic>,
     allow_struct_literals: bool,
+    milestone: u32,
 }
 
 impl Parser {
-    fn new(source: SourceId, tokens: Vec<Token>, diagnostics: Vec<Diagnostic>) -> Self {
+    fn new(
+        source: SourceId,
+        tokens: Vec<Token>,
+        diagnostics: Vec<Diagnostic>,
+        milestone: u32,
+    ) -> Self {
         Self {
             source,
             tokens,
             pos: 0,
             diagnostics,
             allow_struct_literals: true,
+            milestone,
         }
     }
 
@@ -87,12 +99,28 @@ impl Parser {
             Some(TokenKind::Keyword(Keyword::Fn)) => Some(Item::Function(self.parse_function())),
             Some(TokenKind::Keyword(Keyword::Test)) => Some(Item::Test(self.parse_test())),
             Some(TokenKind::Keyword(Keyword::Interface)) => {
-                self.banned_keyword(
-                    Keyword::Interface,
-                    registry::K0902,
-                    "interfaces are not in Keel Core",
-                );
-                None
+                if self.milestone >= 5 {
+                    Some(Item::Interface(self.parse_interface()))
+                } else {
+                    self.banned_keyword(
+                        Keyword::Interface,
+                        registry::K0902,
+                        "interfaces are not in Keel Core",
+                    );
+                    None
+                }
+            }
+            Some(TokenKind::Keyword(Keyword::Impl)) => {
+                if self.milestone >= 5 {
+                    Some(Item::Impl(self.parse_impl()))
+                } else {
+                    self.banned_keyword(
+                        Keyword::Impl,
+                        registry::K0003,
+                        "expected top-level declaration",
+                    );
+                    None
+                }
             }
             Some(TokenKind::Keyword(Keyword::Extern)) => {
                 self.banned_keyword(
@@ -258,6 +286,77 @@ impl Parser {
         }
     }
 
+    fn parse_interface(&mut self) -> InterfaceDecl {
+        let start = self
+            .expect_keyword(Keyword::Interface)
+            .unwrap_or_else(|| self.empty_span());
+        let name = self.expect_identifier("expected interface name");
+        if !is_upper_camel(&name.value) {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0101,
+                name.span,
+                "interface names must be UpperCamelCase",
+            ));
+        }
+        self.expect_kind(&TokenKind::LeftBrace, "expected `{` after interface name");
+        self.skip_separators();
+        let mut methods = Vec::new();
+        while !self.at_eof() && !self.at_kind(&TokenKind::RightBrace) {
+            methods.push(self.parse_function());
+            self.skip_separators();
+        }
+        let end = self
+            .expect_kind(
+                &TokenKind::RightBrace,
+                "expected `}` after interface declaration",
+            )
+            .unwrap_or_else(|| methods.last().map_or(name.span, |method| method.span));
+        InterfaceDecl {
+            name,
+            methods,
+            span: start.join(end),
+        }
+    }
+
+    fn parse_impl(&mut self) -> ImplDecl {
+        let start = self
+            .expect_keyword(Keyword::Impl)
+            .unwrap_or_else(|| self.empty_span());
+        let interface_name = self.expect_identifier("expected interface name");
+        if !is_upper_camel(&interface_name.value) {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0101,
+                interface_name.span,
+                "interface names must be UpperCamelCase",
+            ));
+        }
+        self.expect_keyword(Keyword::For);
+        let type_name = self.expect_identifier("expected type name");
+        if !is_upper_camel(&type_name.value) {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0101,
+                type_name.span,
+                "type names must be UpperCamelCase",
+            ));
+        }
+        self.expect_kind(&TokenKind::LeftBrace, "expected `{` after impl header");
+        self.skip_separators();
+        let mut methods = Vec::new();
+        while !self.at_eof() && !self.at_kind(&TokenKind::RightBrace) {
+            methods.push(self.parse_function());
+            self.skip_separators();
+        }
+        let end = self
+            .expect_kind(&TokenKind::RightBrace, "expected `}` after impl block")
+            .unwrap_or_else(|| methods.last().map_or(type_name.span, |method| method.span));
+        ImplDecl {
+            interface_name,
+            type_name,
+            methods,
+            span: start.join(end),
+        }
+    }
+
     fn parse_test(&mut self) -> TestDecl {
         let start = self
             .expect_keyword(Keyword::Test)
@@ -325,8 +424,11 @@ impl Parser {
         while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
             let start = self.current_span();
             let name = self.expect_identifier("expected parameter name");
+            let is_self = name.value == "self";
             let ty = if self.eat_kind(&TokenKind::Colon).is_some() {
                 Some(self.parse_type())
+            } else if is_self {
+                None
             } else {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K0302,
@@ -539,11 +641,33 @@ impl Parser {
                 };
             } else if self.eat_kind(&TokenKind::Dot).is_some() {
                 let field = self.expect_identifier("expected field name");
-                expr = Expr::Field {
-                    span: expr.span().join(field.span),
-                    target: Box::new(expr),
-                    field,
-                };
+                if self.at_kind(&TokenKind::LeftParen) {
+                    let mut args = Vec::new();
+                    self.advance();
+                    self.skip_separators();
+                    while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
+                        args.push(self.parse_expr());
+                        if self.eat_kind(&TokenKind::Comma).is_none() {
+                            break;
+                        }
+                        self.skip_separators();
+                    }
+                    let end = self
+                        .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
+                        .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                    expr = Expr::MethodCall {
+                        span: expr.span().join(end),
+                        receiver: Box::new(expr),
+                        method: field,
+                        args,
+                    };
+                } else {
+                    expr = Expr::Field {
+                        span: expr.span().join(field.span),
+                        target: Box::new(expr),
+                        field,
+                    };
+                }
             } else if self.allow_struct_literals && self.at_kind(&TokenKind::LeftBrace) {
                 if let Expr::Name(name) = expr {
                     expr = self.finish_struct_literal(name);

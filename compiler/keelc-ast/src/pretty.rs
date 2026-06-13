@@ -1,8 +1,8 @@
 //! AST pretty-printer — the canonical formatter for Keel Core.
 
 use crate::{
-    BinaryOp, Block, Expr, FieldDecl, FunctionDecl, Item, MatchArm, Module, Param, Pattern, Stmt,
-    StructLiteralField, TestDecl, Type, UnaryOp, VariantDecl,
+    BinaryOp, Block, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item, MatchArm, Module,
+    Param, Pattern, Stmt, StructLiteralField, TestDecl, Type, UnaryOp, VariantDecl,
 };
 
 /// Render a module to its canonical Keel Core source form.
@@ -73,6 +73,8 @@ impl Printer {
                 self.line("}");
             }
             Item::Function(decl) => self.function_decl(decl),
+            Item::Interface(decl) => self.interface_decl(decl),
+            Item::Impl(decl) => self.impl_decl(decl),
             Item::Test(decl) => self.test_decl(decl),
         }
     }
@@ -121,6 +123,29 @@ impl Printer {
             }
             None => self.line(&signature),
         }
+    }
+
+    fn interface_decl(&mut self, decl: &InterfaceDecl) {
+        self.line(&format!("interface {} {{", decl.name.value));
+        self.indent();
+        for method in &decl.methods {
+            self.function_decl(method);
+        }
+        self.dedent();
+        self.line("}");
+    }
+
+    fn impl_decl(&mut self, decl: &ImplDecl) {
+        self.line(&format!(
+            "impl {} for {} {{",
+            decl.interface_name.value, decl.type_name.value
+        ));
+        self.indent();
+        for method in &decl.methods {
+            self.function_decl(method);
+        }
+        self.dedent();
+        self.line("}");
     }
 
     fn test_decl(&mut self, decl: &TestDecl) {
@@ -253,6 +278,20 @@ impl Printer {
             Expr::Field { target, field, .. } => {
                 let target = self.expr(target, 100, base_indent);
                 (format!("{target}.{}", field.value), 100)
+            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                let receiver = self.expr(receiver, 100, base_indent);
+                let args = args
+                    .iter()
+                    .map(|arg| self.expr(arg, 0, base_indent))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                (format!("{receiver}.{}({args})", method.value), 100)
             }
             Expr::StructLiteral { name, fields, .. } => {
                 let fields = fields
