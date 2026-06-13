@@ -174,8 +174,20 @@ impl<'a> Emitter<'a> {
         self.line("")?;
         self.emit_checked_op("checked_div", "KeelEnum", "/", "return None", "Some")?;
         self.emit_checked_op("checked_rem", "KeelEnum", "%", "return None", "Some")?;
-        self.emit_checked_op("keelDiv", "int64", "/", r#"panic("K0204: division by zero")"#, "")?;
-        self.emit_checked_op("keelRem", "int64", "%", r#"panic("K0204: remainder by zero")"#, "")?;
+        self.emit_checked_op(
+            "keelDiv",
+            "int64",
+            "/",
+            r#"panic("K0204: division by zero")"#,
+            "",
+        )?;
+        self.emit_checked_op(
+            "keelRem",
+            "int64",
+            "%",
+            r#"panic("K0204: remainder by zero")"#,
+            "",
+        )?;
         Ok(())
     }
 

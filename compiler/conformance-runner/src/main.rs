@@ -283,15 +283,13 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             }
             Outcome::Pass
         }
-        Expectation::Error { code, line } => {
-            check_expected_error(
-                &out.status,
-                &stderr,
-                code,
-                line,
-                &format!("expected compile error {code}, but program ran successfully"),
-            )
-        }
+        Expectation::Error { code, line } => check_expected_error(
+            &out.status,
+            &stderr,
+            code,
+            line,
+            &format!("expected compile error {code}, but program ran successfully"),
+        ),
     }
 }
 
@@ -313,15 +311,13 @@ fn check_m2_semantics(case: &Case, keelc: &str, current_milestone: Option<u32>) 
                 ))
             }
         }
-        Expectation::Error { code, line } => {
-            check_expected_error(
-                &out.status,
-                &stderr,
-                code,
-                line,
-                &format!("expected compile error {code}, but semantic check succeeded"),
-            )
-        }
+        Expectation::Error { code, line } => check_expected_error(
+            &out.status,
+            &stderr,
+            code,
+            line,
+            &format!("expected compile error {code}, but semantic check succeeded"),
+        ),
     }
 }
 
@@ -343,15 +339,13 @@ fn check_m1_syntax(case: &Case, keelc: &str, current_milestone: Option<u32>) -> 
                 ))
             }
         }
-        Expectation::Error { code, line } if is_m1_syntax_code(code) => {
-            check_expected_error(
-                &out.status,
-                &stderr,
-                code,
-                line,
-                &format!("expected M1 syntax diagnostic {code}, but check succeeded"),
-            )
-        }
+        Expectation::Error { code, line } if is_m1_syntax_code(code) => check_expected_error(
+            &out.status,
+            &stderr,
+            code,
+            line,
+            &format!("expected M1 syntax diagnostic {code}, but check succeeded"),
+        ),
         Expectation::Error { code, .. } => {
             if out.status.success() {
                 Outcome::Pass
