@@ -1,5 +1,7 @@
 //! AST definitions and pretty-printer foundation for keelc.
 
+pub mod pretty;
+
 use keelc_span::{Span, Spanned};
 
 #[derive(Clone, Debug, Eq, PartialEq)]

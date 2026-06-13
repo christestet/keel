@@ -1143,8 +1143,34 @@ fn is_snake_case(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::parse;
-    use keelc_diag::registry;
+    use keelc_ast::pretty::pretty_print;
+    use keelc_diag::{registry, Severity};
     use keelc_span::SourceId;
+
+    fn no_errors(diagnostics: &[keelc_diag::Diagnostic]) -> bool {
+        diagnostics.iter().all(|d| d.severity != Severity::Error)
+    }
+
+    fn format_idempotent(source: &str) {
+        let first = parse(SourceId::new(0), source);
+        assert!(
+            no_errors(&first.diagnostics),
+            "parse errors: {:?}",
+            first.diagnostics
+        );
+        let once = pretty_print(&first.module);
+        let reparsed = parse(SourceId::new(1), &once);
+        assert!(
+            no_errors(&reparsed.diagnostics),
+            "formatter produced invalid source:\n{once}\nerrors: {:?}",
+            reparsed.diagnostics
+        );
+        let twice = pretty_print(&reparsed.module);
+        assert_eq!(
+            once, twice,
+            "formatter is not idempotent:\n--- once ---\n{once}\n--- twice ---\n{twice}"
+        );
+    }
 
     #[test]
     fn parses_function_and_call() {
@@ -1185,5 +1211,43 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == registry::K0302));
+    }
+
+    #[test]
+    fn formatter_hello_world() {
+        format_idempotent("fn main() {\n    print(\"hello\")\n}\n");
+    }
+
+    #[test]
+    fn formatter_struct_and_enum() {
+        format_idempotent(
+            "struct Engine {\n    power: Int\n}\n\nenum Event {\n    Login(user: User),\n    Logout,\n}\n",
+        );
+    }
+
+    #[test]
+    fn formatter_if_and_match() {
+        format_idempotent(
+            "enum S { A, B }\nfn main() {\n    if true {\n        1\n    } else {\n        2\n    }\n    match S.A {\n        A => 1\n        B => 2\n    }\n}\n",
+        );
+    }
+
+    #[test]
+    fn formatter_string_interpolation_and_escapes() {
+        format_idempotent(
+            "fn main() {\n    print(\"{x}\")\n    print(\"{{not interpolated}}\")\n}\n",
+        );
+    }
+
+    #[test]
+    fn formatter_nested_expressions() {
+        format_idempotent("fn main() {\n    let x = 1 + 2 * 3\n    let y = (1 + 2) * 3\n    let z = a && b || c\n}\n");
+    }
+
+    #[test]
+    fn formatter_catch_and_question() {
+        format_idempotent(
+            "enum E { Bad, Other }\nfn main() -> Result<Int, E> {\n    let x = f() catch err {\n        Bad => return Err(Bad),\n        other => return Err(other),\n    }\n    let y = g()?\n    Ok(y)\n}\n",
+        );
     }
 }
