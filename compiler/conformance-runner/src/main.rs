@@ -284,25 +284,13 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             Outcome::Pass
         }
         Expectation::Error { code, line } => {
-            if out.status.success() {
-                return Outcome::Fail(format!(
-                    "expected compile error {code}, but program ran successfully"
-                ));
-            }
-            if !stderr.contains(code.as_str()) {
-                return Outcome::Fail(format!(
-                    "expected diagnostic {code} in stderr\n--- stderr ---\n{stderr}"
-                ));
-            }
-            if let Some(n) = line {
-                let needle = format!("main.keel:{n}");
-                if !stderr.contains(&needle) {
-                    return Outcome::Fail(format!(
-                        "expected primary span at {needle}\n--- stderr ---\n{stderr}"
-                    ));
-                }
-            }
-            Outcome::Pass
+            check_expected_error(
+                &out.status,
+                &stderr,
+                code,
+                line,
+                &format!("expected compile error {code}, but program ran successfully"),
+            )
         }
     }
 }
@@ -326,25 +314,13 @@ fn check_m2_semantics(case: &Case, keelc: &str, current_milestone: Option<u32>) 
             }
         }
         Expectation::Error { code, line } => {
-            if out.status.success() {
-                return Outcome::Fail(format!(
-                    "expected compile error {code}, but semantic check succeeded"
-                ));
-            }
-            if !stderr.contains(code.as_str()) {
-                return Outcome::Fail(format!(
-                    "expected diagnostic {code} in stderr\n--- stderr ---\n{stderr}"
-                ));
-            }
-            if let Some(n) = line {
-                let needle = format!("main.keel:{n}");
-                if !stderr.contains(&needle) {
-                    return Outcome::Fail(format!(
-                        "expected primary span at {needle}\n--- stderr ---\n{stderr}"
-                    ));
-                }
-            }
-            Outcome::Pass
+            check_expected_error(
+                &out.status,
+                &stderr,
+                code,
+                line,
+                &format!("expected compile error {code}, but semantic check succeeded"),
+            )
         }
     }
 }
@@ -368,25 +344,13 @@ fn check_m1_syntax(case: &Case, keelc: &str, current_milestone: Option<u32>) -> 
             }
         }
         Expectation::Error { code, line } if is_m1_syntax_code(code) => {
-            if out.status.success() {
-                return Outcome::Fail(format!(
-                    "expected M1 syntax diagnostic {code}, but check succeeded"
-                ));
-            }
-            if !stderr.contains(code.as_str()) {
-                return Outcome::Fail(format!(
-                    "expected diagnostic {code} in stderr\n--- stderr ---\n{stderr}"
-                ));
-            }
-            if let Some(n) = line {
-                let needle = format!("main.keel:{n}");
-                if !stderr.contains(&needle) {
-                    return Outcome::Fail(format!(
-                        "expected primary span at {needle}\n--- stderr ---\n{stderr}"
-                    ));
-                }
-            }
-            Outcome::Pass
+            check_expected_error(
+                &out.status,
+                &stderr,
+                code,
+                line,
+                &format!("expected M1 syntax diagnostic {code}, but check succeeded"),
+            )
         }
         Expectation::Error { code, .. } => {
             if out.status.success() {
@@ -398,6 +362,32 @@ fn check_m1_syntax(case: &Case, keelc: &str, current_milestone: Option<u32>) -> 
             }
         }
     }
+}
+
+fn check_expected_error(
+    status: &std::process::ExitStatus,
+    stderr: &str,
+    code: &str,
+    line: &Option<u32>,
+    success_msg: &str,
+) -> Outcome {
+    if status.success() {
+        return Outcome::Fail(success_msg.to_string());
+    }
+    if !stderr.contains(code) {
+        return Outcome::Fail(format!(
+            "expected diagnostic {code} in stderr\n--- stderr ---\n{stderr}"
+        ));
+    }
+    if let Some(n) = line {
+        let needle = format!("main.keel:{n}");
+        if !stderr.contains(&needle) {
+            return Outcome::Fail(format!(
+                "expected primary span at {needle}\n--- stderr ---\n{stderr}"
+            ));
+        }
+    }
+    Outcome::Pass
 }
 
 fn invoke_keelc(
