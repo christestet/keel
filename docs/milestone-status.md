@@ -59,6 +59,7 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 | `keel fmt` | Implemented via the AST pretty-printer; idempotent on all M0 accept cases in `tests/conformance/`. |
 | `keel build` | Stub: runs frontend checks and Go emission (no artifact written yet). |
 | `keel test` | Discovers `test "name" { ... }` blocks, runs each in an isolated Go harness, reports assertion failures with source line. |
+| Conformance | New case `702-keel-test-runs-blocks` exercises `keel test` at M4. |
 
 **Known limitations:** formatter strips comments (comments are not stored in the AST). `examples/users-service/main.keel` uses post-Core features and cannot be formatted yet.
 
@@ -83,6 +84,12 @@ Run `scripts/preflight.sh` from the repo root. For a specific milestone:
 KEEL_MILESTONE=M3 scripts/preflight.sh
 # or equivalently:
 cargo run -p conformance-runner -- --keelc target/debug/keelc --milestone M3
+```
+
+M4 adds `keel test` execution; validate with:
+
+```sh
+KEEL_MILESTONE=M4 scripts/preflight.sh
 ```
 
 ## Dependency chain

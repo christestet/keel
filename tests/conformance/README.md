@@ -13,10 +13,11 @@ one expectation file:
 - `expected.error` — reject-case: first line is the diagnostic code (`K0301`),
   optional second line is `line:N` for the primary span. Message text is NOT matched.
 
-Optional `case.toml` for flags (edition, milestone gate):
+Optional `case.toml` for flags (edition, milestone gate, execution mode):
 
 ```toml
 milestone = "M2"     # runner skips cases beyond the current milestone
+mode = "test"        # M4+: invoke `keelc test` instead of `keelc run`
 ```
 
 ## Rules

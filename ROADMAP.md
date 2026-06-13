@@ -49,7 +49,7 @@ Single binary UX: `keel build|run|fmt|test`. `keel fmt` is canonical from the
 first release — formatting freezes *now*, while the corpus is small.
 `keel test` discovers `test "name" { }` blocks; `assert` with structural diffs.
 
-**Exit:** `keel test` runs a Keel-language test file; `keel fmt` is idempotent on the whole repo.
+**Exit:** `keel test` runs a Keel-language test file; `keel fmt` is idempotent on every Core file in the repo (post-Core examples, e.g. `examples/users-service/`, remain out of scope until their features land).
 
 ## M5 — Language completion wave 1
 

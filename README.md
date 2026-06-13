@@ -49,6 +49,29 @@ Milestone 0 is not code. It is freezing **Keel Core** (`docs/spec/keel-core.md`)
 minimal subset — and writing conformance tests for it. Every subsequent PR makes one
 more conformance test pass. See `ROADMAP.md`.
 
+## Current CLI (M4 snapshot)
+
+The compiler builds two binaries from `compiler/keelc-driver`:
+
+- `keel` — user-facing toolchain.
+- `keelc` — conformance-runner entry point (also supports `check`/`run`).
+
+Available commands:
+
+```sh
+cargo build --release -p keelc-driver
+
+./target/release/keel run examples/hello.keel
+./target/release/keel test tests/conformance/702-keel-test-runs-blocks/main.keel
+./target/release/keel fmt tests/conformance/001-hello-world/main.keel
+./target/release/keel build tests/conformance/001-hello-world/main.keel
+```
+
+`keel fmt` is the AST pretty-printer and is idempotent on the Keel Core
+conformance corpus. `keel test` discovers `test "name" { assert expr }` blocks
+and runs them. `keel build` is still a stub: it checks and emits Go source but
+does not yet produce an artifact.
+
 ## License
 
 Apache-2.0. See [`LICENSE`](LICENSE) for details.

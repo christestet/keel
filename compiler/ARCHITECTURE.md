@@ -53,7 +53,9 @@ compiler/
   keelc-types       type definitions (TypeInfo, merge, collect) + typechecker -> typed HIR
   keelc-kir         IR + lowering
   keelc-backend-go  Go emission
-  keelc-driver      query database, CLI entry (`keel` binary)
+  keelc-driver      query database, CLI entry; builds both the user-facing
+                    `keel` binary and the `keelc` binary used by the
+                    conformance runner
   conformance-runner  test harness for tests/conformance/
 ```
 
