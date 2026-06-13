@@ -199,12 +199,17 @@ impl Printer {
             Stmt::Let {
                 mutable,
                 name,
+                ty,
                 value,
                 ..
             } => {
                 let keyword = if *mutable { "mut" } else { "let" };
+                let type_annotation = ty
+                    .as_ref()
+                    .map(|ty| format!(": {}", self.type_(ty)))
+                    .unwrap_or_default();
                 self.line(&format!(
-                    "{keyword} {} = {}",
+                    "{keyword} {}{type_annotation} = {}",
                     name.value,
                     self.expr(value, 0, base)
                 ));

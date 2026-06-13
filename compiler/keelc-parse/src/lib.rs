@@ -548,12 +548,19 @@ impl Parser {
     fn parse_let(&mut self, mutable: bool) -> Stmt {
         let start = self.advance().map_or_else(|| self.empty_span(), |t| t.span);
         let name = self.expect_identifier("expected binding name");
+        let ty = if self.eat_kind(&TokenKind::Colon).is_some() {
+            Some(self.parse_type())
+        } else {
+            None
+        };
         self.expect_kind(&TokenKind::Equal, "expected `=` in binding");
         let value = self.parse_expr();
+        let end = value.span();
         Stmt::Let {
             mutable,
-            span: start.join(value.span()),
+            span: start.join(end),
             name,
+            ty,
             value,
         }
     }

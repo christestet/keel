@@ -1438,6 +1438,7 @@ fn go_type(ty: &TypeInfo, struct_names: &[&str]) -> String {
         TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => {
             "KeelEnum".to_string()
         }
+        TypeInfo::Interface(_) => "any".to_string(),
         TypeInfo::Unknown => "any".to_string(),
     }
 }
@@ -1472,6 +1473,7 @@ fn zero_value(ty: &TypeInfo) -> &'static str {
         TypeInfo::String => "\"\"",
         TypeInfo::Unit => "",
         TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => "KeelEnum{}",
+        TypeInfo::Interface(_) => "nil",
         TypeInfo::Unknown => "nil",
     }
 }

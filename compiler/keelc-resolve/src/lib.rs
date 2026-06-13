@@ -316,6 +316,7 @@ fn collect_structs(module: &Module) -> Vec<StructInfo> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct FunctionInfo {
     name: String,
+    params: Vec<TypeInfo>,
     return_type: TypeInfo,
 }
 
@@ -323,6 +324,26 @@ struct FunctionInfo {
 struct EnumInfo {
     name: String,
     variants: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InterfaceInfo {
+    name: String,
+    methods: Vec<MethodInfo>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ImplInfo {
+    interface_name: String,
+    type_name: String,
+    methods: Vec<MethodInfo>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MethodInfo {
+    name: String,
+    params: Vec<TypeInfo>,
+    return_type: TypeInfo,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -335,6 +356,8 @@ struct Typechecker<'a> {
     module: &'a Module,
     functions: Vec<FunctionInfo>,
     enums: Vec<EnumInfo>,
+    interfaces: Vec<InterfaceInfo>,
+    impls: Vec<ImplInfo>,
     scopes: Vec<Vec<TypedBinding>>,
     diagnostics: Vec<Diagnostic>,
     diagnostic_span_override: Option<Span>,
@@ -343,10 +366,15 @@ struct Typechecker<'a> {
 
 impl<'a> Typechecker<'a> {
     fn new(module: &'a Module) -> Self {
+        let interfaces = collect_interfaces(module);
+        let functions = collect_functions(module, &interfaces);
+        let impls = collect_impls(module, &interfaces);
         Self {
             module,
-            functions: collect_functions(module),
+            functions,
             enums: collect_enums(module),
+            interfaces,
+            impls,
             scopes: Vec::new(),
             diagnostics: Vec::new(),
             diagnostic_span_override: None,
@@ -355,6 +383,16 @@ impl<'a> Typechecker<'a> {
     }
 
     fn check(mut self) -> TypecheckOutput {
+        for item in &self.module.items {
+            if let Item::Interface(decl) = item {
+                self.check_interface(decl);
+            }
+        }
+        for item in &self.module.items {
+            if let Item::Impl(decl) = item {
+                self.check_impl(decl);
+            }
+        }
         for item in &self.module.items {
             match item {
                 Item::Function(function) => self.check_function(function),
@@ -380,16 +418,166 @@ impl<'a> Typechecker<'a> {
         }
     }
 
+    fn check_interface(&mut self, decl: &keelc_ast::InterfaceDecl) {
+        if decl.methods.len() > 5 {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0601,
+                decl.span,
+                format!(
+                    "interface `{}` declares {} methods; at most 5 are allowed",
+                    decl.name.value,
+                    decl.methods.len()
+                ),
+            ));
+        }
+        for (index, method) in decl.methods.iter().enumerate() {
+            if decl.methods[..index]
+                .iter()
+                .any(|m| m.name.value == method.name.value)
+            {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0602,
+                    method.span,
+                    format!(
+                        "duplicate method name `{}` in interface `{}`",
+                        method.name.value, decl.name.value
+                    ),
+                ));
+            }
+            self.check_method_self(&method.params, method.span);
+        }
+    }
+
+    fn check_impl(&mut self, decl: &keelc_ast::ImplDecl) {
+        let type_name = decl.type_name.value.clone();
+        let interface_name = decl.interface_name.value.clone();
+        let Some(interface) = self.interface_info(&interface_name).cloned() else {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0003,
+                decl.interface_name.span,
+                format!("unknown interface `{}`", interface_name),
+            ));
+            return;
+        };
+
+        for method in &decl.methods {
+            let previous_return = self.current_return_type.replace(
+                method
+                    .return_type
+                    .as_ref()
+                    .map_or(TypeInfo::Unit, TypeInfo::from_ast),
+            );
+            self.push_scope();
+            self.define_value(
+                &Spanned::new("self".to_string(), method.span),
+                TypeInfo::Named(type_name.clone()),
+            );
+            for param in &method.params {
+                if param.name.value == "self" {
+                    continue;
+                }
+                let ty = param
+                    .ty
+                    .as_ref()
+                    .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
+                self.define_value(&param.name, ty);
+            }
+            if let Some(body) = &method.body {
+                self.check_block(body);
+            }
+            self.pop_scope();
+            self.current_return_type = previous_return;
+        }
+
+        for expected in &interface.methods {
+            let found = decl
+                .methods
+                .iter()
+                .find(|m| m.name.value == expected.name);
+            match found {
+                None => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0603,
+                        decl.span,
+                        format!(
+                            "impl for `{}` on `{}` is missing method `{}`",
+                            decl.interface_name.value, decl.type_name.value, expected.name
+                        ),
+                    ));
+                }
+                Some(actual) => {
+                    let interface_names: Vec<String> =
+                        self.interfaces.iter().map(|info| info.name.clone()).collect();
+                    let actual_info = method_from_decl(actual, &interface_names);
+                    if actual_info.params != expected.params
+                        || actual_info.return_type != expected.return_type
+                    {
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0604,
+                            actual.span,
+                            format!(
+                                "method `{}` in impl for `{}` on `{}` does not match interface signature",
+                                expected.name, decl.interface_name.value, decl.type_name.value
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
+        for actual in &decl.methods {
+            if !interface.methods.iter().any(|m| m.name == actual.name.value) {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0607,
+                    actual.span,
+                    format!(
+                        "method `{}` is not declared by interface `{}`",
+                        actual.name.value, decl.interface_name.value
+                    ),
+                ));
+            }
+            self.check_method_self(&actual.params, actual.span);
+        }
+    }
+
+    fn check_method_self(&mut self, params: &[keelc_ast::Param], span: Span) {
+        let Some(first) = params.first() else {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0003,
+                span,
+                "interface methods must declare `self` as the first parameter",
+            ));
+            return;
+        };
+        if first.name.value != "self" {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0003,
+                first.name.span,
+                "the first parameter of an interface method must be `self`",
+            ));
+        }
+        if first.ty.is_some() {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0003,
+                first.name.span,
+                "`self` must not have a type annotation",
+            ));
+        }
+    }
+
     fn check_function(&mut self, function: &keelc_ast::FunctionDecl) {
         let Some(body) = &function.body else {
             return;
         };
 
         let previous_return_type = self.current_return_type.replace(
-            function
-                .return_type
-                .as_ref()
-                .map_or(TypeInfo::Unit, TypeInfo::from_ast),
+            self.resolve_type(
+                &function
+                    .return_type
+                    .as_ref()
+                    .map_or(TypeInfo::Unit, TypeInfo::from_ast),
+            )
+            .clone(),
         );
         self.push_scope();
         for param in &function.params {
@@ -397,7 +585,7 @@ impl<'a> Typechecker<'a> {
                 .ty
                 .as_ref()
                 .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
-            self.define_value(&param.name, ty);
+            self.define_value(&param.name, self.resolve_type(&ty).clone());
         }
         self.check_block(body);
         self.pop_scope();
@@ -420,9 +608,15 @@ impl<'a> Typechecker<'a> {
 
     fn check_stmt(&mut self, statement: &Stmt) -> TypeInfo {
         match statement {
-            Stmt::Let { name, value, .. } => {
+            Stmt::Let { name, ty, value, .. } => {
                 let value_type = self.infer_expr(value);
-                self.define_value(name, value_type);
+                let annotated = ty.as_ref().map(TypeInfo::from_ast).map(|ty| self.resolve_type(&ty).clone());
+                if let Some(expected) = annotated {
+                    self.check_assignable(&value_type, &expected, value.span());
+                    self.define_value(name, expected);
+                } else {
+                    self.define_value(name, value_type);
+                }
                 TypeInfo::Unit
             }
             Stmt::Assign { target, value, .. } => {
@@ -473,13 +667,12 @@ impl<'a> Typechecker<'a> {
                 self.infer_expr(target);
                 TypeInfo::Unknown
             }
-            Expr::MethodCall { receiver, args, .. } => {
-                self.infer_expr(receiver);
-                for arg in args {
-                    self.infer_expr(arg);
-                }
-                TypeInfo::Unknown
-            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => self.infer_method_call(receiver, method, args, *span),
             Expr::StructLiteral { name, fields, .. } => {
                 for field in fields {
                     self.infer_expr(&field.value);
@@ -625,14 +818,20 @@ impl<'a> Typechecker<'a> {
                     arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
                 ],
             },
-            Expr::Name(name) => self
-                .function_return_type(&name.value)
-                .or_else(|| self.enum_variant_type(&name.value))
-                .unwrap_or(TypeInfo::Unknown),
+            Expr::Name(name) => {
+                if let Some(info) = self.function_info(&name.value) {
+                    let params = info.params.clone();
+                    let return_type = info.return_type.clone();
+                    self.check_call_args(&params, args, name.span);
+                    return return_type;
+                }
+                self.enum_variant_type(&name.value).unwrap_or(TypeInfo::Unknown)
+            }
             Expr::Field { target, field, .. }
                 if matches!(target.as_ref(), Expr::Name(name) if name.value == "Float")
                     && field.value == "from" =>
             {
+                self.check_call_args(&[TypeInfo::Int], args, field.span);
                 TypeInfo::Float
             }
             Expr::Field { .. } => {
@@ -641,6 +840,62 @@ impl<'a> Typechecker<'a> {
             }
             _ => {
                 self.infer_expr(callee);
+                TypeInfo::Unknown
+            }
+        }
+    }
+
+    fn check_call_args(&mut self, params: &[TypeInfo], args: &[Expr], span: Span) {
+        for (index, (param, arg)) in params.iter().zip(args.iter()).enumerate() {
+            let arg_type = self.infer_expr(arg);
+            self.check_assignable(&arg_type, param, arg.span());
+            let _ = index;
+        }
+        let _ = (params, args, span);
+    }
+
+    fn infer_method_call(
+        &mut self,
+        receiver: &Expr,
+        method: &Spanned<String>,
+        args: &[Expr],
+        span: Span,
+    ) -> TypeInfo {
+        let receiver_type = self.infer_expr(receiver);
+        for arg in args {
+            self.infer_expr(arg);
+        }
+        let method_info = match &receiver_type {
+            TypeInfo::Interface(name) => {
+                let interface = match self.interface_info(name) {
+                    Some(info) => info,
+                    None => return TypeInfo::Unknown,
+                };
+                interface.methods.iter().find(|m| m.name == method.value).cloned()
+            }
+            TypeInfo::Named(type_name) => self
+                .impls
+                .iter()
+                .filter(|info| info.type_name == *type_name)
+                .flat_map(|info| info.methods.iter())
+                .find(|m| m.name == method.value)
+                .cloned(),
+            _ => None,
+        };
+        match method_info {
+            Some(info) => {
+                self.check_call_args(&info.params, args, method.span);
+                info.return_type
+            }
+            None => {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0606,
+                    self.diagnostic_span(span),
+                    format!(
+                        "method `{}` not found on `{}`",
+                        method.value, receiver_type
+                    ),
+                ));
                 TypeInfo::Unknown
             }
         }
@@ -869,11 +1124,58 @@ impl<'a> Typechecker<'a> {
             .map(|binding| binding.ty.clone())
     }
 
-    fn function_return_type(&self, name: &str) -> Option<TypeInfo> {
-        self.functions
+    fn resolve_type(&self, ty: &TypeInfo) -> TypeInfo {
+        match ty {
+            TypeInfo::Named(name)
+                if self.interfaces.iter().any(|info| info.name == *name) =>
+            {
+                TypeInfo::Interface(name.clone())
+            }
+            _ => ty.clone(),
+        }
+    }
+
+    fn check_assignable(&mut self, actual: &TypeInfo, expected: &TypeInfo, span: Span) {
+        if matches!(actual, TypeInfo::Unknown) || matches!(expected, TypeInfo::Unknown) {
+            return;
+        }
+        if expected == actual {
+            return;
+        }
+        if let TypeInfo::Interface(interface_name) = expected {
+            if let TypeInfo::Named(type_name) = actual {
+                if self.impl_exists(type_name, interface_name) {
+                    return;
+                }
+            }
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0605,
+                self.diagnostic_span(span),
+                format!("type `{actual}` does not implement interface `{expected}`"),
+            ));
+            return;
+        }
+        if actual != expected {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0003,
+                self.diagnostic_span(span),
+                format!("expected `{expected}`, found `{actual}`"),
+            ));
+        }
+    }
+
+    fn impl_exists(&self, type_name: &str, interface_name: &str) -> bool {
+        self.impls
             .iter()
-            .find(|function| function.name == name)
-            .map(|function| function.return_type.clone())
+            .any(|info| info.type_name == type_name && info.interface_name == interface_name)
+    }
+
+    fn interface_info(&self, name: &str) -> Option<&InterfaceInfo> {
+        self.interfaces.iter().find(|info| info.name == name)
+    }
+
+    fn function_info(&self, name: &str) -> Option<&FunctionInfo> {
+        self.functions.iter().find(|function| function.name == name)
     }
 
     fn diagnostic_span(&self, fallback: Span) -> Span {
@@ -889,16 +1191,38 @@ impl<'a> Typechecker<'a> {
     }
 }
 
-fn collect_functions(module: &Module) -> Vec<FunctionInfo> {
+fn collect_functions(module: &Module, interfaces: &[InterfaceInfo]) -> Vec<FunctionInfo> {
+    let names: Vec<String> = interfaces.iter().map(|info| info.name.clone()).collect();
+    let resolve = |ty: TypeInfo| {
+        if let TypeInfo::Named(name) = &ty {
+            if names.iter().any(|info| info == name) {
+                return TypeInfo::Interface(name.clone());
+            }
+        }
+        ty
+    };
     let mut functions = Vec::new();
     for item in &module.items {
         if let Item::Function(decl) = item {
             let return_type = decl
                 .return_type
                 .as_ref()
-                .map_or(TypeInfo::Unit, TypeInfo::from_ast);
+                .map_or(TypeInfo::Unit, TypeInfo::from_ast)
+                .map_type(&resolve);
+            let params = decl
+                .params
+                .iter()
+                .map(|param| {
+                    param
+                        .ty
+                        .as_ref()
+                        .map_or(TypeInfo::Unknown, TypeInfo::from_ast)
+                        .map_type(&resolve)
+                })
+                .collect();
             functions.push(FunctionInfo {
                 name: decl.name.value.clone(),
+                params,
                 return_type,
             });
         }
@@ -925,6 +1249,95 @@ fn collect_enums(module: &Module) -> Vec<EnumInfo> {
     }
     enums.sort_by(|left, right| left.name.cmp(&right.name));
     enums
+}
+
+fn interface_names(module: &Module) -> Vec<String> {
+    let mut names = Vec::new();
+    for item in &module.items {
+        if let Item::Interface(decl) = item {
+            names.push(decl.name.value.clone());
+        }
+    }
+    names.sort();
+    names
+}
+
+fn collect_interfaces(module: &Module) -> Vec<InterfaceInfo> {
+    let names = interface_names(module);
+    let mut interfaces = Vec::new();
+    for item in &module.items {
+        if let Item::Interface(decl) = item {
+            let methods = decl
+                .methods
+                .iter()
+                .map(|m| method_from_decl(m, &names))
+                .collect();
+            interfaces.push(InterfaceInfo {
+                name: decl.name.value.clone(),
+                methods,
+            });
+        }
+    }
+    interfaces.sort_by(|left, right| left.name.cmp(&right.name));
+    interfaces
+}
+
+fn collect_impls(module: &Module, interfaces: &[InterfaceInfo]) -> Vec<ImplInfo> {
+    let names: Vec<String> = interfaces.iter().map(|info| info.name.clone()).collect();
+    let mut impls = Vec::new();
+    for item in &module.items {
+        if let Item::Impl(decl) = item {
+            let methods = decl
+                .methods
+                .iter()
+                .map(|m| method_from_decl(m, &names))
+                .collect();
+            impls.push(ImplInfo {
+                interface_name: decl.interface_name.value.clone(),
+                type_name: decl.type_name.value.clone(),
+                methods,
+            });
+        }
+    }
+    impls.sort_by(|left, right| {
+        left.type_name
+            .cmp(&right.type_name)
+            .then_with(|| left.interface_name.cmp(&right.interface_name))
+    });
+    impls
+}
+
+fn method_from_decl(decl: &keelc_ast::FunctionDecl, interface_names: &[String]) -> MethodInfo {
+    let resolve = |ty: TypeInfo| {
+        if let TypeInfo::Named(name) = &ty {
+            if interface_names.iter().any(|info| info == name) {
+                return TypeInfo::Interface(name.clone());
+            }
+        }
+        ty
+    };
+    let params = decl
+        .params
+        .iter()
+        .filter(|param| param.name.value != "self")
+        .map(|param| {
+            param
+                .ty
+                .as_ref()
+                .map_or(TypeInfo::Unknown, TypeInfo::from_ast)
+                .map_type(&resolve)
+        })
+        .collect();
+    let return_type = decl
+        .return_type
+        .as_ref()
+        .map_or(TypeInfo::Unit, TypeInfo::from_ast)
+        .map_type(&resolve);
+    MethodInfo {
+        name: decl.name.value.clone(),
+        params,
+        return_type,
+    }
 }
 
 fn is_int_float_pair(left: &TypeInfo, right: &TypeInfo) -> bool {

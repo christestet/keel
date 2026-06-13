@@ -127,6 +127,7 @@ pub enum Stmt {
     Let {
         mutable: bool,
         name: Spanned<String>,
+        ty: Option<Type>,
         value: Expr,
         span: Span,
     },

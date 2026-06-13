@@ -16,6 +16,7 @@ pub enum TypeInfo {
     Char,
     Unit,
     Named(String),
+    Interface(String),
     Generic { name: String, args: Vec<TypeInfo> },
     Union(Vec<TypeInfo>),
     Unknown,
@@ -69,6 +70,20 @@ impl TypeInfo {
             _ => None,
         }
     }
+
+    pub fn map_type(&self, f: &impl Fn(Self) -> Self) -> Self {
+        let mapped = f(self.clone());
+        match mapped {
+            Self::Generic { name, args } => Self::Generic {
+                name,
+                args: args.iter().map(|arg| arg.map_type(f)).collect(),
+            },
+            Self::Union(members) => {
+                Self::Union(members.iter().map(|member| member.map_type(f)).collect())
+            }
+            other => other,
+        }
+    }
 }
 
 impl fmt::Display for TypeInfo {
@@ -81,6 +96,7 @@ impl fmt::Display for TypeInfo {
             Self::Char => f.write_str("Char"),
             Self::Unit => f.write_str("Unit"),
             Self::Named(name) => f.write_str(name),
+            Self::Interface(name) => f.write_str(name),
             Self::Generic { name, args } => {
                 write!(f, "{name}<")?;
                 write_type_list(f, args, ", ")?;
