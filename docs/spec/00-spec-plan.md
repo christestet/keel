@@ -3,10 +3,25 @@
 The full normative spec grows chapter by chapter, each landing together with its
 conformance tests (spec PR → test PR → implementation PR, per AGENTS.md).
 
-Planned chapters: 01-lexical, 02-types, 03-declarations, 04-expressions,
-05-errors, 06-modules-packages, 07-interfaces, 08-generics, 09-concurrency
-(scope/spawn), 10-memory (GC + arena), 11-capabilities, 12-ffi, 13-testing,
-14-editions, 15-stdlib-core.
+Planned chapters:
+
+| # | Topic | Governing KDR(s) |
+|---|-------|------------------|
+| 01 | Lexical structure | [KDR-0014](kdr/0014-interpolation-brace-escaping.md) |
+| 02 | Types | — |
+| 03 | Declarations | [KDR-0003](kdr/0003-no-inheritance.md) |
+| 04 | Expressions | [KDR-0013](kdr/0013-core-operators-and-integer-division.md), [KDR-0009](kdr/0009-no-operator-overloading.md) |
+| 05 | Errors | [KDR-0005](kdr/0005-no-exceptions.md) |
+| 06 | Modules / packages | [KDR-0011](kdr/0011-package-capabilities.md), [KDR-0017](kdr/0017-function-capabilities.md) |
+| 07 | Interfaces | [KDR-0003](kdr/0003-no-inheritance.md) |
+| 08 | Generics | — |
+| 09 | Concurrency (scope/spawn) | [KDR-0002](kdr/0002-no-async-await.md) |
+| 10 | Memory (GC + arena) | [KDR-0012](kdr/0012-gc-plus-scoped-arenas.md), [KDR-0016](kdr/0016-scope-implicit-arenas.md) |
+| 11 | Capabilities | [KDR-0011](kdr/0011-package-capabilities.md), [KDR-0017](kdr/0017-function-capabilities.md) |
+| 12 | FFI | [KDR-0011](kdr/0011-package-capabilities.md) |
+| 13 | Testing | — |
+| 14 | Editions | [KDR-0001](kdr/0001-editions.md) |
+| 15 | Stdlib core | — |
 
 Until a chapter exists, `keel-core.md` plus the conformance suite is the only
 normative text. Style: every normative statement is testable; every error gets a

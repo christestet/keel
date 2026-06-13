@@ -9,18 +9,19 @@
 ## What Keel is
 
 - One paradigm: procedural code over plain data, interfaces for polymorphism.
-  No inheritance, no macros, no reflection, no exceptions, no async/await.
-- Memory: concurrent low-latency GC + lexically scoped `arena` blocks. No borrow checker.
+  No inheritance ([KDR-0003](docs/kdr/0003-no-inheritance.md)), no macros/reflection ([KDR-0004](docs/kdr/0004-no-macros.md)),
+  no exceptions ([KDR-0005](docs/kdr/0005-no-exceptions.md)), no async/await ([KDR-0002](docs/kdr/0002-no-async-await.md)).
+- Memory: concurrent low-latency GC + lexically scoped `arena` blocks ([KDR-0012](docs/kdr/0012-gc-plus-scoped-arenas.md)). No borrow checker.
 - Safety: no null (`Option<T>`), no implicit zero values, exhaustive `match`,
-  `Result` + `?` + `catch` for errors, union error types.
-- Concurrency: structured only (`scope` / `spawn`). No detached tasks, no colored functions.
+  `Result` + `?` + `catch` for errors, union error types ([KDR-0005](docs/kdr/0005-no-exceptions.md)).
+- Concurrency: structured only (`scope` / `spawn`). No detached tasks, no colored functions ([KDR-0002](docs/kdr/0002-no-async-await.md)).
 - Tooling: one binary (`keel build|run|test|fmt|lint|audit|gen|fix`), zero config,
-  non-configurable formatter and linter (waivers are public and expire).
+  non-configurable formatter and linter ([KDR-0010](docs/kdr/0010-one-formatter.md), [KDR-0018](docs/kdr/0018-waivers.md)).
 - Deployment: static binaries for `FROM scratch`, cgroup-aware runtime,
   built-in `/healthz`, `/readyz`, SIGTERM drain, OpenTelemetry.
-- Supply chain: package **capabilities** (`net`, `fs`, `exec`, `ffi`) enforced by the compiler.
+- Supply chain: package **capabilities** (`net`, `fs`, `exec`, `ffi`) enforced by the compiler ([KDR-0011](docs/kdr/0011-package-capabilities.md)).
 - Evolution: Rust-style editions, hardened — old idioms become compile errors in
-  new editions, and `keel fix` must migrate the public corpus automatically.
+  new editions, and `keel fix` must migrate the public corpus automatically ([KDR-0001](docs/kdr/0001-editions.md)).
 
 ## What Keel is not for
 

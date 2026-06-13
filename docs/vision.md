@@ -80,11 +80,11 @@ The ergonomic key is that you usually don't hand-write boundary types at all: `k
 
 ## 7. Compile time as a contract
 
-The build budget is a public, versioned artifact, not an aspiration. The reference benchmark (a realistic 100k-LOC service suite, in the open) must satisfy: **cold build < 10s, incremental build < 1s, `keel check` (types + lint, no codegen) < 300ms** on the reference laptop. CI treats a regression beyond 5% as a release blocker, identical in severity to a miscompilation. This line exists because the failure mode is sneaky: SQL checking, exhaustiveness, capability verification, and structural-diff assertions are each cheap, and their sum is how a fast compiler becomes Rust's. Specific mechanics: compile-time SQL verification is cached against the migration set's hash (re-checked only when SQL or schema text changes), the compiler is architected around incrementality from day one rather than retrofitted (Rust's most expensive lesson), and `keel check` is the editor/CI fast path so humans rarely wait on full codegen.
+The build budget is a public, versioned artifact, not an aspiration (KDR-0019). The reference benchmark (a realistic 100k-LOC service suite, in the open) must satisfy: **cold build < 10s, incremental build < 1s, `keel check` (types + lint, no codegen) < 300ms** on the reference laptop. CI treats a regression beyond 5% as a release blocker, identical in severity to a miscompilation. This line exists because the failure mode is sneaky: SQL checking, exhaustiveness, capability verification, and structural-diff assertions are each cheap, and their sum is how a fast compiler becomes Rust's. Specific mechanics: compile-time SQL verification is cached against the migration set's hash (re-checked only when SQL or schema text changes), the compiler is architected around incrementality from day one rather than retrofitted (Rust's most expensive lesson), and `keel check` is the editor/CI fast path so humans rarely wait on full codegen.
 
 ## 8. Waivers: configurable in public only
 
-The non-configurable linter gets exactly one pressure valve, designed to be socially expensive instead of silently convenient:
+The non-configurable linter gets exactly one pressure valve (KDR-0018), designed to be socially expensive instead of silently convenient:
 
 ```keel
 // keel:waiver(rule: complexity, reason: "generated protocol state machine", issue: "PLAT-2241", expires: edition-2031)
@@ -94,9 +94,9 @@ A waiver requires a rule, a reason, a tracking issue, and an expiry (a date or a
 
 ## 9. The migration story is a product
 
-Keel's adoption unit is not "a company switches languages"; it is **one new microservice inside an existing Go/Java/Node estate, in one afternoon**. That story is a maintained, CI-tested deliverable called the **landing kit**: `keel init service --from proto ./order.proto` scaffolds a service that speaks the org's existing gRPC contracts (via §2 codegen), emits OTel traces/metrics/logs in standard semantic conventions so existing dashboards light up unchanged, answers the platform team's standard probes (`/healthz`, `/readyz`, SIGTERM drain), ships the two-line `FROM scratch` Dockerfile plus a reference Helm chart, and produces an SBOM their security tooling already ingests. Interop with the incumbent world is not a feature checklist; it is the funnel, and it gets an owner and CI like any product.
+Keel's adoption unit is not "a company switches languages"; it is **one new microservice inside an existing Go/Java/Node estate, in one afternoon**. That story is a maintained, CI-tested deliverable called the **landing kit**: `keel init service --from proto ./order.proto` scaffolds a service that speaks the org's existing gRPC contracts (via §2 codegen), emits OTel traces/metrics/logs in standard semantic conventions so existing dashboards light up unchanged, answers the platform team's standard probes (`/healthz`, `/readyz`, SIGTERM drain), ships the two-line `FROM scratch` Dockerfile plus a reference Helm chart, and produces an SBOM their security tooling already ingests. Interop with the incumbent world is not a feature checklist; it is the funnel, and it gets an owner and CI like any product. The full bootstrap strategy is recorded as KDR-0020.
 
-## 10. Positioning, stated so it can't drift
+## 10. Positioning, stated so it can't drift (KDR-0021)
 
 A permanent "Who Keel is not for" document ships next to the tutorial. Keel is wrong for game engines, kernels, embedded targets, GUI apps, scientific computing, and any domain needing deterministic sub-100µs latency or manual memory control — use Rust, C, or Zig, and Keel's FFI will happily call the result. Keel will bore some excellent engineers, and that is the design working: the optimization target is *the team across five years*, not the individual across five hours. Expressiveness requests that conflict with this are answered by KDR link, not by negotiation. Honesty here is strategic: every language that promised universality diluted itself; every language that named its lane (SQL, Erlang, Go-as-it-began) is still in it.
 
@@ -106,6 +106,6 @@ A permanent "Who Keel is not for" document ships next to the tutorial. Keel is w
 
 | Topic | Location |
 |---|---|
-| Decision records | [`docs/kdr/INDEX.md`](kdr/INDEX.md) — all KDRs, including stubs derived from this document |
+| Decision records | [`docs/kdr/INDEX.md`](kdr/INDEX.md) — all KDRs; those derived from this document are marked in each KDR's Context section |
 | Build order / milestone sequence | [`ROADMAP.md`](../ROADMAP.md) — exit criteria and ordering constraints |
 | Implementation status | [`docs/milestone-status.md`](milestone-status.md) — current build-out per milestone |
