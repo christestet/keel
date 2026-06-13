@@ -785,13 +785,21 @@ impl<'a> Typechecker<'a> {
         ));
     }
 
-    fn check_match_exhaustive(&mut self, scrutinee_type: &TypeInfo, arms: &[MatchArm], span: Span) {
+    fn check_exhaustive(
+        &mut self,
+        scrutinee_type: &TypeInfo,
+        arms: &[MatchArm],
+        span: Span,
+        has_fallback: fn(&MatchArm) -> bool,
+        code: keelc_diag::Code,
+        message: &str,
+    ) {
+        if arms.iter().any(has_fallback) {
+            return;
+        }
         let Some(variants) = self.exhaustive_variants(scrutinee_type) else {
             return;
         };
-        if arms.iter().any(is_unguarded_wildcard_arm) {
-            return;
-        }
 
         if let Some(missing) = variants.iter().find(|variant| {
             !arms
@@ -799,32 +807,33 @@ impl<'a> Typechecker<'a> {
                 .any(|arm| arm.guard.is_none() && arm_pattern_name(arm) == Some(variant.as_str()))
         }) {
             self.diagnostics.push(Diagnostic::error(
-                registry::K0402,
+                code,
                 self.diagnostic_span(span),
-                format!("match is not exhaustive; missing `{missing}`"),
+                format!("{message}; missing `{missing}`"),
             ));
         }
     }
 
-    fn check_catch_exhaustive(&mut self, error_type: &TypeInfo, arms: &[MatchArm], span: Span) {
-        if arms.iter().any(is_catch_fallback_arm) {
-            return;
-        }
-        let Some(variants) = self.exhaustive_variants(error_type) else {
-            return;
-        };
+    fn check_match_exhaustive(&mut self, scrutinee_type: &TypeInfo, arms: &[MatchArm], span: Span) {
+        self.check_exhaustive(
+            scrutinee_type,
+            arms,
+            span,
+            is_unguarded_wildcard_arm,
+            registry::K0402,
+            "match is not exhaustive",
+        );
+    }
 
-        if let Some(missing) = variants.iter().find(|variant| {
-            !arms
-                .iter()
-                .any(|arm| arm.guard.is_none() && arm_pattern_name(arm) == Some(variant.as_str()))
-        }) {
-            self.diagnostics.push(Diagnostic::error(
-                registry::K0502,
-                self.diagnostic_span(span),
-                format!("catch is not exhaustive; missing `{missing}`"),
-            ));
-        }
+    fn check_catch_exhaustive(&mut self, error_type: &TypeInfo, arms: &[MatchArm], span: Span) {
+        self.check_exhaustive(
+            error_type,
+            arms,
+            span,
+            is_catch_fallback_arm,
+            registry::K0502,
+            "catch is not exhaustive",
+        );
     }
 
     fn exhaustive_variants(&self, ty: &TypeInfo) -> Option<Vec<String>> {
