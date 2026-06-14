@@ -7,8 +7,12 @@ the frozen rules in [`keel-core.md`](keel-core.md); on any conflict with
 `keel-core.md`, file an issue rather than reconciling silently (the prime
 directive in the root [`AGENTS.md`](../../AGENTS.md)).
 
-Implementation status: not yet implemented; see
-[`docs/milestone-status.md`](../milestone-status.md) §M5.
+Implementation status: parser scaffolding complete (AST types, pretty printer, M5-gated
+parsing of `[T: Bound]` on functions/structs/enums/impls and `[T, U]` on calls/struct
+literals). Typechecker (K0802, K0803) and Go backend (dictionary passing,
+monomorphization) not yet implemented; see
+[`docs/milestone-status.md`](../milestone-status.md) §M5 and
+[`docs/generics-implementation.md`](../generics-implementation.md).
 
 Generics in Keel are structurally constrained by interfaces:
 
@@ -266,5 +270,7 @@ These cases land in the following conformance PR (band `2xx` declarations, see
   function signatures), §4 (expressions).
 - Interface system: [`07-interfaces.md`](07-interfaces.md) — constraints use
   interface syntax; runtime dispatch stays nominal.
-- Code registry: `K0801`–`K0807` to be registered at implementation time in
+- Code registry: `K0801`–`K0807` registered in
   [`compiler/keelc-diag/src/registry.rs`](../../compiler/keelc-diag/src/registry.rs).
+  Parser emits `K0801`, `K0804`, `K0805`, `K0806`; remaining codes (`K0802`, `K0803`,
+  `K0807`) reserved for typechecker.

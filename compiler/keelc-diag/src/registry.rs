@@ -34,6 +34,13 @@ pub const K0604: Code = Code::new("K0604");
 pub const K0605: Code = Code::new("K0605");
 pub const K0606: Code = Code::new("K0606");
 pub const K0607: Code = Code::new("K0607");
+pub const K0801: Code = Code::new("K0801");
+pub const K0802: Code = Code::new("K0802");
+pub const K0803: Code = Code::new("K0803");
+pub const K0804: Code = Code::new("K0804");
+pub const K0805: Code = Code::new("K0805");
+pub const K0806: Code = Code::new("K0806");
+pub const K0807: Code = Code::new("K0807");
 pub const K0901: Code = Code::new("K0901");
 pub const K0902: Code = Code::new("K0902");
 pub const K0903: Code = Code::new("K0903");
@@ -147,6 +154,34 @@ pub const ALL_CODES: &[RegistryEntry] = &[
     RegistryEntry {
         code: K0607,
         summary: "extraneous method in impl",
+    },
+    RegistryEntry {
+        code: K0801,
+        summary: "type parameter without interface bound",
+    },
+    RegistryEntry {
+        code: K0802,
+        summary: "method not in interface bound of type parameter",
+    },
+    RegistryEntry {
+        code: K0803,
+        summary: "type argument does not satisfy interface bound",
+    },
+    RegistryEntry {
+        code: K0804,
+        summary: "duplicate type parameter name",
+    },
+    RegistryEntry {
+        code: K0805,
+        summary: "type parameter name shadows existing type",
+    },
+    RegistryEntry {
+        code: K0806,
+        summary: "too many type parameters",
+    },
+    RegistryEntry {
+        code: K0807,
+        summary: "interface used as generic constraint declares more than five methods",
     },
     RegistryEntry {
         code: K0901,

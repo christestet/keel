@@ -2,7 +2,8 @@
 
 use crate::{
     BinaryOp, Block, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item, MatchArm,
-    Module, Param, Pattern, Stmt, StructLiteralField, TestDecl, Type, UnaryOp, VariantDecl,
+    Module, Param, Pattern, Stmt, StructLiteralField, TestDecl, Type, TypeParam, UnaryOp,
+    VariantDecl,
 };
 
 /// Render a module to its canonical Keel Core source form.
@@ -55,7 +56,9 @@ impl Printer {
                 self.line(&format!("use {path}"));
             }
             Item::Struct(decl) => {
-                self.line(&format!("struct {} {{", decl.name.value));
+                let mut header = format!("struct {}", decl.name.value);
+                header.push_str(&self.type_params(&decl.type_params));
+                self.line(&format!("{header} {{"));
                 self.indent();
                 for field in &decl.fields {
                     self.field_decl(field);
@@ -64,7 +67,8 @@ impl Printer {
                 self.line("}");
             }
             Item::Enum(decl) => {
-                self.line(&format!("enum {} {{", decl.name.value));
+                let type_params = self.type_params(&decl.type_params);
+                self.line(&format!("enum {type_params}{} {{", decl.name.value));
                 self.indent();
                 for variant in &decl.variants {
                     self.variant_decl(variant);
@@ -108,7 +112,8 @@ impl Printer {
             .map(|param| self.param(param))
             .collect::<Vec<_>>()
             .join(", ");
-        let mut signature = format!("fn {}({params})", decl.name.value);
+        let type_params = self.type_params(&decl.type_params);
+        let mut signature = format!("fn {}{type_params}({params})", decl.name.value);
         if let Some(return_type) = &decl.return_type {
             let ty = self.type_(return_type);
             if ty != "Unit" {
@@ -140,8 +145,19 @@ impl Printer {
     }
 
     fn impl_decl(&mut self, decl: &ImplDecl) {
+        let type_args = if decl.type_args.is_empty() {
+            String::new()
+        } else {
+            let inner = decl
+                .type_args
+                .iter()
+                .map(|arg| self.type_(arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("[{inner}]")
+        };
         self.line(&format!(
-            "impl {} for {} {{",
+            "impl {} for {type_args}{} {{",
             decl.interface_name.value, decl.type_name.value
         ));
         self.indent();
@@ -155,6 +171,24 @@ impl Printer {
     fn test_decl(&mut self, decl: &TestDecl) {
         self.write(&format!("test \"{}\" ", decl.name.value));
         self.block(&decl.body);
+    }
+
+    fn type_params(&self, params: &[TypeParam]) -> String {
+        if params.is_empty() {
+            return String::new();
+        }
+        let inner = params
+            .iter()
+            .map(|param| {
+                let name = &param.name.value;
+                match &param.bound {
+                    Some(bound) => format!("{name}: {}", bound.value),
+                    None => name.clone(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[{inner}]")
     }
 
     fn param(&self, param: &Param) -> String {
@@ -275,14 +309,29 @@ impl Printer {
                 let right_expr = self.expr(right, right_threshold, base_indent);
                 (format!("{left_expr} {op_str} {right_expr}"), prec)
             }
-            Expr::Call { callee, args, .. } => {
+            Expr::Call {
+                callee,
+                type_args,
+                args,
+                ..
+            } => {
                 let callee = self.expr(callee, 100, base_indent);
+                let type_args = if type_args.is_empty() {
+                    String::new()
+                } else {
+                    let inner = type_args
+                        .iter()
+                        .map(|arg| self.type_(arg))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("[{inner}]")
+                };
                 let args = args
                     .iter()
                     .map(|arg| self.expr(arg, 0, base_indent))
                     .collect::<Vec<_>>()
                     .join(", ");
-                (format!("{callee}({args})"), 100)
+                (format!("{callee}{type_args}({args})"), 100)
             }
             Expr::Field { target, field, .. } => {
                 let target = self.expr(target, 100, base_indent);
@@ -302,13 +351,28 @@ impl Printer {
                     .join(", ");
                 (format!("{receiver}.{}({args})", method.value), 100)
             }
-            Expr::StructLiteral { name, fields, .. } => {
+            Expr::StructLiteral {
+                name,
+                type_args,
+                fields,
+                ..
+            } => {
+                let type_args = if type_args.is_empty() {
+                    String::new()
+                } else {
+                    let inner = type_args
+                        .iter()
+                        .map(|arg| self.type_(arg))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("[{inner}]")
+                };
                 let fields = fields
                     .iter()
                     .map(|field| self.struct_literal_field(field, base_indent))
                     .collect::<Vec<_>>()
                     .join(", ");
-                (format!("{} {{ {fields} }}", name.value), 100)
+                (format!("{}{} {{ {fields} }}", name.value, type_args), 100)
             }
             Expr::Block(block) => (self.inline_block(block, base_indent), 10),
             Expr::If {

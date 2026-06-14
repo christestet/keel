@@ -22,6 +22,13 @@ pub enum Item {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypeParam {
+    pub name: Spanned<String>,
+    pub bound: Option<Spanned<String>>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UseDecl {
     pub path: Vec<Spanned<String>>,
     pub span: Span,
@@ -30,6 +37,7 @@ pub struct UseDecl {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StructDecl {
     pub name: Spanned<String>,
+    pub type_params: Vec<TypeParam>,
     pub fields: Vec<FieldDecl>,
     pub span: Span,
 }
@@ -45,6 +53,7 @@ pub struct FieldDecl {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnumDecl {
     pub name: Spanned<String>,
+    pub type_params: Vec<TypeParam>,
     pub variants: Vec<VariantDecl>,
     pub span: Span,
 }
@@ -59,6 +68,7 @@ pub struct VariantDecl {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FunctionDecl {
     pub name: Spanned<String>,
+    pub type_params: Vec<TypeParam>,
     pub params: Vec<Param>,
     pub return_type: Option<Type>,
     pub body: Option<Block>,
@@ -76,6 +86,7 @@ pub struct InterfaceDecl {
 pub struct ImplDecl {
     pub interface_name: Spanned<String>,
     pub type_name: Spanned<String>,
+    pub type_args: Vec<Type>,
     pub methods: Vec<FunctionDecl>,
     pub span: Span,
 }
@@ -192,6 +203,7 @@ pub enum Expr {
     },
     Call {
         callee: Box<Expr>,
+        type_args: Vec<Type>,
         args: Vec<Expr>,
         span: Span,
     },
@@ -208,6 +220,7 @@ pub enum Expr {
     },
     StructLiteral {
         name: Spanned<String>,
+        type_args: Vec<Type>,
         fields: Vec<StructLiteralField>,
         span: Span,
     },

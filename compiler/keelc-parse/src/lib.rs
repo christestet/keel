@@ -3,7 +3,7 @@
 use keelc_ast::{
     BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item,
     MatchArm, Module, Param, Pattern, Stmt, StringLiteral as AstStringLiteral, StructDecl,
-    StructLiteralField, TestDecl, Type, UnaryOp, UseDecl, VariantDecl,
+    StructLiteralField, TestDecl, Type, TypeParam, UnaryOp, UseDecl, VariantDecl,
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_lex::{lex, Keyword, LexOutput, Token, TokenKind};
@@ -204,10 +204,16 @@ impl Parser {
                 "type names must be UpperCamelCase",
             ));
         }
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+            self.parse_type_params()
+        } else {
+            Vec::new()
+        };
         let fields = self.parse_braced_fields();
         let end = fields.last().map_or(name.span, |field| field.span);
         StructDecl {
             name,
+            type_params,
             fields,
             span: start.join(end),
         }
@@ -226,6 +232,11 @@ impl Parser {
             ));
         }
 
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+            self.parse_type_params()
+        } else {
+            Vec::new()
+        };
         let mut variants = Vec::new();
         self.expect_kind(&TokenKind::LeftBrace, "expected `{` after enum name");
         self.skip_separators();
@@ -257,6 +268,7 @@ impl Parser {
 
         EnumDecl {
             name,
+            type_params,
             variants,
             span: start.join(end),
         }
@@ -282,13 +294,18 @@ impl Parser {
             name
         };
 
-        if self.at_kind(&TokenKind::Less) {
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+            self.parse_type_params()
+        } else if self.at_kind(&TokenKind::Less) {
             self.diagnostic_current(
                 registry::K0901,
                 "user-defined generics are not in Keel Core",
             );
             self.skip_balanced_angle_list();
-        }
+            Vec::new()
+        } else {
+            Vec::new()
+        };
 
         let params = self.parse_params();
         let return_type = if self.eat_kind(&TokenKind::Arrow).is_some() {
@@ -308,6 +325,7 @@ impl Parser {
 
         FunctionDecl {
             name,
+            type_params,
             params,
             return_type,
             body,
@@ -368,6 +386,11 @@ impl Parser {
                 "type names must be UpperCamelCase",
             ));
         }
+        let type_args = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+            self.parse_type_args_in_brackets()
+        } else {
+            Vec::new()
+        };
         self.expect_kind(&TokenKind::LeftBrace, "expected `{` after impl header");
         self.skip_separators();
         let mut methods = Vec::new();
@@ -381,6 +404,7 @@ impl Parser {
         ImplDecl {
             interface_name,
             type_name,
+            type_args,
             methods,
             span: start.join(end),
         }
@@ -478,6 +502,80 @@ impl Parser {
             self.skip_separators();
         }
         self.expect_kind(&TokenKind::RightParen, "expected `)` after parameters");
+        params
+    }
+
+    fn parse_type_params(&mut self) -> Vec<TypeParam> {
+        let mut params = Vec::new();
+        self.expect_kind(
+            &TokenKind::LeftBracket,
+            "expected `[` before type parameters",
+        );
+        self.skip_separators();
+        let mut seen_names: Vec<String> = Vec::new();
+        while !self.at_eof() && !self.at_kind(&TokenKind::RightBracket) {
+            let start = self.current_span();
+            let name = self.expect_identifier("expected type parameter name");
+            let bound = if self.eat_kind(&TokenKind::Colon).is_some() {
+                let bound_name = self.expect_identifier("expected interface bound name");
+                if !is_upper_camel(&bound_name.value) {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0101,
+                        bound_name.span,
+                        "interface names must be UpperCamelCase",
+                    ));
+                }
+                Some(bound_name)
+            } else {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0801,
+                    name.span,
+                    format!(
+                        "type parameter `{}` must have an interface bound",
+                        name.value
+                    ),
+                ));
+                None
+            };
+            let span = start.join(bound.as_ref().map_or(name.span, |b| name.span.join(b.span)));
+            if seen_names.contains(&name.value) {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0804,
+                    name.span,
+                    format!("duplicate type parameter name `{}`", name.value),
+                ));
+            }
+            seen_names.push(name.value.clone());
+            if matches!(
+                name.value.as_str(),
+                "Int" | "Float" | "Bool" | "String" | "Char" | "Unit"
+            ) {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0805,
+                    name.span,
+                    format!(
+                        "type parameter `{}` shadows built-in type `{}`",
+                        name.value, name.value
+                    ),
+                ));
+            }
+            params.push(TypeParam { name, bound, span });
+            if self.eat_kind(&TokenKind::Comma).is_none() {
+                break;
+            }
+            self.skip_separators();
+        }
+        if params.len() > 256 {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0806,
+                params[256].name.span,
+                "too many type parameters; at most 256 are allowed",
+            ));
+        }
+        self.expect_kind(
+            &TokenKind::RightBracket,
+            "expected `]` after type parameters",
+        );
         params
     }
 
@@ -673,8 +771,43 @@ impl Parser {
                 expr = Expr::Call {
                     span: expr.span().join(end),
                     callee: Box::new(expr),
+                    type_args: Vec::new(),
                     args,
                 };
+            } else if self.milestone >= 5
+                && self.at_kind(&TokenKind::LeftBracket)
+                && matches!(expr, Expr::Name(_))
+            {
+                let type_args = self.parse_type_args_in_brackets();
+                // After type args, check for call `(args)` or struct literal `{...}`
+                if self.eat_kind(&TokenKind::LeftParen).is_some() {
+                    let mut args = Vec::new();
+                    self.skip_separators();
+                    while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
+                        args.push(self.parse_expr());
+                        if self.eat_kind(&TokenKind::Comma).is_none() {
+                            break;
+                        }
+                        self.skip_separators();
+                    }
+                    let end = self
+                        .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
+                        .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                    expr = Expr::Call {
+                        span: expr.span().join(end),
+                        callee: Box::new(expr),
+                        type_args,
+                        args,
+                    };
+                } else if self.allow_struct_literals && self.at_kind(&TokenKind::LeftBrace) {
+                    if let Expr::Name(name) = expr {
+                        expr = self.finish_struct_literal(name, type_args);
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             } else if self.eat_kind(&TokenKind::Dot).is_some() {
                 let field = self.expect_identifier("expected field name");
                 if self.at_kind(&TokenKind::LeftParen) {
@@ -706,7 +839,7 @@ impl Parser {
                 }
             } else if self.allow_struct_literals && self.at_kind(&TokenKind::LeftBrace) {
                 if let Expr::Name(name) = expr {
-                    expr = self.finish_struct_literal(name);
+                    expr = self.finish_struct_literal(name, Vec::new());
                 } else {
                     break;
                 }
@@ -851,7 +984,7 @@ impl Parser {
         }
     }
 
-    fn finish_struct_literal(&mut self, name: Spanned<String>) -> Expr {
+    fn finish_struct_literal(&mut self, name: Spanned<String>, type_args: Vec<Type>) -> Expr {
         let start = name.span;
         self.expect_kind(&TokenKind::LeftBrace, "expected `{` after struct name");
         let mut fields = Vec::new();
@@ -874,9 +1007,31 @@ impl Parser {
             .unwrap_or_else(|| fields.last().map_or(start, |field| field.span));
         Expr::StructLiteral {
             name,
+            type_args,
             fields,
             span: start.join(end),
         }
+    }
+
+    fn parse_type_args_in_brackets(&mut self) -> Vec<Type> {
+        self.expect_kind(
+            &TokenKind::LeftBracket,
+            "expected `[` before type arguments",
+        );
+        let mut args = Vec::new();
+        self.skip_separators();
+        while !self.at_eof() && !self.at_kind(&TokenKind::RightBracket) {
+            args.push(self.parse_type());
+            if self.eat_kind(&TokenKind::Comma).is_none() {
+                break;
+            }
+            self.skip_separators();
+        }
+        self.expect_kind(
+            &TokenKind::RightBracket,
+            "expected `]` after type arguments",
+        );
+        args
     }
 
     fn finish_if(&mut self, start: Span) -> Expr {

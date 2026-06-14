@@ -14,7 +14,7 @@ Planned chapters:
 | 05 | Errors | [KDR-0005](kdr/0005-no-exceptions.md) |
 | 06 | Modules / packages | [KDR-0011](kdr/0011-package-capabilities.md), [KDR-0017](kdr/0017-function-capabilities.md) |
 | 07 | Interfaces | [KDR-0003](kdr/0003-no-inheritance.md) — **landed**, see [`07-interfaces.md`](07-interfaces.md) and [`docs/milestone-status.md`](../milestone-status.md) §M5 |
-| 08 | Generics | — |
+| 08 | Generics | [KDR-0022](../kdr/0022-interface-constrained-generics.md) — **landed**, see [`08-generics.md`](08-generics.md) and [`docs/generics-implementation.md`](../generics-implementation.md) |
 | 09 | Concurrency (scope/spawn) | [KDR-0002](kdr/0002-no-async-await.md) |
 | 10 | Memory (GC + arena) | [KDR-0012](kdr/0012-gc-plus-scoped-arenas.md), [KDR-0016](kdr/0016-scope-implicit-arenas.md) |
 | 11 | Capabilities | [KDR-0011](kdr/0011-package-capabilities.md), [KDR-0017](kdr/0017-function-capabilities.md) |
