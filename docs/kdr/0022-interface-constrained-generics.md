@@ -15,8 +15,10 @@ interface dispatch remains **nominal** (explicit `impl` blocks per KDR-0003).
 Every type parameter must be bounded by an explicit interface — no unconstrained
 parameters. Constraint satisfaction is structural: a type `T` satisfies
 `interface Foo` at a generic instantiation site iff `T` has methods matching
-every signature declared in `Foo`. No `impl Foo for T` block is required for
-constraint satisfaction.
+every signature declared in `Foo`. A method is considered available on `T` if
+there exists an `impl X for T` block (for any interface `X`) that declares a
+matching signature. No `impl Foo for T` block is required specifically for
+constraint satisfaction — any impl block that provides the method suffices.
 
 An explicit `impl Foo for T` block **is** required when a value of type `T` is
 used at a position expecting the interface type `Foo` (runtime dispatch, per
@@ -135,7 +137,8 @@ correct default.
 - Every generic function or type must declare explicit interface bounds for its
   type parameters. No unconstrained `fn foo[T](x: T)`.
 - Constraint satisfaction is structural — a type with the right methods
-  automatically satisfies a bound. No `impl` block needed for generics.
+  automatically satisfies a bound. No `impl ConstraintInterface` block is
+  needed specifically; any impl block providing the method suffices.
 - Runtime interface dispatch remains nominal — explicit `impl` blocks required
   per KDR-0003.
 - Dictionary passing keeps code size small and separate compilation intact.
