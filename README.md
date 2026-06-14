@@ -19,7 +19,7 @@
   non-configurable formatter and linter ([KDR-0010](docs/kdr/0010-one-formatter.md), [KDR-0018](docs/kdr/0018-waivers.md)).
 - Deployment: static binaries for `FROM scratch`, cgroup-aware runtime,
   built-in `/healthz`, `/readyz`, SIGTERM drain, OpenTelemetry.
-- Supply chain: package **capabilities** (`net`, `fs`, `exec`, `ffi`) enforced by the compiler ([KDR-0011](docs/kdr/0011-package-capabilities.md)).
+- Supply chain: package **capabilities** (`net`, `fs`, `exec`, `env`, `ffi`, `unsafe-memory`) enforced by the compiler ([KDR-0011](docs/kdr/0011-package-capabilities.md)).
 - Evolution: Rust-style editions, hardened — old idioms become compile errors in
   new editions, and `keel fix` must migrate the public corpus automatically ([KDR-0001](docs/kdr/0001-editions.md)).
 
