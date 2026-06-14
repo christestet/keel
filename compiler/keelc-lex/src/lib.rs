@@ -110,6 +110,16 @@ struct Lexer<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+enum InterpolationResult {
+    Interpolation(Spanned<String>),
+    /// The interpolation ran into a closing `"`; the caller should emit the
+    /// partial string token and stop scanning.
+    ClosedByQuote,
+    /// The interpolation ran into EOF or a newline; the caller should stop
+    /// scanning without emitting a string token.
+    Unterminated,
+}
+
 impl<'a> Lexer<'a> {
     fn new(source: SourceId, text: &'a str) -> Self {
         Self {
@@ -223,7 +233,7 @@ impl<'a> Lexer<'a> {
         let mut interpolations = Vec::new();
         let mut terminated = false;
 
-        'outer: while let Some(ch) = self.peek_char() {
+        while let Some(ch) = self.peek_char() {
             match ch {
                 '"' => {
                     self.advance_char();
@@ -240,94 +250,40 @@ impl<'a> Lexer<'a> {
                 '{' => {
                     self.advance_char();
                     if self.peek_char() == Some('{') {
-                        // `{{` → literal `{`
                         self.advance_char();
                         content.push('{');
                     } else {
-                        // interpolation: scan until matching `}`, tracking nested braces
-                        let interp_start = self.offset;
-                        let mut depth = 1usize;
-                        loop {
-                            match self.peek_char() {
-                                None | Some('\n') => {
-                                    // unterminated interpolation
-                                    self.diagnostics.push(Diagnostic::error(
-                                        registry::K0004,
-                                        Span::new(self.source, start, self.offset),
-                                        "unterminated string interpolation: `{` opened but never closed",
-                                    ));
-                                    terminated = true;
-                                    break 'outer;
-                                }
-                                Some('"') => {
-                                    // string ends before interpolation closes;
-                                    // consume the `"` so the outer lexer doesn't re-lex it
-                                    self.advance_char();
-                                    self.diagnostics.push(Diagnostic::error(
-                                        registry::K0004,
-                                        Span::new(self.source, start, self.offset),
-                                        "unterminated string interpolation: `{` opened but never closed",
-                                    ));
-                                    self.push_string(
-                                        std::mem::take(&mut content),
-                                        std::mem::take(&mut interpolations),
-                                        start,
-                                        self.offset,
-                                    );
-                                    terminated = true;
-                                    break 'outer;
-                                }
-                                Some('{') => {
-                                    self.advance_char();
-                                    depth += 1;
-                                }
-                                Some('}') => {
-                                    self.advance_char();
-                                    depth -= 1;
-                                    if depth == 0 {
-                                        break;
-                                    }
-                                }
-                                Some(_) => {
-                                    self.advance_char();
-                                }
+                        match self.scan_interpolation(start) {
+                            InterpolationResult::Interpolation(interpolation) => {
+                                interpolations.push(interpolation.clone());
+                                content.push('{');
+                                content.push_str(&interpolation.value);
+                                content.push('}');
+                            }
+                            InterpolationResult::ClosedByQuote => {
+                                self.push_string(
+                                    std::mem::take(&mut content),
+                                    std::mem::take(&mut interpolations),
+                                    start,
+                                    self.offset,
+                                );
+                                terminated = true;
+                                break;
+                            }
+                            InterpolationResult::Unterminated => {
+                                terminated = true;
+                                break;
                             }
                         }
-                        let interp_end = self.offset - 1; // before closing `}`
-                        let interpolation = self.slice(interp_start, interp_end).to_owned();
-                        interpolations.push(Spanned::new(
-                            interpolation.clone(),
-                            Span::new(self.source, interp_start, interp_end),
-                        ));
-                        content.push('{');
-                        content.push_str(&interpolation);
-                        content.push('}');
                     }
                 }
                 '}' => {
                     self.advance_char();
                     if self.peek_char() == Some('}') {
-                        // `}}` → literal `}`
                         self.advance_char();
                         content.push('}');
                     } else {
-                        // lone `}` — not closing an interpolation, not a `}}`
-                        // consume rest of string for error recovery
-                        self.diagnostics.push(Diagnostic::error(
-                            registry::K0004,
-                            Span::new(self.source, start, self.offset),
-                            "unmatched `}` in string literal; use `}}` for a literal `}`",
-                        ));
-                        while let Some(c) = self.peek_char() {
-                            if c == '"' {
-                                self.advance_char();
-                                break;
-                            }
-                            if c == '\n' {
-                                break;
-                            }
-                            self.advance_char();
-                        }
+                        self.recover_unmatched_close_brace(start);
                         self.push_string(
                             std::mem::take(&mut content),
                             std::mem::take(&mut interpolations),
@@ -359,6 +315,83 @@ impl<'a> Lexer<'a> {
                 Span::new(self.source, start, self.offset),
                 "unterminated string literal",
             ));
+        }
+    }
+
+    /// Scan the body of a string interpolation after the opening `{` has been
+    /// consumed.
+    fn scan_interpolation(&mut self, string_start: usize) -> InterpolationResult {
+        let interp_start = self.offset;
+        let mut depth = 1usize;
+
+        while let Some(ch) = self.peek_char() {
+            match ch {
+                '\n' => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0004,
+                        Span::new(self.source, string_start, self.offset),
+                        "unterminated string interpolation: `{` opened but never closed",
+                    ));
+                    return InterpolationResult::Unterminated;
+                }
+                '"' => {
+                    self.advance_char();
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0004,
+                        Span::new(self.source, string_start, self.offset),
+                        "unterminated string interpolation: `{` opened but never closed",
+                    ));
+                    return InterpolationResult::ClosedByQuote;
+                }
+                '{' => {
+                    self.advance_char();
+                    depth += 1;
+                }
+                '}' => {
+                    self.advance_char();
+                    depth -= 1;
+                    if depth == 0 {
+                        let interp_end = self.offset - 1; // before closing `}`
+                        let interpolation = self.slice(interp_start, interp_end).to_owned();
+                        return InterpolationResult::Interpolation(Spanned::new(
+                            interpolation,
+                            Span::new(self.source, interp_start, interp_end),
+                        ));
+                    }
+                }
+                _ => {
+                    self.advance_char();
+                }
+            }
+        }
+
+        // Reached EOF before finding the matching `}`.
+        self.diagnostics.push(Diagnostic::error(
+            registry::K0004,
+            Span::new(self.source, string_start, self.offset),
+            "unterminated string interpolation: `{` opened but never closed",
+        ));
+        InterpolationResult::Unterminated
+    }
+
+    /// Consume the remainder of a string literal after a lone `}` that is not
+    /// part of an escape or interpolation. Emits a diagnostic and leaves the
+    /// offset at the closing `"` or newline.
+    fn recover_unmatched_close_brace(&mut self, string_start: usize) {
+        self.diagnostics.push(Diagnostic::error(
+            registry::K0004,
+            Span::new(self.source, string_start, self.offset),
+            "unmatched `}` in string literal; use `}}` for a literal `}`",
+        ));
+        while let Some(c) = self.peek_char() {
+            if c == '"' {
+                self.advance_char();
+                break;
+            }
+            if c == '\n' {
+                break;
+            }
+            self.advance_char();
         }
     }
 
