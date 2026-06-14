@@ -1,0 +1,34 @@
+interface HasArea {
+    fn area(self) -> Float
+}
+
+interface HasLabel {
+    fn get_label(self) -> String
+}
+
+struct Square {
+    side: Float
+    label: String
+}
+
+impl HasLabel for Square {
+    fn get_label(self) -> String {
+        self.label
+    }
+}
+
+impl HasArea for Square {
+    fn area(self) -> Float {
+        self.side * self.side
+    }
+}
+
+fn print_area[T: HasArea](shape: T) {
+    print(shape.area())
+}
+
+fn main() {
+    let s = Square { side: 3.0, label: "tile" }
+    print_area(s)
+    print(s.get_label())
+}

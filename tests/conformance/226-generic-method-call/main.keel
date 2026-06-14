@@ -1,0 +1,24 @@
+interface Stringer {
+    fn to_string(self) -> String
+}
+
+fn greet[T: Stringer](value: T) -> String {
+    "hello, {value.to_string()}"
+}
+
+impl Stringer for Int {
+    fn to_string(self) -> String {
+        "{self}"
+    }
+}
+
+impl Stringer for String {
+    fn to_string(self) -> String {
+        self
+    }
+}
+
+fn main() {
+    print(greet[Int](42))
+    print(greet("world"))
+}

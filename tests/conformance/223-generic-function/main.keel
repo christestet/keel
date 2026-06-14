@@ -1,0 +1,22 @@
+interface Boxed {
+    fn get(self) -> Int
+}
+
+struct Box {
+    value: Int
+}
+
+impl Boxed for Box {
+    fn get(self) -> Int {
+        self.value
+    }
+}
+
+fn unwrap[T: Boxed](x: T) -> Int {
+    x.get()
+}
+
+fn main() {
+    let b = Box { value: 42 }
+    print(unwrap(b))
+}

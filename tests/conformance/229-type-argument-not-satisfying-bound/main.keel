@@ -1,0 +1,16 @@
+interface HasArea {
+    fn area(self) -> Float
+}
+
+struct Square {
+    side: Float
+}
+
+fn print_area[T: HasArea](shape: T) {
+    print(shape.area())
+}
+
+fn main() {
+    let s = Square { side: 3.0 }
+    print_area(s)
+}

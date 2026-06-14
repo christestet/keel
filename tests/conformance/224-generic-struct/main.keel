@@ -1,0 +1,29 @@
+interface Display {
+    fn to_string(self) -> String
+}
+
+struct Pair[A: Display, B: Display] {
+    first: A
+    second: B
+}
+
+impl Display for Int {
+    fn to_string(self) -> String {
+        "{self}"
+    }
+}
+
+impl Display for String {
+    fn to_string(self) -> String {
+        self
+    }
+}
+
+fn main() {
+    let p = Pair[Int, String] {
+        first: 1,
+        second: "two",
+    }
+    print(p.first.to_string())
+    print(p.second.to_string())
+}

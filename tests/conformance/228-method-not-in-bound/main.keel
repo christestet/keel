@@ -1,0 +1,7 @@
+interface Foo {
+    fn foo(self) -> Int
+}
+
+fn call_bar[T: Foo](x: T) -> Int {
+    x.bar()
+}

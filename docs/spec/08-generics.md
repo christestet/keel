@@ -232,7 +232,10 @@ The following are errors with stable `K####` codes:
 
 - **`K0807` — interface used as generic constraint declares more than five
   methods.** Interface bounds on type parameters inherit the five-method limit
-  from KDR-0003.
+  from KDR-0003. In practice this error is subsumed by `K0601` (interface
+  declares >5 methods), which fires at the interface declaration site before
+  constraint checking is reached; `K0807` exists as a safety net should `K0601`
+  ever be relaxed.
 
 Malformed generic syntax (e.g. mismatched angle brackets) is reported as a
 syntax error under the existing code `K0003`.
@@ -254,7 +257,7 @@ These cases land in the following conformance PR (band `2xx` declarations, see
 | `230-duplicate-type-parameter` | reject `K0804` | `[A: Foo, A: Foo]` with same name |
 | `231-type-parameter-shadows-type` | reject `K0805` | `[Int: Foo]` where `Int` is a built-in |
 | `232-too-many-type-parameters` | reject `K0806` | 257 type parameters |
-| `233-constraint-interface-too-many-methods` | reject `K0807` | interface with six methods used as a bound |
+| `233-constraint-interface-too-many-methods` | reject `K0601` | interface with six methods used as a bound (subsumed by K0601) |
 
 ## 8.8 Dependencies
 
