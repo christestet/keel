@@ -5,7 +5,7 @@ use keelc_ast::{
     Stmt, StringLiteral, StructDecl, StructLiteralField, TestDecl, UnaryOp, VariantDecl,
 };
 use keelc_parse::parse;
-use keelc_span::{line_col, SourceId, Span};
+use keelc_span::{LineIndex, SourceId, Span};
 use keelc_types::{merge_types, TypeInfo};
 use std::fmt::{self, Write as _};
 
@@ -103,7 +103,7 @@ struct Binding {
 
 struct Emitter<'a> {
     module: &'a Module,
-    source: Option<&'a str>,
+    line_index: Option<LineIndex>,
     structs: Vec<StructInfo>,
     enums: Vec<EnumInfo>,
     functions: Vec<FunctionInfo>,
@@ -121,14 +121,14 @@ impl<'a> Emitter<'a> {
         Self::with_source(module, None)
     }
 
-    fn new_for_tests(module: &'a Module, source: &'a str) -> Self {
-        Self::with_source(module, Some(source))
+    fn new_for_tests(module: &'a Module, source: &str) -> Self {
+        Self::with_source(module, Some(LineIndex::new(source)))
     }
 
-    fn with_source(module: &'a Module, source: Option<&'a str>) -> Self {
+    fn with_source(module: &'a Module, line_index: Option<LineIndex>) -> Self {
         Self {
             module,
-            source,
+            line_index,
             structs: collect_structs(module),
             enums: collect_enums(module),
             functions: collect_functions(module),
@@ -640,7 +640,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_assert(&mut self, value: &Expr, span: Span) -> Result<(), BackendError> {
-        if self.source.is_none() {
+        if self.line_index.is_none() {
             return Err(BackendError::unsupported(
                 "test assertions outside test blocks",
             ));
@@ -658,8 +658,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn assert_line(&self, span: Span) -> usize {
-        self.source
-            .map_or(0, |source| line_col(source, span.start).line)
+        self.line_index
+            .as_ref()
+            .map_or(0, |index| index.line_col(span.start).line)
     }
 
     fn emit_return_stmt(&mut self, value: Option<&Expr>) -> Result<(), BackendError> {
@@ -1108,7 +1109,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_assert_inline(&mut self, value: &Expr, span: Span) -> Result<String, BackendError> {
-        if self.source.is_none() {
+        if self.line_index.is_none() {
             return Err(BackendError::unsupported(
                 "test assertions outside test blocks",
             ));

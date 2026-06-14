@@ -6,7 +6,7 @@ use keelc_backend_go::{emit, emit_tests};
 use keelc_diag::{Diagnostic, Severity};
 use keelc_parse::parse_with_milestone;
 use keelc_resolve::{resolve, typecheck};
-use keelc_span::{line_col, SourceId};
+use keelc_span::{LineIndex, SourceId};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -80,8 +80,9 @@ pub fn main() -> ExitCode {
     });
 
     let has_error = diagnostics.iter().any(is_error);
+    let index = LineIndex::new(&text);
     for diagnostic in &diagnostics {
-        emit_diagnostic(path, &text, diagnostic);
+        emit_diagnostic(path, &index, diagnostic);
     }
 
     if has_error {
@@ -103,8 +104,9 @@ fn usage() {
 fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
     let output = parse_with_milestone(SourceId::new(0), text, milestone);
     let has_error = output.diagnostics.iter().any(is_error);
+    let index = LineIndex::new(text);
     for diagnostic in &output.diagnostics {
-        emit_diagnostic(path, text, diagnostic);
+        emit_diagnostic(path, &index, diagnostic);
     }
     if has_error {
         return ExitCode::FAILURE;
@@ -183,12 +185,12 @@ fn is_error(diagnostic: &Diagnostic) -> bool {
     diagnostic.severity == Severity::Error
 }
 
-fn emit_diagnostic(path: &Path, source: &str, diagnostic: &Diagnostic) {
+fn emit_diagnostic(path: &Path, index: &LineIndex, diagnostic: &Diagnostic) {
     let severity = match diagnostic.severity {
         Severity::Error => "error",
         Severity::Warning => "warning",
     };
-    let loc = line_col(source, diagnostic.span.start);
+    let loc = index.line_col(diagnostic.span.start);
     let label = file_label(path);
 
     eprintln!("{severity}[{}]: {}", diagnostic.code, diagnostic.message);

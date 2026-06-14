@@ -114,9 +114,52 @@ pub fn line_col(source: &str, byte_offset: usize) -> LineCol {
     }
 }
 
+/// Precomputed line-start index for fast repeated `byte_offset -> LineCol`
+/// lookups.
+///
+/// Building the index is `O(bytes)`. Each lookup is `O(log lines)` via binary
+/// search, which avoids the `O(diagnostics * bytes)` behaviour of calling
+/// [`line_col`] once per diagnostic.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LineIndex {
+    line_starts: Vec<usize>,
+    source_len: usize,
+}
+
+impl LineIndex {
+    #[must_use]
+    pub fn new(source: &str) -> Self {
+        let mut line_starts = vec![0];
+        for (idx, ch) in source.char_indices() {
+            if ch == '\n' {
+                line_starts.push(idx + ch.len_utf8());
+            }
+        }
+        Self {
+            line_starts,
+            source_len: source.len(),
+        }
+    }
+
+    #[must_use]
+    pub fn line_col(&self, byte_offset: usize) -> LineCol {
+        let target = byte_offset.min(self.source_len);
+        let line = self
+            .line_starts
+            .partition_point(|&start| start <= target)
+            .saturating_sub(1)
+            .max(1);
+        let line_start = self.line_starts[line - 1];
+        LineCol {
+            line,
+            column: target.saturating_sub(line_start) + 1,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{line_col, LineCol};
+    use super::{line_col, LineCol, LineIndex};
 
     #[test]
     fn maps_offsets_to_lines_and_columns() {
@@ -126,5 +169,15 @@ mod tests {
         assert_eq!(line_col(text, 2), LineCol { line: 2, column: 1 });
         assert_eq!(line_col(text, 4), LineCol { line: 2, column: 3 });
         assert_eq!(line_col(text, 99), LineCol { line: 3, column: 1 });
+    }
+
+    #[test]
+    fn line_index_matches_line_col() {
+        let text = "a\nbc\n";
+        let index = LineIndex::new(text);
+
+        for offset in [0, 1, 2, 3, 4, 5, 99] {
+            assert_eq!(index.line_col(offset), line_col(text, offset));
+        }
     }
 }
