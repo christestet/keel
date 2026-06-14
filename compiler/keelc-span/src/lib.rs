@@ -144,11 +144,7 @@ impl LineIndex {
     #[must_use]
     pub fn line_col(&self, byte_offset: usize) -> LineCol {
         let target = byte_offset.min(self.source_len);
-        let line = self
-            .line_starts
-            .partition_point(|&start| start <= target)
-            .saturating_sub(1)
-            .max(1);
+        let line = self.line_starts.partition_point(|&start| start <= target);
         let line_start = self.line_starts[line - 1];
         LineCol {
             line,
