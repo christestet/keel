@@ -277,9 +277,9 @@ impl<'a> Emitter<'a> {
             })
             .collect();
         for test in &tests {
-            self.line(&format!(
-                "fmt.Printf(\"test %q ... \", {})",
-                go_string_literal(&test.name.value)
+            let name_literal = go_string_literal(&test.name.value);
+            self.line_fmt(format_args!(
+                "fmt.Printf(\"test %q ... \", {name_literal})"
             ))?;
             self.line("func() {")?;
             self.indent += 1;
@@ -342,14 +342,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_struct_decl(&mut self, decl: &StructDecl) -> Result<(), BackendError> {
-        self.line(&format!("type {} struct {{", decl.name.value))?;
+        self.line_fmt(format_args!("type {} struct {{", decl.name.value))?;
         self.indent += 1;
         for field in &decl.fields {
-            self.line(&format!(
-                "{} {}",
-                field.name.value,
-                self.go_type(&TypeInfo::from_ast(&field.ty))
-            ))?;
+            let ty = self.go_type(&TypeInfo::from_ast(&field.ty));
+            self.line_fmt(format_args!("{} {}", field.name.value, ty))?;
         }
         self.indent -= 1;
         self.line("}")?;
@@ -358,7 +355,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_interface_decl(&mut self, interface: &InterfaceInfo) -> Result<(), BackendError> {
-        self.line(&format!("type {} interface {{", interface.name))?;
+        self.line_fmt(format_args!("type {} interface {{", interface.name))?;
         self.indent += 1;
         for method in &interface.methods {
             let params = method
@@ -369,9 +366,9 @@ impl<'a> Emitter<'a> {
                 .join(", ");
             let ret = self.go_type(&method.return_type);
             if ret.is_empty() {
-                self.line(&format!("{}({})", method.name, params))?;
+                self.line_fmt(format_args!("{}({})", method.name, params))?;
             } else {
-                self.line(&format!("{}({}) {}", method.name, params, ret))?;
+                self.line_fmt(format_args!("{}({}) {}", method.name, params, ret))?;
             }
         }
         self.indent -= 1;
@@ -453,13 +450,13 @@ impl<'a> Emitter<'a> {
         none_branch: &str,
         ok_prefix: &str,
     ) -> Result<(), BackendError> {
-        self.line(&format!("func {name}(left int64, right int64) {ret} {{"))?;
+        self.line_fmt(format_args!("func {name}(left int64, right int64) {ret} {{"))?;
         self.indent += 1;
-        self.line(&format!("if right == 0 {{ {none_branch} }}"))?;
+        self.line_fmt(format_args!("if right == 0 {{ {none_branch} }}"))?;
         if ok_prefix.is_empty() {
-            self.line(&format!("return left {op} right"))?;
+            self.line_fmt(format_args!("return left {op} right"))?;
         } else {
-            self.line(&format!("return {}(left {op} right)", ok_prefix))?;
+            self.line_fmt(format_args!("return {ok_prefix}(left {op} right)"))?;
         }
         self.indent -= 1;
         self.line("}")?;
@@ -468,7 +465,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_enum_decl(&mut self, decl: &EnumDecl) -> Result<(), BackendError> {
-        self.line(&format!("type {} = KeelEnum", decl.name.value))?;
+        self.line_fmt(format_args!("type {} = KeelEnum", decl.name.value))?;
         self.line("")?;
         for variant in &decl.variants {
             self.emit_variant_constructor(variant)?;
@@ -479,7 +476,7 @@ impl<'a> Emitter<'a> {
 
     fn emit_variant_constructor(&mut self, variant: &VariantDecl) -> Result<(), BackendError> {
         if variant.fields.is_empty() {
-            self.line(&format!(
+            self.line_fmt(format_args!(
                 "var {} = KeelEnum{{tag: {:?}}}",
                 variant.name.value, variant.name.value
             ))?;
@@ -506,7 +503,7 @@ impl<'a> Emitter<'a> {
             .map(|field| field.name.value.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        self.line(&format!(
+        self.line_fmt(format_args!(
             "return KeelEnum{{tag: {:?}, values: []any{{{values}}}}}",
             variant.name.value
         ))?;
@@ -580,7 +577,7 @@ impl<'a> Emitter<'a> {
             if return_last_expr && is_last {
                 if let Stmt::Expr(expr) = statement {
                     let expr = self.emit_expr(expr)?;
-                    self.line(&format!("return {expr}"))?;
+                    self.line_fmt(format_args!("return {expr}"))?;
                     continue;
                 }
             }
@@ -611,7 +608,7 @@ impl<'a> Emitter<'a> {
                     )?,
                     _ => {
                         let expr = self.emit_expr(value)?;
-                        self.line(&format!("{} := {expr}", name.value))?;
+                        self.line_fmt(format_args!("{} := {expr}", name.value))?;
                     }
                 }
                 self.define(&name.value, ty);
@@ -620,7 +617,7 @@ impl<'a> Emitter<'a> {
             Stmt::Assign { target, value, .. } => {
                 let target = self.emit_expr(target)?;
                 let value = self.emit_expr(value)?;
-                self.line(&format!("{target} = {value}"))
+                self.line_fmt(format_args!("{target} = {value}"))
             }
             Stmt::Return { value, .. } => self.emit_return_stmt(value.as_ref()),
             Stmt::Expr(Expr::If {
@@ -650,9 +647,9 @@ impl<'a> Emitter<'a> {
         }
         let expr = self.emit_expr(value)?;
         let line = self.assert_line(span);
-        self.line(&format!("if !({expr}) {{"))?;
+        self.line_fmt(format_args!("if !({expr}) {{"))?;
         self.indent += 1;
-        self.line(&format!(
+        self.line_fmt(format_args!(
             "fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", {line})"
         ))?;
         self.line("os.Exit(1)")?;
@@ -669,7 +666,7 @@ impl<'a> Emitter<'a> {
     fn emit_return_stmt(&mut self, value: Option<&Expr>) -> Result<(), BackendError> {
         if let Some(value) = value {
             let expr = self.emit_expr(value)?;
-            self.line(&format!("return {expr}"))
+            self.line_fmt(format_args!("return {expr}"))
         } else {
             self.line("return")
         }
@@ -680,25 +677,25 @@ impl<'a> Emitter<'a> {
         let expr_type = self.infer_expr(expr);
         let success_type = question_success_type(&expr_type).unwrap_or(TypeInfo::Unknown);
         let expr = self.emit_expr(expr)?;
-        self.line(&format!("{temp} := {expr}"))?;
+        self.line_fmt(format_args!("{temp} := {expr}"))?;
         if expr_type.result_parts().is_some() {
-            self.line(&format!("if {temp}.tag == \"Err\" {{"))?;
+            self.line_fmt(format_args!("if {temp}.tag == \"Err\" {{"))?;
             self.indent += 1;
-            self.line(&format!("return Err({}.values[0])", temp))?;
+            self.line_fmt(format_args!("return Err({}.values[0])", temp))?;
             self.indent -= 1;
             self.line("}")?;
-            self.line(&format!(
+            self.line_fmt(format_args!(
                 "{} := {}",
                 name,
                 self.payload_expr(&temp, 0, &success_type)
             ))
         } else if expr_type.option_inner().is_some() {
-            self.line(&format!("if {temp}.tag == \"None\" {{"))?;
+            self.line_fmt(format_args!("if {temp}.tag == \"None\" {{"))?;
             self.indent += 1;
             self.line("return None")?;
             self.indent -= 1;
             self.line("}")?;
-            self.line(&format!(
+            self.line_fmt(format_args!(
                 "{} := {}",
                 name,
                 self.payload_expr(&temp, 0, &success_type)
@@ -723,22 +720,17 @@ impl<'a> Emitter<'a> {
             .map(|(ok, err)| (ok.clone(), err.clone()))
             .unwrap_or((TypeInfo::Unknown, TypeInfo::Unknown));
         let expr = self.emit_expr(expr)?;
-        self.line(&format!("{temp} := {expr}"))?;
-        self.line(&format!("var {} {}", name, self.go_type(&success_type)))?;
-        self.line(&format!("if {temp}.tag == \"Ok\" {{"))?;
+        let success_payload = self.payload_expr(&temp, 0, &success_type);
+        let error_payload = self.payload_expr(&temp, 0, &error_type);
+        self.line_fmt(format_args!("{temp} := {expr}"))?;
+        self.line_fmt(format_args!("var {} {}", name, self.go_type(&success_type)))?;
+        self.line_fmt(format_args!("if {temp}.tag == \"Ok\" {{"))?;
         self.indent += 1;
-        self.line(&format!(
-            "{name} = {}",
-            self.payload_expr(&temp, 0, &success_type)
-        ))?;
+        self.line_fmt(format_args!("{name} = {success_payload}"))?;
         self.indent -= 1;
         self.line("} else {")?;
         self.indent += 1;
-        self.line(&format!(
-            "{} := {}",
-            err_temp,
-            self.payload_expr(&temp, 0, &error_type)
-        ))?;
+        self.line_fmt(format_args!("{err_temp} := {error_payload}"))?;
         self.define(error_name, error_type.clone());
         self.emit_catch_arms(&err_temp, &error_type, arms)?;
         self.indent -= 1;
@@ -758,12 +750,12 @@ impl<'a> Emitter<'a> {
                 Pattern::Name { name, args, .. } if name.value == "other" && args.is_empty() => {
                     self.line("if true {")?;
                     self.indent += 1;
-                    self.line(&format!("{} := {err_temp}", name.value))?;
+                    self.line_fmt(format_args!("{} := {err_temp}", name.value))?;
                     self.indent -= 1;
                     self.define(&name.value, error_type.clone());
                 }
                 Pattern::Name { name, args, .. } => {
-                    self.line(&format!("if {err_temp}.tag == {:?} {{", name.value))?;
+                    self.line_fmt(format_args!("if {err_temp}.tag == {:?} {{", name.value))?;
                     self.indent += 1;
                     let payload_types = self.pattern_payload_types(error_type, &name.value);
                     self.emit_pattern_bindings(err_temp, args, &payload_types)?;
@@ -962,7 +954,7 @@ impl<'a> Emitter<'a> {
         else_branch: Option<&Expr>,
     ) -> Result<(), BackendError> {
         let condition = self.emit_expr(condition)?;
-        self.line(&format!("if {condition} {{"))?;
+        self.line_fmt(format_args!("if {condition} {{"))?;
         self.indent += 1;
         self.emit_block_statements(then_block, false)?;
         self.indent -= 1;
@@ -990,7 +982,7 @@ impl<'a> Emitter<'a> {
 
     fn emit_while_stmt(&mut self, condition: &Expr, body: &Block) -> Result<(), BackendError> {
         let condition = self.emit_expr(condition)?;
-        self.line(&format!("for {condition} {{"))?;
+        self.line_fmt(format_args!("for {condition} {{"))?;
         self.indent += 1;
         self.emit_block_statements(body, false)?;
         self.indent -= 1;
@@ -1249,12 +1241,9 @@ impl<'a> Emitter<'a> {
                         name.value
                     )?;
                 } else {
-                    self.line(&format!(
-                        "{} := {}",
-                        name.value,
-                        self.payload_expr(temp, index, &ty)
-                    ))?;
-                    self.line(&format!("_ = {}", name.value))?;
+                    let payload = self.payload_expr(temp, index, &ty);
+                    self.line_fmt(format_args!("{} := {payload}", name.value))?;
+                    self.line_fmt(format_args!("_ = {}", name.value))?;
                 }
                 self.define(&name.value, ty);
             }
@@ -1490,10 +1479,14 @@ impl<'a> Emitter<'a> {
     }
 
     fn line(&mut self, text: &str) -> Result<(), BackendError> {
+        self.line_fmt(format_args!("{text}"))
+    }
+
+    fn line_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), BackendError> {
         for _ in 0..self.indent {
             self.output.push_str("    ");
         }
-        writeln!(self.output, "{text}")?;
+        writeln!(self.output, "{args}")?;
         Ok(())
     }
 }
