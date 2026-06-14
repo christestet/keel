@@ -14,6 +14,8 @@ codebase requires learning its local macro layer first, defeating "every repo
 looks the same." Reflection enables mocking frameworks, DI containers, and
 annotation magic — the abstraction debt Keel exists to prevent. This will be
 the single most requested feature; this KDR is the permanent answer.
+KDR-0008, which separately considered reflection, was folded into this KDR;
+the rejection of reflection is subsumed by the decision above.
 
 ## Alternatives considered
 Hygienic declarative macros only (rejected: still dialect-forming). Comptime à
