@@ -22,6 +22,7 @@ Planned chapters:
 | 13 | Testing | — |
 | 14 | Editions | [KDR-0001](kdr/0001-editions.md) |
 | 15 | Stdlib core | — |
+| 16 | LSP server protocol | [KDR-0103](../kdr/0103-lsp-server.md) — **landed**, see [`16-lsp.md`](16-lsp.md) |
 
 Until a chapter exists, `keel-core.md` plus the conformance suite is the only
 normative text. Style: every normative statement is testable; every error gets a

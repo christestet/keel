@@ -88,6 +88,18 @@ Pretty printer round-trips all generic syntax.
 
 **Known limitations:** interfaces are limited to ≤5 methods (KDR-0003); no default methods, inheritance, or structural subtyping.
 
+## Future: LSP server (M7+)
+
+| Area | State |
+|---|---|
+| KDR | [`KDR-0103`](kdr/0103-lsp-server.md) — proposed. Defers LSP work to M7+; requires salsa query core. |
+| Spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) — landed. Capability table, diagnostics mapping, server lifecycle. |
+| Crate | Not started. Depends on `tower-lsp` + `tokio`; blocked on salsa-style incrementality (target architecture). |
+
+**Not started:** no `keelc-lsp` crate, no `keel lsp` subcommand, no workspace
+state management. The salsa query core is a prerequisite — see
+[`compiler/ARCHITECTURE.md`](../compiler/ARCHITECTURE.md) §Query-based core.
+
 ## Milestone key
 
 | # | Title | Exit criterion |

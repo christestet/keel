@@ -30,6 +30,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0022](0022-interface-constrained-generics.md) | Interface-constrained generics | proposed |
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
+| [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | proposed |
 
 All decisions derived from [`docs/vision.md`](../vision.md) are expanded above.
 `proposed` entries are not yet accepted; see [`kdr/AGENTS.md`](AGENTS.md) for

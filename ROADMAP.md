@@ -71,6 +71,14 @@ Package manifests + capability enforcement, `keel audit`, `arena` blocks,
 `keel gen` for protobuf/OpenAPI, hermetic builds, edition machinery in the
 compiler (must exist before 1.0 even though edition 2 is years away).
 
+### Post-M7: LSP server
+
+An LSP server (`keel lsp`) is deferred until the salsa-style query-based core
+is operational — without incrementality the server cannot meet the
+[vision.md §7](docs/vision.md#7-compile-time-as-a-contract) budget. See
+[KDR-0103](docs/kdr/0103-lsp-server.md) and [`docs/spec/16-lsp.md`](docs/spec/16-lsp.md).
+No LSP work begins while any M1–M7 exit criterion fails.
+
 ## Performance contract (applies from M1 onward)
 
 CI tracks compile time on a growing reference corpus. Regressions > 5% block merge

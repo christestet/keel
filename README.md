@@ -15,8 +15,9 @@
 - Safety: no null (`Option<T>`), no implicit zero values, exhaustive `match`,
   `Result` + `?` + `catch` for errors, union error types ([KDR-0005](docs/kdr/0005-no-exceptions.md)).
 - Concurrency: structured only (`scope` / `spawn`). No detached tasks, no colored functions ([KDR-0002](docs/kdr/0002-no-async-await.md)).
-- Tooling: one binary (`keel build|run|test|fmt|lint|audit|gen|fix`), zero config,
-  non-configurable formatter and linter ([KDR-0010](docs/kdr/0010-one-formatter.md), [KDR-0018](docs/kdr/0018-waivers.md)).
+- Tooling: one binary (`keel build|run|test|fmt|lint|audit|gen|fix`; `lsp`
+  [planned](docs/kdr/0103-lsp-server.md) for M7+), zero config, non-configurable
+  formatter and linter ([KDR-0010](docs/kdr/0010-one-formatter.md), [KDR-0018](docs/kdr/0018-waivers.md)).
 - Deployment: static binaries for `FROM scratch`, cgroup-aware runtime,
   built-in `/healthz`, `/readyz`, SIGTERM drain, OpenTelemetry.
 - Supply chain: package **capabilities** (`net`, `fs`, `exec`, `env`, `ffi`, `unsafe-memory`) enforced by the compiler ([KDR-0011](docs/kdr/0011-package-capabilities.md)).
