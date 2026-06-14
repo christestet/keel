@@ -17,7 +17,7 @@ dependencies = [
 name = "keelc-backend-go"
 version = "0.1.0"
 dependencies = [
- "keelc-ast",
+ "keelc-kir",
  "keelc-parse",
  "keelc-span",
  "keelc-types",
@@ -37,9 +37,21 @@ dependencies = [
  "keelc-ast",
  "keelc-backend-go",
  "keelc-diag",
+ "keelc-kir",
  "keelc-parse",
  "keelc-resolve",
  "keelc-span",
+]
+
+[[package]]
+name = "keelc-kir"
+version = "0.1.0"
+dependencies = [
+ "keelc-ast",
+ "keelc-diag",
+ "keelc-parse",
+ "keelc-span",
+ "keelc-types",
 ]
 
 [[package]]

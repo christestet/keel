@@ -4,6 +4,7 @@ use keelc_ast::pretty::pretty_print;
 use keelc_ast::Module;
 use keelc_backend_go::{emit, emit_tests};
 use keelc_diag::{Diagnostic, Severity};
+use keelc_kir::lower::lower;
 use keelc_parse::parse_with_milestone;
 use keelc_resolve::{resolve, typecheck};
 use keelc_span::{LineIndex, SourceId};
@@ -90,9 +91,9 @@ pub fn main() -> ExitCode {
     }
 
     match command.as_os_str().to_str() {
-        Some("run") => run_module(&output.module),
+        Some("run") => run_module(&output.module, &text),
         Some("test") => run_tests(&output.module, &text),
-        Some("build") => build_module(&output.module, path),
+        Some("build") => build_module(&output.module, path, &text),
         _ => ExitCode::SUCCESS,
     }
 }
@@ -115,8 +116,13 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn build_module(module: &Module, source_path: &Path) -> ExitCode {
-    let go_source = match emit(module) {
+fn build_module(module: &Module, source_path: &Path, source: &str) -> ExitCode {
+    let kir_output = lower(module, source);
+    if !kir_output.diagnostics.is_empty() {
+        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
+        return ExitCode::FAILURE;
+    }
+    let go_source = match emit(&kir_output.module) {
         Ok(source) => source,
         Err(err) => {
             eprintln!("backend error: {err}");
@@ -208,8 +214,13 @@ impl Drop for TempDir {
     }
 }
 
-fn run_module(module: &Module) -> ExitCode {
-    let go_source = match emit(module) {
+fn run_module(module: &Module, source: &str) -> ExitCode {
+    let kir_output = lower(module, source);
+    if !kir_output.diagnostics.is_empty() {
+        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
+        return ExitCode::FAILURE;
+    }
+    let go_source = match emit(&kir_output.module) {
         Ok(source) => source,
         Err(err) => {
             eprintln!("backend error: {err}");
@@ -259,7 +270,12 @@ fn run_module(module: &Module) -> ExitCode {
 }
 
 fn run_tests(module: &Module, source: &str) -> ExitCode {
-    let go_source = match emit_tests(module, source) {
+    let kir_output = lower(module, source);
+    if !kir_output.diagnostics.is_empty() {
+        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
+        return ExitCode::FAILURE;
+    }
+    let go_source = match emit_tests(&kir_output.module) {
         Ok(source) => source,
         Err(err) => {
             eprintln!("backend error: {err}");

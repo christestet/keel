@@ -4,6 +4,8 @@
 //! checking, and backends.  Keeps the same type model in one place so that
 //! adding a new type doesn't require touching multiple crates.
 
+pub mod infer;
+
 use keelc_ast::Type as AstType;
 use std::fmt;
 

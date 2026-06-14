@@ -1,15 +1,14 @@
-//! Go source emitter for the M3 backend slice.
+//! Go source emitter for the Keel backend.
+//!
+//! Consumes the explicitly-typed, desugared KIR produced by `keelc-kir`.
+//! The backend no longer performs type inference or AST traversal; it only
+//! maps KIR constructs to readable Go source.
 
-use keelc_ast::{
-    BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, Item, MatchArm, Module, Pattern,
-    Stmt, StringLiteral, StructDecl, StructLiteralField, TestDecl, UnaryOp, VariantDecl,
+use keelc_kir::{
+    BinaryOp, Block, EnumDecl, Expr, Field, FunctionDecl, Item, MatchArm, Method, Module, Pattern,
+    Stmt, StringLiteral, StringPart, StructDecl, UnaryOp, Variant,
 };
-// The backend depends on keelc-parse only for re-parsing string-interpolation
-// snippets. Once the AST represents interpolated expressions directly (rather
-// than raw text), this dependency goes away.
-use keelc_parse::parse_interpolation_expr;
-use keelc_span::{LineIndex, SourceId, Span};
-use keelc_types::{merge_types, TypeInfo};
+use keelc_types::TypeInfo;
 use std::fmt::{self, Write as _};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,85 +36,37 @@ pub fn emit(module: &Module) -> Result<String, BackendError> {
     Emitter::new(module).emit()
 }
 
-pub fn emit_tests(module: &Module, source: &str) -> Result<String, BackendError> {
-    Emitter::new_for_tests(module, source).emit_test_runner()
+pub fn emit_tests(module: &Module) -> Result<String, BackendError> {
+    Emitter::new_for_tests(module).emit_test_runner()
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct StructInfo {
     name: String,
-    fields: Vec<StructFieldInfo>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct StructFieldInfo {
-    name: String,
-    ty: TypeInfo,
-    default: Option<Expr>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct EnumInfo {
-    name: String,
-    variants: Vec<VariantInfo>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct VariantInfo {
-    name: String,
-    fields: Vec<VariantFieldInfo>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct VariantFieldInfo {
-    name: String,
-    ty: TypeInfo,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct FunctionInfo {
-    name: String,
-    return_type: TypeInfo,
+    fields: Vec<Field>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct InterfaceInfo {
     name: String,
-    methods: Vec<MethodInfo>,
+    methods: Vec<Method>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ImplInfo {
     interface_name: String,
     type_name: String,
-    methods: Vec<MethodInfo>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct MethodInfo {
-    name: String,
-    params: Vec<(String, TypeInfo)>,
-    return_type: TypeInfo,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Binding {
-    name: String,
-    ty: TypeInfo,
+    methods: Vec<FunctionDecl>,
 }
 
 struct Emitter<'a> {
     module: &'a Module,
-    line_index: Option<LineIndex>,
     structs: Vec<StructInfo>,
     struct_names: Vec<String>,
-    enums: Vec<EnumInfo>,
-    functions: Vec<FunctionInfo>,
+    enum_variant_names: Vec<String>,
     interfaces: Vec<InterfaceInfo>,
     interface_names: Vec<String>,
     impls: Vec<ImplInfo>,
-    scopes: Vec<Vec<Binding>>,
-    current_return_type: TypeInfo,
     output: String,
     indent: usize,
     temp_index: usize,
@@ -123,42 +74,31 @@ struct Emitter<'a> {
 
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module) -> Self {
-        Self::with_source(module, None)
-    }
-
-    fn new_for_tests(module: &'a Module, source: &str) -> Self {
-        Self::with_source(module, Some(LineIndex::new(source)))
-    }
-
-    fn with_source(module: &'a Module, line_index: Option<LineIndex>) -> Self {
         let structs = collect_structs(module);
         let struct_names = structs.iter().map(|s| s.name.clone()).collect();
         let interfaces = collect_interfaces(module);
         let interface_names = interfaces.iter().map(|i| i.name.clone()).collect();
+        let enum_variant_names = collect_enum_variant_names(module);
         Self {
             module,
-            line_index,
             structs,
             struct_names,
-            enums: collect_enums(module),
-            functions: collect_functions(module),
+            enum_variant_names,
             interfaces,
             interface_names,
             impls: collect_impls(module),
-            scopes: Vec::new(),
-            current_return_type: TypeInfo::Unit,
             output: String::new(),
             indent: 0,
             temp_index: 0,
         }
     }
 
-    fn go_type(&self, ty: &TypeInfo) -> String {
-        go_type(ty, &self.struct_names, &self.interface_names)
+    fn new_for_tests(module: &'a Module) -> Self {
+        Self::new(module)
     }
 
-    fn payload_expr(&self, value: &str, index: usize, ty: &TypeInfo) -> String {
-        payload_expr(value, index, ty, &self.struct_names, &self.interface_names)
+    fn go_type(&self, ty: &TypeInfo) -> String {
+        go_type(ty, &self.struct_names, &self.interface_names)
     }
 
     fn emit(mut self) -> Result<String, BackendError> {
@@ -168,9 +108,8 @@ impl<'a> Emitter<'a> {
         self.line("")?;
         self.emit_runtime()?;
 
-        let interfaces = self.interfaces.clone();
-        for interface in &interfaces {
-            self.emit_interface_decl(interface)?;
+        for interface in self.interfaces.clone() {
+            self.emit_interface_decl(&interface)?;
             self.line("")?;
         }
 
@@ -178,18 +117,13 @@ impl<'a> Emitter<'a> {
             match item {
                 Item::Struct(decl) => self.emit_struct_decl(decl)?,
                 Item::Enum(decl) => self.emit_enum_decl(decl)?,
-                Item::Function(_)
-                | Item::Use(_)
-                | Item::Test(_)
-                | Item::Interface(_)
-                | Item::Impl(_) => {}
+                Item::Function(_) | Item::Interface(_) | Item::Impl(_) | Item::Test(_) => {}
             }
         }
 
-        let impls = self.impls.clone();
-        for impl_decl in &impls {
+        for impl_decl in self.impls.clone() {
             for method in &impl_decl.methods {
-                self.emit_impl_method(impl_decl, method)?;
+                self.emit_impl_method(&impl_decl, method)?;
                 self.line("")?;
             }
         }
@@ -212,9 +146,8 @@ impl<'a> Emitter<'a> {
         self.line("")?;
         self.emit_runtime()?;
 
-        let interfaces = self.interfaces.clone();
-        for interface in &interfaces {
-            self.emit_interface_decl(interface)?;
+        for interface in self.interfaces.clone() {
+            self.emit_interface_decl(&interface)?;
             self.line("")?;
         }
 
@@ -222,25 +155,20 @@ impl<'a> Emitter<'a> {
             match item {
                 Item::Struct(decl) => self.emit_struct_decl(decl)?,
                 Item::Enum(decl) => self.emit_enum_decl(decl)?,
-                Item::Function(_)
-                | Item::Use(_)
-                | Item::Test(_)
-                | Item::Interface(_)
-                | Item::Impl(_) => {}
+                Item::Function(_) | Item::Interface(_) | Item::Impl(_) | Item::Test(_) => {}
             }
         }
 
-        let impls = self.impls.clone();
-        for impl_decl in &impls {
+        for impl_decl in self.impls.clone() {
             for method in &impl_decl.methods {
-                self.emit_impl_method(impl_decl, method)?;
+                self.emit_impl_method(&impl_decl, method)?;
                 self.line("")?;
             }
         }
 
         for item in &self.module.items {
             if let Item::Function(function) = item {
-                if function.name.value == "main" {
+                if function.name == "main" {
                     continue;
                 }
                 self.emit_function(function)?;
@@ -250,27 +178,17 @@ impl<'a> Emitter<'a> {
 
         self.line("func main() {")?;
         self.indent += 1;
-        let tests: Vec<&TestDecl> = self
-            .module
-            .items
-            .iter()
-            .filter_map(|item| {
-                if let Item::Test(test) = item {
-                    Some(test)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for test in &tests {
-            let name_literal = go_string_literal(&test.name.value);
-            self.line_fmt(format_args!("fmt.Printf(\"test %q ... \", {name_literal})"))?;
-            self.line("func() {")?;
-            self.indent += 1;
-            self.emit_block_statements(&test.body, false)?;
-            self.indent -= 1;
-            self.line("}()")?;
-            self.line("fmt.Println(\"ok\")")?;
+        for item in &self.module.items {
+            if let Item::Test(test) = item {
+                let name_literal = go_string_literal(&test.name);
+                self.line_fmt(format_args!("fmt.Printf(\"test %q ... \", {name_literal})"))?;
+                self.line("func() {")?;
+                self.indent += 1;
+                self.emit_block_statements(&test.body, false)?;
+                self.indent -= 1;
+                self.line("}()")?;
+                self.line("fmt.Println(\"ok\")")?;
+            }
         }
         self.indent -= 1;
         self.line("}")?;
@@ -325,107 +243,6 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn emit_struct_decl(&mut self, decl: &StructDecl) -> Result<(), BackendError> {
-        self.line_fmt(format_args!("type {} struct {{", decl.name.value))?;
-        self.indent += 1;
-        for field in &decl.fields {
-            let ty = self.go_type(&TypeInfo::from_ast(&field.ty));
-            self.line_fmt(format_args!("{} {}", field.name.value, ty))?;
-        }
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        Ok(())
-    }
-
-    fn emit_interface_decl(&mut self, interface: &InterfaceInfo) -> Result<(), BackendError> {
-        self.line_fmt(format_args!("type {} interface {{", interface.name))?;
-        self.indent += 1;
-        for method in &interface.methods {
-            let params = method
-                .params
-                .iter()
-                .map(|(name, ty)| format!("{} {}", name, self.go_type(ty)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let ret = self.go_type(&method.return_type);
-            if ret.is_empty() {
-                self.line_fmt(format_args!("{}({})", method.name, params))?;
-            } else {
-                self.line_fmt(format_args!("{}({}) {}", method.name, params, ret))?;
-            }
-        }
-        self.indent -= 1;
-        self.line("}")?;
-        Ok(())
-    }
-
-    fn emit_impl_method(
-        &mut self,
-        impl_decl: &ImplInfo,
-        method: &MethodInfo,
-    ) -> Result<(), BackendError> {
-        write!(
-            self.output,
-            "func (self {}) {}(",
-            impl_decl.type_name, method.name
-        )?;
-        for (index, (name, ty)) in method.params.iter().enumerate() {
-            if index > 0 {
-                self.output.push_str(", ");
-            }
-            write!(self.output, "{} {}", name, self.go_type(ty))?;
-        }
-        self.output.push(')');
-        let return_type = &method.return_type;
-        if *return_type != TypeInfo::Unit {
-            self.output.push(' ');
-            self.output.push_str(&self.go_type(return_type));
-        }
-        self.output.push_str(" {\n");
-
-        let previous_return_type =
-            std::mem::replace(&mut self.current_return_type, return_type.clone());
-        self.push_scope();
-        self.define("self", TypeInfo::Named(impl_decl.type_name.clone()));
-        for (name, ty) in &method.params {
-            self.define(name, ty.clone());
-        }
-        self.indent += 1;
-
-        let body = self.find_impl_body(impl_decl, method);
-        match body {
-            Some(body) => {
-                self.emit_block_statements(body, self.current_return_type != TypeInfo::Unit)?
-            }
-            None => self.line("panic(\"missing impl body\")")?,
-        }
-
-        self.indent -= 1;
-        self.pop_scope();
-        self.current_return_type = previous_return_type;
-
-        self.line("}")?;
-        Ok(())
-    }
-
-    fn find_impl_body(&self, impl_decl: &ImplInfo, method: &MethodInfo) -> Option<&'a Block> {
-        for item in &self.module.items {
-            if let Item::Impl(decl) = item {
-                if decl.interface_name.value == impl_decl.interface_name
-                    && decl.type_name.value == impl_decl.type_name
-                {
-                    for impl_method in &decl.methods {
-                        if impl_method.name.value == method.name {
-                            return impl_method.body.as_ref();
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
     fn emit_checked_op(
         &mut self,
         name: &str,
@@ -450,48 +267,113 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
+    fn emit_struct_decl(&mut self, decl: &StructDecl) -> Result<(), BackendError> {
+        self.line_fmt(format_args!("type {} struct {{", decl.name))?;
+        self.indent += 1;
+        for field in &decl.fields {
+            let ty = self.go_type(&field.ty);
+            self.line_fmt(format_args!("{} {}", field.name, ty))?;
+        }
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
+        Ok(())
+    }
+
+    fn emit_interface_decl(&mut self, interface: &InterfaceInfo) -> Result<(), BackendError> {
+        self.line_fmt(format_args!("type {} interface {{", interface.name))?;
+        self.indent += 1;
+        for method in &interface.methods {
+            let params = method
+                .params
+                .iter()
+                .map(|param| format!("{} {}", param.name, self.go_type(&param.ty)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let ret = self.go_type(&method.return_type);
+            if ret.is_empty() {
+                self.line_fmt(format_args!("{}({})", method.name, params))?;
+            } else {
+                self.line_fmt(format_args!("{}({}) {}", method.name, params, ret))?;
+            }
+        }
+        self.indent -= 1;
+        self.line("}")?;
+        Ok(())
+    }
+
+    fn emit_impl_method(
+        &mut self,
+        impl_decl: &ImplInfo,
+        method: &FunctionDecl,
+    ) -> Result<(), BackendError> {
+        write!(
+            self.output,
+            "func (self {}) {}(",
+            impl_decl.type_name, method.name
+        )?;
+        for (index, param) in method.params.iter().enumerate() {
+            if index > 0 {
+                self.output.push_str(", ");
+            }
+            write!(self.output, "{} {}", param.name, self.go_type(&param.ty))?;
+        }
+        self.output.push(')');
+        if method.return_type != TypeInfo::Unit {
+            self.output.push(' ');
+            self.output.push_str(&self.go_type(&method.return_type));
+        }
+        self.output.push_str(" {\n");
+
+        self.indent += 1;
+        self.emit_block_statements(&method.body, method.return_type != TypeInfo::Unit)?;
+        self.indent -= 1;
+
+        self.line("}")?;
+        Ok(())
+    }
+
     fn emit_enum_decl(&mut self, decl: &EnumDecl) -> Result<(), BackendError> {
-        self.line_fmt(format_args!("type {} = KeelEnum", decl.name.value))?;
+        self.line_fmt(format_args!("type {} = KeelEnum", decl.name))?;
         self.line("")?;
         for variant in &decl.variants {
-            self.emit_variant_constructor(variant)?;
+            self.emit_variant_constructor(decl.name.clone(), variant)?;
             self.line("")?;
         }
         Ok(())
     }
 
-    fn emit_variant_constructor(&mut self, variant: &VariantDecl) -> Result<(), BackendError> {
+    fn emit_variant_constructor(
+        &mut self,
+        _enum_name: String,
+        variant: &Variant,
+    ) -> Result<(), BackendError> {
         if variant.fields.is_empty() {
             self.line_fmt(format_args!(
                 "var {} = KeelEnum{{tag: {:?}}}",
-                variant.name.value, variant.name.value
+                variant.name, variant.name
             ))?;
             return Ok(());
         }
 
-        write!(self.output, "func {}(", variant.name.value)?;
+        write!(self.output, "func {}(", variant.name)?;
         for (index, field) in variant.fields.iter().enumerate() {
             if index > 0 {
                 self.output.push_str(", ");
             }
-            write!(
-                self.output,
-                "{} {}",
-                field.name.value,
-                self.go_type(&TypeInfo::from_ast(&field.ty))
-            )?;
+            write!(self.output, "{} {}", field.name, self.go_type(&field.ty))?;
         }
         self.output.push_str(") KeelEnum {\n");
         self.indent += 1;
         let values = variant
             .fields
             .iter()
-            .map(|field| field.name.value.as_str())
+            .map(|field| field.name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
         self.line_fmt(format_args!(
             "return KeelEnum{{tag: {:?}, values: []any{{{values}}}}}",
-            variant.name.value
+            variant.name
         ))?;
         self.indent -= 1;
         self.line("}")?;
@@ -499,54 +381,25 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_function(&mut self, function: &FunctionDecl) -> Result<(), BackendError> {
-        let Some(body) = &function.body else {
-            return Err(BackendError::unsupported(
-                "function declarations without bodies",
-            ));
-        };
-
-        write!(self.output, "func {}", function.name.value)?;
+        write!(self.output, "func {}", function.name)?;
         self.output.push('(');
         for (index, param) in function.params.iter().enumerate() {
             if index > 0 {
                 self.output.push_str(", ");
             }
-            let Some(ty) = &param.ty else {
-                return Err(BackendError::unsupported("parameters without types"));
-            };
-            write!(
-                self.output,
-                "{} {}",
-                param.name.value,
-                self.go_type(&TypeInfo::from_ast(ty))
-            )?;
+            write!(self.output, "{} {}", param.name, self.go_type(&param.ty))?;
         }
         self.output.push(')');
 
-        let return_type = function
-            .return_type
-            .as_ref()
-            .map_or(TypeInfo::Unit, TypeInfo::from_ast);
-        if return_type != TypeInfo::Unit {
+        if function.return_type != TypeInfo::Unit {
             self.output.push(' ');
-            self.output.push_str(&self.go_type(&return_type));
+            self.output.push_str(&self.go_type(&function.return_type));
         }
         self.output.push_str(" {\n");
 
-        let previous_return_type = std::mem::replace(&mut self.current_return_type, return_type);
-        self.push_scope();
-        for param in &function.params {
-            let ty = param
-                .ty
-                .as_ref()
-                .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
-            self.define(&param.name.value, ty);
-        }
         self.indent += 1;
-        self.emit_block_statements(body, self.current_return_type != TypeInfo::Unit)?;
+        self.emit_block_statements(&function.body, function.return_type != TypeInfo::Unit)?;
         self.indent -= 1;
-        self.pop_scope();
-        self.current_return_type = previous_return_type;
 
         self.line("}")?;
         Ok(())
@@ -557,7 +410,6 @@ impl<'a> Emitter<'a> {
         block: &Block,
         return_last_expr: bool,
     ) -> Result<(), BackendError> {
-        self.push_scope();
         for (index, statement) in block.statements.iter().enumerate() {
             let is_last = index + 1 == block.statements.len();
             if return_last_expr && is_last {
@@ -569,70 +421,51 @@ impl<'a> Emitter<'a> {
             }
             self.emit_stmt(statement)?;
         }
-        self.pop_scope();
         Ok(())
     }
 
     fn emit_stmt(&mut self, statement: &Stmt) -> Result<(), BackendError> {
         match statement {
             Stmt::Let { name, value, .. } => {
-                let ty = self.infer_expr(value);
-                match value {
-                    Expr::Question { expr, .. } => {
-                        self.emit_question_let(name.value.as_str(), expr)?
-                    }
-                    Expr::Catch {
-                        expr,
-                        error_name,
-                        arms,
-                        ..
-                    } => self.emit_catch_let(
-                        name.value.as_str(),
-                        expr,
-                        error_name.value.as_str(),
-                        arms,
-                    )?,
-                    _ => {
-                        let expr = self.emit_expr(value)?;
-                        self.line_fmt(format_args!("{} := {expr}", name.value))?;
-                    }
-                }
-                self.define(&name.value, ty);
+                let emitted = self.emit_expr(value)?;
+                let expr = self.cast_typed_literal(value, &emitted)?;
+                self.line_fmt(format_args!("{} := {expr}", name))?;
                 Ok(())
             }
-            Stmt::Assign { target, value, .. } => {
+            Stmt::Var { name, ty } => {
+                let ty = self.go_type(ty);
+                self.line_fmt(format_args!("var {} {}", name, ty))?;
+                Ok(())
+            }
+            Stmt::Assign { target, value } => {
                 let target = self.emit_expr(target)?;
                 let value = self.emit_expr(value)?;
                 self.line_fmt(format_args!("{target} = {value}"))
             }
-            Stmt::Return { value, .. } => self.emit_return_stmt(value.as_ref()),
+            Stmt::Return { value } => self.emit_return_stmt(value.as_ref()),
             Stmt::Expr(Expr::If {
                 condition,
                 then_block,
-                else_branch,
+                else_block,
                 ..
-            }) => self.emit_if_stmt(condition, then_block, else_branch.as_deref()),
-            Stmt::Expr(Expr::While {
-                condition, body, ..
-            }) => self.emit_while_stmt(condition, body),
+            }) => self.emit_if_stmt(condition, then_block, else_block),
+            Stmt::Expr(Expr::While { condition, body }) => self.emit_while_stmt(condition, body),
+            Stmt::Expr(Expr::Match {
+                scrutinee, arms, ..
+            }) => self.emit_match_stmt(scrutinee, arms),
+            Stmt::Expr(Expr::Block(block)) => self.emit_block_statements(block, false),
             Stmt::Expr(expr) => {
                 let expr = self.emit_expr(expr)?;
                 self.line(&expr)
             }
-            Stmt::Assert { value, span } => self.emit_assert(value, *span),
-            Stmt::Break(_) => self.line("break"),
-            Stmt::Continue(_) => self.line("continue"),
+            Stmt::Assert { value, line } => self.emit_assert(value, *line),
+            Stmt::Break => self.line("break"),
+            Stmt::Continue => self.line("continue"),
         }
     }
 
-    fn emit_assert(&mut self, value: &Expr, span: Span) -> Result<(), BackendError> {
-        if self.line_index.is_none() {
-            return Err(BackendError::unsupported(
-                "test assertions outside test blocks",
-            ));
-        }
+    fn emit_assert(&mut self, value: &Expr, line: usize) -> Result<(), BackendError> {
         let expr = self.emit_expr(value)?;
-        let line = self.assert_line(span);
         self.line_fmt(format_args!("if !({expr}) {{"))?;
         self.indent += 1;
         self.line_fmt(format_args!(
@@ -641,12 +474,6 @@ impl<'a> Emitter<'a> {
         self.line("os.Exit(1)")?;
         self.indent -= 1;
         self.line("}")
-    }
-
-    fn assert_line(&self, span: Span) -> usize {
-        self.line_index
-            .as_ref()
-            .map_or(0, |index| index.line_col(span.start).line)
     }
 
     fn emit_return_stmt(&mut self, value: Option<&Expr>) -> Result<(), BackendError> {
@@ -658,128 +485,14 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn emit_question_let(&mut self, name: &str, expr: &Expr) -> Result<(), BackendError> {
-        let temp = self.next_temp();
-        let expr_type = self.infer_expr(expr);
-        let success_type = question_success_type(&expr_type).unwrap_or(TypeInfo::Unknown);
-        let expr = self.emit_expr(expr)?;
-        self.line_fmt(format_args!("{temp} := {expr}"))?;
-        if expr_type.result_parts().is_some() {
-            self.line_fmt(format_args!("if {temp}.tag == \"Err\" {{"))?;
-            self.indent += 1;
-            self.line_fmt(format_args!("return Err({}.values[0])", temp))?;
-            self.indent -= 1;
-            self.line("}")?;
-            self.line_fmt(format_args!(
-                "{} := {}",
-                name,
-                self.payload_expr(&temp, 0, &success_type)
-            ))
-        } else if expr_type.option_inner().is_some() {
-            self.line_fmt(format_args!("if {temp}.tag == \"None\" {{"))?;
-            self.indent += 1;
-            self.line("return None")?;
-            self.indent -= 1;
-            self.line("}")?;
-            self.line_fmt(format_args!(
-                "{} := {}",
-                name,
-                self.payload_expr(&temp, 0, &success_type)
-            ))
-        } else {
-            Err(BackendError::unsupported("? on non-Result/Option value"))
-        }
-    }
-
-    fn emit_catch_let(
-        &mut self,
-        name: &str,
-        expr: &Expr,
-        error_name: &str,
-        arms: &[MatchArm],
-    ) -> Result<(), BackendError> {
-        let temp = self.next_temp();
-        let err_temp = self.next_temp();
-        let expr_type = self.infer_expr(expr);
-        let (success_type, error_type) = expr_type
-            .result_parts()
-            .map(|(ok, err)| (ok.clone(), err.clone()))
-            .unwrap_or((TypeInfo::Unknown, TypeInfo::Unknown));
-        let expr = self.emit_expr(expr)?;
-        let success_payload = self.payload_expr(&temp, 0, &success_type);
-        let error_payload = self.payload_expr(&temp, 0, &error_type);
-        self.line_fmt(format_args!("{temp} := {expr}"))?;
-        self.line_fmt(format_args!("var {} {}", name, self.go_type(&success_type)))?;
-        self.line_fmt(format_args!("if {temp}.tag == \"Ok\" {{"))?;
-        self.indent += 1;
-        self.line_fmt(format_args!("{name} = {success_payload}"))?;
-        self.indent -= 1;
-        self.line("} else {")?;
-        self.indent += 1;
-        self.line_fmt(format_args!("{err_temp} := {error_payload}"))?;
-        self.define(error_name, error_type.clone());
-        self.emit_catch_arms(&err_temp, &error_type, arms)?;
-        self.indent -= 1;
-        self.line("}")?;
-        Ok(())
-    }
-
-    fn emit_catch_arms(
-        &mut self,
-        err_temp: &str,
-        error_type: &TypeInfo,
-        arms: &[MatchArm],
-    ) -> Result<(), BackendError> {
-        for arm in arms {
-            match &arm.pattern {
-                Pattern::Wildcard(_) => self.line("if true {")?,
-                Pattern::Name { name, args, .. } if name.value == "other" && args.is_empty() => {
-                    self.line("if true {")?;
-                    self.indent += 1;
-                    self.line_fmt(format_args!("{} := {err_temp}", name.value))?;
-                    self.indent -= 1;
-                    self.define(&name.value, error_type.clone());
-                }
-                Pattern::Name { name, args, .. } => {
-                    self.line_fmt(format_args!("if {err_temp}.tag == {:?} {{", name.value))?;
-                    self.indent += 1;
-                    let payload_types = self.pattern_payload_types(error_type, &name.value);
-                    self.emit_pattern_bindings(err_temp, args, &payload_types)?;
-                    self.emit_catch_arm_value(&arm.value)?;
-                    self.indent -= 1;
-                    self.line("}")?;
-                    continue;
-                }
-            }
-            self.indent += 1;
-            self.emit_catch_arm_value(&arm.value)?;
-            self.indent -= 1;
-            self.line("}")?;
-        }
-        Ok(())
-    }
-
-    fn emit_catch_arm_value(&mut self, value: &Expr) -> Result<(), BackendError> {
-        match value {
-            Expr::Return { value, .. } => {
-                let value = value.as_deref();
-                self.emit_return_stmt(value)
-            }
-            _ => {
-                let expr = self.emit_expr(value)?;
-                self.line(&expr)
-            }
-        }
-    }
-
     fn emit_expr(&mut self, expr: &Expr) -> Result<String, BackendError> {
         match expr {
-            Expr::Int(value) => Ok(value.value.replace('_', "")),
-            Expr::Float(value) => Ok(value.value.replace('_', "")),
-            Expr::String(value) => self.emit_string(&value.value),
-            Expr::Char(value) => Ok(format!("{:?}", value.value)),
-            Expr::Bool(value) => Ok(value.value.to_string()),
-            Expr::Name(name) => Ok(name.value.clone()),
+            Expr::Int(value) => Ok(value.clone()),
+            Expr::Float(value) => Ok(value.clone()),
+            Expr::String(literal) => self.emit_string(literal),
+            Expr::Char(value) => Ok(format!("{:?}", value)),
+            Expr::Bool(value) => Ok(value.to_string()),
+            Expr::Name(name) => Ok(name.clone()),
             Expr::Unary { op, expr, .. } => {
                 let expr = self.emit_expr(expr)?;
                 let op = match op {
@@ -804,7 +517,7 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. } => self.emit_call(callee, args),
             Expr::Field { target, field, .. } => {
                 let target = self.emit_expr(target)?;
-                Ok(format!("{target}.{}", field.value))
+                Ok(format!("{target}.{field}"))
             }
             Expr::MethodCall {
                 receiver,
@@ -812,27 +525,30 @@ impl<'a> Emitter<'a> {
                 args,
                 ..
             } => self.emit_method_call(receiver, method, args),
-            Expr::StructLiteral { name, fields, .. } => {
-                self.emit_struct_literal(name.value.as_str(), fields)
-            }
-            Expr::Block(block) => self.emit_block_expr(block),
+            Expr::StructLiteral { name, fields, .. } => self.emit_struct_literal(name, fields),
             Expr::If {
                 condition,
                 then_block,
-                else_branch,
-                ..
-            } => self.emit_if_expr(condition, then_block, else_branch.as_deref()),
+                else_block,
+                ty,
+            } => self.emit_if_expr(condition, then_block, else_block, ty),
             Expr::Match {
-                scrutinee, arms, ..
-            } => self.emit_match_expr(scrutinee, arms),
-            Expr::While { .. } => Err(BackendError::unsupported("while expressions")),
-            Expr::Question { .. } => Err(BackendError::unsupported(
-                "the ? operator outside statement lowering",
-            )),
-            Expr::Catch { .. } => Err(BackendError::unsupported(
-                "catch expressions outside statement lowering",
-            )),
-            Expr::Return { value, .. } => {
+                scrutinee,
+                arms,
+                ty,
+            } => self.emit_match_expr(scrutinee, arms, ty),
+            Expr::While { condition, body } => self.emit_while_expr(condition, body),
+            Expr::Block(block) => self.emit_block_expr(block),
+            Expr::Payload { value, index, ty } => {
+                let value = self.emit_expr(value)?;
+                Ok(format!(
+                    "{}.values[{}].({})",
+                    value,
+                    index,
+                    self.go_type(ty)
+                ))
+            }
+            Expr::Return { value } => {
                 if let Some(value) = value {
                     let expr = self.emit_expr(value)?;
                     Ok(format!("return {expr}"))
@@ -840,19 +556,16 @@ impl<'a> Emitter<'a> {
                     Ok("return".to_string())
                 }
             }
-            Expr::Missing(_) | Expr::Wildcard(_) => {
-                Err(BackendError::unsupported("missing expressions"))
-            }
         }
     }
 
     fn emit_method_call(
         &mut self,
         receiver: &Expr,
-        method: &keelc_span::Spanned<String>,
+        method: &str,
         args: &[Expr],
     ) -> Result<String, BackendError> {
-        if matches!(receiver, Expr::Name(name) if name.value == "Float") && method.value == "from" {
+        if matches!(receiver, Expr::Name(name) if name == "Float") && method == "from" {
             let arg = args
                 .first()
                 .ok_or_else(|| BackendError::unsupported("Float.from without argument"))?;
@@ -865,51 +578,84 @@ impl<'a> Emitter<'a> {
             .map(|arg| self.emit_expr(arg))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        Ok(format!("{receiver_expr}.{}({args})", method.value))
+        Ok(format!("{receiver_expr}.{method}({args})"))
     }
 
     fn emit_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<String, BackendError> {
-        if matches!(
-            callee,
-            Expr::Name(name) if name.value == "Some" || name.value == "Ok" || name.value == "Err"
-        ) {
-            let Some(arg) = args.first() else {
-                return Err(BackendError::unsupported("constructor without an argument"));
-            };
-            let Expr::Name(name) = callee else {
-                return Err(BackendError::unsupported("constructor callee"));
-            };
-            let arg_type = self.infer_expr(arg);
-            let arg = cast_constructor_arg(self.emit_expr(arg)?, &arg_type);
-            return Ok(format!("{}({arg})", name.value));
+        let callee_name = match callee {
+            Expr::Name(name) => Some(name.as_str()),
+            _ => None,
+        };
+        let constructor = callee_name.is_some_and(|name| {
+            name == "Some"
+                || name == "Ok"
+                || name == "Err"
+                || self
+                    .enum_variant_names
+                    .iter()
+                    .any(|variant| variant == name)
+        });
+        let is_print = callee_name == Some("print");
+
+        let mut emitted_args = Vec::new();
+        if constructor {
+            for arg in args {
+                emitted_args.push(self.cast_constructor_arg(arg)?);
+            }
+        } else {
+            for arg in args {
+                emitted_args.push(self.emit_expr(arg)?);
+            }
         }
 
-        let args = args
-            .iter()
-            .map(|arg| self.emit_expr(arg))
-            .collect::<Result<Vec<_>, _>>()?;
-        if matches!(callee, Expr::Name(name) if name.value == "print") {
-            return Ok(format!("fmt.Println({})", args.join(", ")));
+        if is_print {
+            return Ok(format!("fmt.Println({})", emitted_args.join(", ")));
         }
-        if matches!(
-            callee,
-            Expr::Field { target, field, .. }
-                if matches!(target.as_ref(), Expr::Name(name) if name.value == "Float")
-                    && field.value == "from"
-        ) {
-            let Some(arg) = args.first() else {
-                return Err(BackendError::unsupported("Float.from without an argument"));
-            };
-            return Ok(format!("float64({arg})"));
+        if constructor {
+            let name = callee_name.ok_or_else(|| {
+                BackendError::unsupported("constructor call without named callee")
+            })?;
+            return Ok(format!("{}({})", name, emitted_args.join(", ")));
         }
+
+        if let Expr::Field { target, field, .. } = callee {
+            if matches!(target.as_ref(), Expr::Name(name) if name == "Float") && field == "from" {
+                let arg = emitted_args
+                    .first()
+                    .ok_or_else(|| BackendError::unsupported("Float.from without argument"))?;
+                return Ok(format!("float64({arg})"));
+            }
+        }
+
         let callee = self.emit_expr(callee)?;
-        Ok(format!("{callee}({})", args.join(", ")))
+        Ok(format!("{callee}({})", emitted_args.join(", ")))
+    }
+
+    fn cast_constructor_arg(&mut self, arg: &Expr) -> Result<String, BackendError> {
+        let emitted = self.emit_expr(arg)?;
+        match expr_ty(arg) {
+            TypeInfo::Int => Ok(format!("int64({emitted})")),
+            TypeInfo::Float => Ok(format!("float64({emitted})")),
+            TypeInfo::Char => Ok(format!("rune({emitted})")),
+            _ => Ok(emitted),
+        }
+    }
+
+    /// Cast literal values at let bindings so Go infers the desired Keel type
+    /// (int64 / float64 / rune) instead of the untyped-default int.
+    fn cast_typed_literal(&self, expr: &Expr, emitted: &str) -> Result<String, BackendError> {
+        match expr {
+            Expr::Int(_) => Ok(format!("int64({emitted})")),
+            Expr::Float(_) => Ok(format!("float64({emitted})")),
+            Expr::Char(_) => Ok(format!("rune({emitted})")),
+            _ => Ok(emitted.to_string()),
+        }
     }
 
     fn emit_struct_literal(
         &mut self,
         name: &str,
-        fields: &[StructLiteralField],
+        fields: &[(String, Expr)],
     ) -> Result<String, BackendError> {
         let Some(info) = self.structs.iter().find(|info| info.name == name).cloned() else {
             return Err(BackendError::unsupported(format!(
@@ -918,11 +664,8 @@ impl<'a> Emitter<'a> {
         };
         let mut parts = Vec::new();
         for field in &info.fields {
-            let value = if let Some(provided) = fields
-                .iter()
-                .find(|provided| provided.name.value == field.name)
-            {
-                self.emit_expr(&provided.value)?
+            let value = if let Some((_, provided)) = fields.iter().find(|(n, _)| n == &field.name) {
+                self.emit_expr(provided)?
             } else if let Some(default) = &field.default {
                 self.emit_expr(default)?
             } else {
@@ -937,32 +680,22 @@ impl<'a> Emitter<'a> {
         &mut self,
         condition: &Expr,
         then_block: &Block,
-        else_branch: Option<&Expr>,
+        else_block: &Block,
     ) -> Result<(), BackendError> {
         let condition = self.emit_expr(condition)?;
         self.line_fmt(format_args!("if {condition} {{"))?;
         self.indent += 1;
         self.emit_block_statements(then_block, false)?;
         self.indent -= 1;
-        if let Some(else_branch) = else_branch {
+        if else_block.statements.is_empty() && else_block.ty == TypeInfo::Unit {
+            self.line("}")?;
+        } else {
             self.line("} else {")?;
             self.indent += 1;
-            match else_branch {
-                Expr::Block(block) => self.emit_block_statements(block, false)?,
-                Expr::If {
-                    condition,
-                    then_block,
-                    else_branch,
-                    ..
-                } => self.emit_if_stmt(condition, then_block, else_branch.as_deref())?,
-                expr => {
-                    let expr = self.emit_expr(expr)?;
-                    self.line(&expr)?;
-                }
-            }
+            self.emit_block_statements(else_block, false)?;
             self.indent -= 1;
+            self.line("}")?;
         }
-        self.line("}")?;
         Ok(())
     }
 
@@ -972,7 +705,69 @@ impl<'a> Emitter<'a> {
         self.indent += 1;
         self.emit_block_statements(body, false)?;
         self.indent -= 1;
-        self.line("}")?;
+        self.line("}")
+    }
+
+    fn emit_match_stmt(&mut self, scrutinee: &Expr, arms: &[MatchArm]) -> Result<(), BackendError> {
+        let (temp, scrutinee_expr) = match scrutinee {
+            Expr::Name(name) => (name.clone(), name.clone()),
+            _ => {
+                let temp = self.next_temp();
+                let expr = self.emit_expr(scrutinee)?;
+                (temp, expr)
+            }
+        };
+        if !matches!(scrutinee, Expr::Name(_)) {
+            self.line_fmt(format_args!("{temp} := {scrutinee_expr}"))?;
+        }
+        for arm in arms {
+            self.emit_match_arm_stmt(&temp, arm)?;
+        }
+        Ok(())
+    }
+
+    fn emit_match_arm_stmt(&mut self, temp: &str, arm: &MatchArm) -> Result<(), BackendError> {
+        match &arm.pattern {
+            Pattern::Wildcard => self.line("if true {")?,
+            Pattern::Name { name, .. } => {
+                self.line_fmt(format_args!("if {temp}.tag == {:?} {{", name))?;
+            }
+        }
+        self.indent += 1;
+        self.emit_pattern_bindings(temp, &arm.pattern)?;
+        if let Some(guard) = &arm.guard {
+            let guard = self.emit_expr(guard)?;
+            self.line_fmt(format_args!("if {guard} {{"))?;
+            self.indent += 1;
+            self.emit_stmt(&Stmt::Expr(arm.value.clone()))?;
+            self.indent -= 1;
+            self.line("}")?;
+        } else {
+            self.emit_stmt(&Stmt::Expr(arm.value.clone()))?;
+        }
+        self.indent -= 1;
+        self.line("}")
+    }
+
+    fn emit_pattern_bindings(&mut self, temp: &str, pattern: &Pattern) -> Result<(), BackendError> {
+        if let Pattern::Name {
+            args,
+            payload_types,
+            ..
+        } = pattern
+        {
+            for (index, arg) in args.iter().enumerate() {
+                let ty = payload_types
+                    .get(index)
+                    .cloned()
+                    .unwrap_or(TypeInfo::Unknown);
+                if let Pattern::Name { name, .. } = arg {
+                    let payload = format!("{}.values[{}].({})", temp, index, self.go_type(&ty));
+                    self.line_fmt(format_args!("{} := {payload}", name))?;
+                    self.line_fmt(format_args!("_ = {}", name))?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -980,150 +775,72 @@ impl<'a> Emitter<'a> {
         &mut self,
         condition: &Expr,
         then_block: &Block,
-        else_branch: Option<&Expr>,
+        else_block: &Block,
+        ty: &TypeInfo,
     ) -> Result<String, BackendError> {
-        let Some(else_branch) = else_branch else {
-            return Err(BackendError::unsupported("if expressions without else"));
-        };
         let condition = self.emit_expr(condition)?;
-        let ty = self.go_type(&self.infer_expr(else_branch));
+        if *ty == TypeInfo::Unit {
+            let then_body = self.emit_statement_block(then_block)?;
+            let else_body = self.emit_statement_block(else_block)?;
+            return Ok(format!(
+                "func() {{ if {condition} {{ {then_body} }} else {{ {else_body} }} }}()"
+            ));
+        }
+        let go_ty = self.go_type(ty);
         let then_body = self.emit_returning_block(then_block)?;
-        let else_body = match else_branch {
-            Expr::Block(block) => self.emit_returning_block(block)?,
-            expr => format!("return {}", self.emit_expr(expr)?),
+        let else_body = if else_block.statements.is_empty() {
+            format!("return {}", zero_value(ty))
+        } else {
+            self.emit_returning_block(else_block)?
         };
         Ok(format!(
-            "func() {ty} {{ if {condition} {{ {then_body} }} else {{ {else_body} }} }}()"
+            "func() {go_ty} {{ if {condition} {{ {then_body} }} else {{ {else_body} }} }}()"
         ))
     }
 
-    fn emit_string(&mut self, literal: &StringLiteral) -> Result<String, BackendError> {
-        if !literal.interpolations.is_empty() {
-            let mut args = Vec::new();
-            let mut cursor = 0usize;
-            for interpolation in &literal.interpolations {
-                let needle = format!("{{{}}}", interpolation.value);
-                let Some(relative_start) = literal.text[cursor..].find(&needle) else {
-                    return Err(BackendError::unsupported(
-                        "string interpolation with duplicate or reordered placeholders",
-                    ));
-                };
-                let start = cursor + relative_start;
-                if start > cursor {
-                    args.push(format!("{:?}", &literal.text[cursor..start]));
-                }
-                let expr = parse_interpolation_expr(SourceId::new(0), &interpolation.value)
-                    .ok_or_else(|| BackendError::unsupported("malformed string interpolation"))?;
-                args.push(self.emit_expr(&expr)?);
-                cursor = start + needle.len();
-            }
-            if cursor < literal.text.len() {
-                args.push(format!("{:?}", &literal.text[cursor..]));
-            }
-            if args.is_empty() {
-                return Ok("\"\"".to_string());
-            }
-            return Ok(format!("fmt.Sprint({})", args.join(", ")));
-        }
-        Ok(format!("{:?}", literal.text))
-    }
-
-    fn emit_block_expr(&mut self, block: &Block) -> Result<String, BackendError> {
-        let ty = self.go_type(&self.infer_block_type(block));
-        let body = self.emit_returning_block(block)?;
-        Ok(format!("func() {ty} {{ {body} }}()"))
-    }
-
-    fn emit_returning_block(&mut self, block: &Block) -> Result<String, BackendError> {
-        let Some((last, prefix)) = block.statements.split_last() else {
-            return Err(BackendError::unsupported("empty block expressions"));
-        };
-        self.push_scope();
+    fn emit_statement_block(&mut self, block: &Block) -> Result<String, BackendError> {
         let mut output = String::new();
-        for statement in prefix {
+        for statement in &block.statements {
             output.push_str(&self.emit_inline_stmt(statement)?);
             output.push(' ');
         }
-        match last {
-            Stmt::Expr(expr) => {
-                output.push_str("return ");
-                output.push_str(&self.emit_expr(expr)?);
-            }
-            Stmt::Return { value, .. } => {
-                output.push_str("return");
-                if let Some(value) = value {
-                    output.push(' ');
-                    output.push_str(&self.emit_expr(value)?);
-                }
-            }
-            _ => return Err(BackendError::unsupported("non-expression block values")),
-        }
-        self.pop_scope();
         Ok(output)
     }
 
-    fn emit_inline_stmt(&mut self, statement: &Stmt) -> Result<String, BackendError> {
-        match statement {
-            Stmt::Let { name, value, .. } => {
-                let ty = self.infer_expr(value);
-                let expr = self.emit_expr(value)?;
-                self.define(&name.value, ty);
-                Ok(format!("{} := {};", name.value, expr))
-            }
-            Stmt::Assign { target, value, .. } => Ok(format!(
-                "{} = {};",
-                self.emit_expr(target)?,
-                self.emit_expr(value)?
-            )),
-            Stmt::Expr(expr) => Ok(format!("{};", self.emit_expr(expr)?)),
-            Stmt::Return { value, .. } => {
-                if let Some(value) = value {
-                    Ok(format!("return {};", self.emit_expr(value)?))
-                } else {
-                    Ok("return;".to_string())
-                }
-            }
-            Stmt::Assert { value, span } => self.emit_assert_inline(value, *span),
-            Stmt::Break(_) | Stmt::Continue(_) => Err(BackendError::unsupported(
-                "break/continue in block expressions",
-            )),
-        }
-    }
-
-    fn emit_assert_inline(&mut self, value: &Expr, span: Span) -> Result<String, BackendError> {
-        if self.line_index.is_none() {
-            return Err(BackendError::unsupported(
-                "test assertions outside test blocks",
-            ));
-        }
-        let expr = self.emit_expr(value)?;
-        let line = self.assert_line(span);
-        Ok(format!("if !({expr}) {{ fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", {line}); os.Exit(1) }}"))
+    fn emit_while_expr(&mut self, condition: &Expr, body: &Block) -> Result<String, BackendError> {
+        let condition = self.emit_expr(condition)?;
+        let body = self.emit_returning_block(body)?;
+        Ok(format!("func() {{ for {condition} {{ {body} }} }}()"))
     }
 
     fn emit_match_expr(
         &mut self,
         scrutinee: &Expr,
         arms: &[MatchArm],
+        ty: &TypeInfo,
     ) -> Result<String, BackendError> {
-        let scrutinee_ty = self.infer_expr(scrutinee);
-        let result_ty = infer_match_result(self, arms);
-        let returns_value = result_ty != TypeInfo::Unit;
-        let result_go_type = self.go_type(&result_ty);
-        let temp = self.next_temp();
-        let scrutinee_expr = self.emit_expr(scrutinee)?;
+        let returns_value = *ty != TypeInfo::Unit;
+        let result_go_type = self.go_type(ty);
+        let (temp, scrutinee_expr) = match scrutinee {
+            Expr::Name(name) => (name.clone(), String::new()),
+            _ => {
+                let temp = self.next_temp();
+                let expr = self.emit_expr(scrutinee)?;
+                (temp.clone(), format!("{temp} := {expr}; "))
+            }
+        };
         let mut out = String::new();
         if returns_value {
             write!(out, "func() {result_go_type} {{ ")?;
         } else {
             out.push_str("func() { ");
         }
-        write!(out, "{temp} := {scrutinee_expr}; ")?;
+        out.push_str(&scrutinee_expr);
         for arm in arms {
-            self.write_match_arm(&mut out, &temp, &scrutinee_ty, &result_ty, arm)?;
+            self.write_match_arm(&mut out, &temp, ty, arm)?;
         }
         if returns_value {
-            write!(out, "return {}; ", zero_value(&result_ty))?;
+            write!(out, "return {}; ", zero_value(ty))?;
         }
         out.push_str("}()");
         Ok(out)
@@ -1133,35 +850,42 @@ impl<'a> Emitter<'a> {
         &mut self,
         out: &mut String,
         temp: &str,
-        scrutinee_ty: &TypeInfo,
         result_ty: &TypeInfo,
         arm: &MatchArm,
     ) -> Result<(), BackendError> {
         match &arm.pattern {
-            Pattern::Wildcard(_) => out.push_str("if true { "),
-            Pattern::Name { name, args, .. } => {
-                write!(out, "if {temp}.tag == {:?} {{ ", name.value)?;
-                self.push_scope();
-                let payload_types = self.pattern_payload_types(scrutinee_ty, &name.value);
-                let bindings = self.inline_pattern_bindings(temp, args, &payload_types)?;
-                out.push_str(&bindings);
-                if let Some(guard) = &arm.guard {
-                    let guard = self.emit_expr(guard)?;
-                    write!(out, "if {guard} {{ ")?;
-                    self.write_match_arm_value(out, result_ty, &arm.value)?;
-                    out.push_str("}; ");
-                } else {
-                    self.write_match_arm_value(out, result_ty, &arm.value)?;
-                }
-                self.pop_scope();
-                out.push_str("}; ");
-                return Ok(());
+            Pattern::Wildcard => out.push_str("if true { "),
+            Pattern::Name { name, .. } => {
+                write!(out, "if {temp}.tag == {:?} {{ ", name)?;
             }
         }
 
-        self.push_scope();
-        self.write_match_arm_value(out, result_ty, &arm.value)?;
-        self.pop_scope();
+        if let Pattern::Name {
+            args,
+            payload_types,
+            ..
+        } = &arm.pattern
+        {
+            for (index, arg) in args.iter().enumerate() {
+                let ty = payload_types
+                    .get(index)
+                    .cloned()
+                    .unwrap_or(TypeInfo::Unknown);
+                if let Pattern::Name { name, .. } = arg {
+                    let payload = format!("{}.values[{}].({})", temp, index, self.go_type(&ty));
+                    write!(out, "{} := {}; _ = {}; ", name, payload, name)?;
+                }
+            }
+        }
+
+        if let Some(guard) = &arm.guard {
+            let guard = self.emit_expr(guard)?;
+            write!(out, "if {guard} {{ ")?;
+            self.write_match_arm_value(out, result_ty, &arm.value)?;
+            out.push_str("}; ");
+        } else {
+            self.write_match_arm_value(out, result_ty, &arm.value)?;
+        }
         out.push_str("}; ");
         Ok(())
     }
@@ -1182,286 +906,95 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn emit_pattern_bindings(
-        &mut self,
-        temp: &str,
-        args: &[Pattern],
-        payload_types: &[TypeInfo],
-    ) -> Result<(), BackendError> {
-        self.emit_pattern_bindings_inner(temp, args, payload_types, false)?;
-        Ok(())
-    }
-
-    fn inline_pattern_bindings(
-        &mut self,
-        temp: &str,
-        args: &[Pattern],
-        payload_types: &[TypeInfo],
-    ) -> Result<String, BackendError> {
-        self.emit_pattern_bindings_inner(temp, args, payload_types, true)
-    }
-
-    fn emit_pattern_bindings_inner(
-        &mut self,
-        temp: &str,
-        args: &[Pattern],
-        payload_types: &[TypeInfo],
-        inline: bool,
-    ) -> Result<String, BackendError> {
-        let mut out = String::new();
-        for (index, pattern) in args.iter().enumerate() {
-            let ty = payload_types
-                .get(index)
-                .cloned()
-                .unwrap_or(TypeInfo::Unknown);
-            if let Pattern::Name { name, args, .. } = pattern {
-                if !args.is_empty() {
-                    return Err(BackendError::unsupported("nested pattern bindings"));
-                }
-                if inline {
-                    write!(
-                        out,
-                        "{} := {}; _ = {}; ",
-                        name.value,
-                        self.payload_expr(temp, index, &ty),
-                        name.value
-                    )?;
-                } else {
-                    let payload = self.payload_expr(temp, index, &ty);
-                    self.line_fmt(format_args!("{} := {payload}", name.value))?;
-                    self.line_fmt(format_args!("_ = {}", name.value))?;
-                }
-                self.define(&name.value, ty);
-            }
+    fn emit_block_expr(&mut self, block: &Block) -> Result<String, BackendError> {
+        if block.ty == TypeInfo::Unit {
+            let body = self.emit_statement_block(block)?;
+            return Ok(format!("func() {{ {body} }}()"));
         }
-        Ok(out)
+        let ty = self.go_type(&block.ty);
+        let body = self.emit_returning_block(block)?;
+        Ok(format!("func() {ty} {{ {body} }}()"))
     }
 
-    fn pattern_payload_types(&self, scrutinee_ty: &TypeInfo, pattern_name: &str) -> Vec<TypeInfo> {
-        if pattern_name == "Some" {
-            if let Some(inner) = scrutinee_ty.option_inner() {
-                return vec![inner.clone()];
-            }
-        }
-        if pattern_name == "Ok" || pattern_name == "Err" {
-            if let Some((ok, err)) = scrutinee_ty.result_parts() {
-                return vec![if pattern_name == "Ok" {
-                    ok.clone()
-                } else {
-                    err.clone()
-                }];
-            }
-        }
-        if let TypeInfo::Named(name) = scrutinee_ty {
-            return self
-                .enums
-                .iter()
-                .find(|info| info.name == *name)
-                .and_then(|info| {
-                    info.variants
-                        .iter()
-                        .find(|variant| variant.name == pattern_name)
-                })
-                .map(|variant| {
-                    variant
-                        .fields
-                        .iter()
-                        .map(|field| field.ty.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-        }
-        Vec::new()
-    }
-
-    fn infer_block_type(&self, block: &Block) -> TypeInfo {
-        block
-            .statements
-            .last()
-            .map_or(TypeInfo::Unit, |statement| match statement {
-                Stmt::Expr(expr) => self.infer_expr(expr),
-                Stmt::Return {
-                    value: Some(expr), ..
-                } => self.infer_expr(expr),
-                _ => TypeInfo::Unit,
-            })
-    }
-
-    fn infer_expr(&self, expr: &Expr) -> TypeInfo {
-        match expr {
-            Expr::Missing(_) | Expr::Wildcard(_) => TypeInfo::Unknown,
-            Expr::Int(_) => TypeInfo::Int,
-            Expr::Float(_) => TypeInfo::Float,
-            Expr::String(_) => TypeInfo::String,
-            Expr::Char(_) => TypeInfo::Char,
-            Expr::Bool(_) => TypeInfo::Bool,
-            Expr::Name(name) => self
-                .value_type(&name.value)
-                .or_else(|| self.builtin_value_type(&name.value))
-                .or_else(|| self.enum_variant_type(&name.value))
-                .unwrap_or(TypeInfo::Unknown),
-            Expr::Unary { op, expr, .. } => match op {
-                UnaryOp::Negate => self.infer_expr(expr),
-                UnaryOp::Not => TypeInfo::Bool,
-            },
-            Expr::Binary { left, op, .. } => match op {
-                BinaryOp::Add
-                | BinaryOp::Subtract
-                | BinaryOp::Multiply
-                | BinaryOp::Divide
-                | BinaryOp::Remainder => self.infer_expr(left),
-                BinaryOp::Equal
-                | BinaryOp::NotEqual
-                | BinaryOp::Less
-                | BinaryOp::LessEqual
-                | BinaryOp::Greater
-                | BinaryOp::GreaterEqual
-                | BinaryOp::And
-                | BinaryOp::Or => TypeInfo::Bool,
-            },
-            Expr::Call { callee, args, .. } => self.infer_call(callee, args),
-            Expr::Field { target, field, .. } => {
-                let target_ty = self.infer_expr(target);
-                self.field_type(&target_ty, &field.value)
-                    .unwrap_or(TypeInfo::Unknown)
-            }
-            Expr::MethodCall { receiver, .. } => self.infer_expr(receiver),
-            Expr::StructLiteral { name, .. } => TypeInfo::Named(name.value.clone()),
-            Expr::If {
-                then_block,
-                else_branch,
-                ..
-            } => else_branch
-                .as_deref()
-                .map_or(TypeInfo::Unit, |else_branch| {
-                    merge_types(
-                        &self.infer_block_type(then_block),
-                        &self.infer_expr(else_branch),
-                    )
-                }),
-            Expr::Match { arms, .. } => infer_match_result(self, arms),
-            Expr::While { .. } => TypeInfo::Unit,
-            Expr::Block(block) => self.infer_block_type(block),
-            Expr::Question { expr, .. } => {
-                question_success_type(&self.infer_expr(expr)).unwrap_or(TypeInfo::Unknown)
-            }
-            Expr::Catch { expr, .. } => self
-                .infer_expr(expr)
-                .result_parts()
-                .map(|(ok, _)| ok)
-                .cloned()
-                .unwrap_or(TypeInfo::Unknown),
-            Expr::Return { .. } => TypeInfo::Unit,
-        }
-    }
-
-    fn infer_call(&self, callee: &Expr, args: &[Expr]) -> TypeInfo {
-        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
-        match callee {
-            Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
-            Expr::Name(name) if name.value == "checked_div" || name.value == "checked_rem" => {
-                TypeInfo::generic("Option", vec![TypeInfo::Int])
-            }
-            Expr::Name(name) if name.value == "Some" => TypeInfo::generic(
-                "Option",
-                vec![arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)],
-            ),
-            Expr::Name(name) if name.value == "Ok" => TypeInfo::generic(
-                "Result",
-                vec![
-                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
-                    TypeInfo::Unknown,
-                ],
-            ),
-            Expr::Name(name) if name.value == "Err" => TypeInfo::generic(
-                "Result",
-                vec![
-                    TypeInfo::Unknown,
-                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
-                ],
-            ),
-            Expr::Name(name) => self
-                .function_return_type(&name.value)
-                .or_else(|| self.enum_variant_type(&name.value))
-                .unwrap_or(TypeInfo::Unknown),
-            Expr::Field { target, field, .. }
-                if matches!(target.as_ref(), Expr::Name(name) if name.value == "Float")
-                    && field.value == "from" =>
-            {
-                TypeInfo::Float
-            }
-            _ => TypeInfo::Unknown,
-        }
-    }
-
-    fn field_type(&self, target_ty: &TypeInfo, field_name: &str) -> Option<TypeInfo> {
-        let TypeInfo::Named(name) = target_ty else {
-            return None;
+    fn emit_returning_block(&mut self, block: &Block) -> Result<String, BackendError> {
+        let Some((last, prefix)) = block.statements.split_last() else {
+            return Err(BackendError::unsupported("empty block expressions"));
         };
-        self.structs
-            .iter()
-            .find(|info| info.name == *name)?
-            .fields
-            .iter()
-            .find(|field| field.name == field_name)
-            .map(|field| field.ty.clone())
+        let mut output = String::new();
+        for statement in prefix {
+            output.push_str(&self.emit_inline_stmt(statement)?);
+            output.push(' ');
+        }
+        match last {
+            Stmt::Expr(expr) => {
+                output.push_str("return ");
+                output.push_str(&self.emit_expr(expr)?);
+            }
+            Stmt::Return { value } => {
+                output.push_str("return");
+                if let Some(value) = value {
+                    output.push(' ');
+                    output.push_str(&self.emit_expr(value)?);
+                }
+            }
+            _ => return Err(BackendError::unsupported("non-expression block values")),
+        }
+        Ok(output)
     }
 
-    fn builtin_value_type(&self, name: &str) -> Option<TypeInfo> {
-        match name {
-            "None" => Some(TypeInfo::generic("Option", vec![TypeInfo::Unknown])),
-            _ => None,
+    fn emit_inline_stmt(&mut self, statement: &Stmt) -> Result<String, BackendError> {
+        match statement {
+            Stmt::Let { name, value, .. } => {
+                let emitted = self.emit_expr(value)?;
+                let expr = self.cast_typed_literal(value, &emitted)?;
+                Ok(format!("{} := {};", name, expr))
+            }
+            Stmt::Var { name, ty } => {
+                let ty = self.go_type(ty);
+                Ok(format!("var {} {};", name, ty))
+            }
+            Stmt::Assign { target, value } => Ok(format!(
+                "{} = {};",
+                self.emit_expr(target)?,
+                self.emit_expr(value)?
+            )),
+            Stmt::Expr(expr) => Ok(format!("{};", self.emit_expr(expr)?)),
+            Stmt::Return { value } => {
+                if let Some(value) = value {
+                    Ok(format!("return {};", self.emit_expr(value)?))
+                } else {
+                    Ok("return;".to_string())
+                }
+            }
+            Stmt::Assert { value, line } => self.emit_assert_inline(value, *line),
+            Stmt::Break | Stmt::Continue => Err(BackendError::unsupported(
+                "break/continue in block expressions",
+            )),
         }
     }
 
-    fn enum_variant_type(&self, variant_name: &str) -> Option<TypeInfo> {
-        self.enums
-            .iter()
-            .find(|info| {
-                info.variants
-                    .iter()
-                    .any(|variant| variant.name == variant_name)
-            })
-            .map(|info| TypeInfo::Named(info.name.clone()))
+    fn emit_assert_inline(&mut self, value: &Expr, line: usize) -> Result<String, BackendError> {
+        let expr = self.emit_expr(value)?;
+        Ok(format!("if !({expr}) {{ fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", {line}); os.Exit(1) }}"))
     }
 
-    fn function_return_type(&self, name: &str) -> Option<TypeInfo> {
-        self.functions
-            .iter()
-            .find(|function| function.name == name)
-            .map(|function| function.return_type.clone())
-    }
-
-    fn define(&mut self, name: &str, ty: TypeInfo) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.push(Binding {
-                name: name.to_string(),
-                ty,
-            });
+    fn emit_string(&mut self, literal: &StringLiteral) -> Result<String, BackendError> {
+        if literal.parts.len() == 1 {
+            if let StringPart::Text(text) = &literal.parts[0] {
+                return Ok(format!("{:?}", text));
+            }
         }
-    }
-
-    fn value_type(&self, name: &str) -> Option<TypeInfo> {
-        self.scopes
-            .iter()
-            .rev()
-            .flat_map(|scope| scope.iter().rev())
-            .find(|binding| binding.name == name)
-            .map(|binding| binding.ty.clone())
-    }
-
-    fn push_scope(&mut self) {
-        self.scopes.push(Vec::new());
-    }
-
-    fn pop_scope(&mut self) {
-        let _ = self.scopes.pop();
-    }
-
-    fn next_temp(&mut self) -> String {
-        let temp = format!("__keel_tmp_{}", self.temp_index);
-        self.temp_index += 1;
-        temp
+        let mut args = Vec::new();
+        for part in &literal.parts {
+            match part {
+                StringPart::Text(text) => args.push(format!("{:?}", text)),
+                StringPart::Expr(expr) => args.push(self.emit_expr(expr)?),
+            }
+        }
+        if args.is_empty() {
+            return Ok("\"\"".to_string());
+        }
+        Ok(format!("fmt.Sprint({})", args.join(", ")))
     }
 
     fn line(&mut self, text: &str) -> Result<(), BackendError> {
@@ -1475,15 +1008,12 @@ impl<'a> Emitter<'a> {
         writeln!(self.output, "{args}")?;
         Ok(())
     }
-}
 
-fn infer_match_result(emitter: &Emitter<'_>, arms: &[MatchArm]) -> TypeInfo {
-    let mut result = TypeInfo::Unknown;
-    for arm in arms {
-        let arm_type = emitter.infer_expr(&arm.value);
-        result = merge_types(&result, &arm_type);
+    fn next_temp(&mut self) -> String {
+        let temp = format!("__keel_tmp_{}", self.temp_index);
+        self.temp_index += 1;
+        temp
     }
-    result
 }
 
 fn collect_structs(module: &Module) -> Vec<StructInfo> {
@@ -1491,8 +1021,8 @@ fn collect_structs(module: &Module) -> Vec<StructInfo> {
     for item in &module.items {
         if let Item::Struct(decl) = item {
             structs.push(StructInfo {
-                name: decl.name.value.clone(),
-                fields: decl.fields.iter().map(struct_field_info).collect(),
+                name: decl.name.clone(),
+                fields: decl.fields.clone(),
             });
         }
     }
@@ -1500,57 +1030,17 @@ fn collect_structs(module: &Module) -> Vec<StructInfo> {
     structs
 }
 
-fn struct_field_info(field: &FieldDecl) -> StructFieldInfo {
-    StructFieldInfo {
-        name: field.name.value.clone(),
-        ty: TypeInfo::from_ast(&field.ty),
-        default: field.default.clone(),
-    }
-}
-
-fn collect_enums(module: &Module) -> Vec<EnumInfo> {
-    let mut enums = Vec::new();
+fn collect_enum_variant_names(module: &Module) -> Vec<String> {
+    let mut names = Vec::new();
     for item in &module.items {
         if let Item::Enum(decl) = item {
-            enums.push(EnumInfo {
-                name: decl.name.value.clone(),
-                variants: decl.variants.iter().map(variant_info).collect(),
-            });
+            for variant in &decl.variants {
+                names.push(variant.name.clone());
+            }
         }
     }
-    enums.sort_by(|left, right| left.name.cmp(&right.name));
-    enums
-}
-
-fn variant_info(variant: &VariantDecl) -> VariantInfo {
-    VariantInfo {
-        name: variant.name.value.clone(),
-        fields: variant
-            .fields
-            .iter()
-            .map(|field| VariantFieldInfo {
-                name: field.name.value.clone(),
-                ty: TypeInfo::from_ast(&field.ty),
-            })
-            .collect(),
-    }
-}
-
-fn collect_functions(module: &Module) -> Vec<FunctionInfo> {
-    let mut functions = Vec::new();
-    for item in &module.items {
-        if let Item::Function(decl) = item {
-            functions.push(FunctionInfo {
-                name: decl.name.value.clone(),
-                return_type: decl
-                    .return_type
-                    .as_ref()
-                    .map_or(TypeInfo::Unit, TypeInfo::from_ast),
-            });
-        }
-    }
-    functions.sort_by(|left, right| left.name.cmp(&right.name));
-    functions
+    names.sort();
+    names
 }
 
 fn collect_interfaces(module: &Module) -> Vec<InterfaceInfo> {
@@ -1558,8 +1048,8 @@ fn collect_interfaces(module: &Module) -> Vec<InterfaceInfo> {
     for item in &module.items {
         if let Item::Interface(decl) = item {
             interfaces.push(InterfaceInfo {
-                name: decl.name.value.clone(),
-                methods: decl.methods.iter().map(method_from_decl).collect(),
+                name: decl.name.clone(),
+                methods: decl.methods.clone(),
             });
         }
     }
@@ -1572,9 +1062,9 @@ fn collect_impls(module: &Module) -> Vec<ImplInfo> {
     for item in &module.items {
         if let Item::Impl(decl) = item {
             impls.push(ImplInfo {
-                interface_name: decl.interface_name.value.clone(),
-                type_name: decl.type_name.value.clone(),
-                methods: decl.methods.iter().map(method_from_decl).collect(),
+                interface_name: decl.interface_name.clone(),
+                type_name: decl.type_name.clone(),
+                methods: decl.methods.clone(),
             });
         }
     }
@@ -1584,30 +1074,6 @@ fn collect_impls(module: &Module) -> Vec<ImplInfo> {
             .then_with(|| left.interface_name.cmp(&right.interface_name))
     });
     impls
-}
-
-fn method_from_decl(decl: &FunctionDecl) -> MethodInfo {
-    let params = decl
-        .params
-        .iter()
-        .filter(|param| param.name.value != "self")
-        .map(|param| {
-            let ty = param
-                .ty
-                .as_ref()
-                .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
-            (param.name.value.clone(), ty)
-        })
-        .collect();
-    let return_type = decl
-        .return_type
-        .as_ref()
-        .map_or(TypeInfo::Unit, TypeInfo::from_ast);
-    MethodInfo {
-        name: decl.name.value.clone(),
-        params,
-        return_type,
-    }
 }
 
 fn go_type(ty: &TypeInfo, struct_names: &[String], interface_names: &[String]) -> String {
@@ -1625,35 +1091,6 @@ fn go_type(ty: &TypeInfo, struct_names: &[String], interface_names: &[String]) -
         }
         TypeInfo::Interface(name) => name.clone(),
         TypeInfo::Unknown => "any".to_string(),
-    }
-}
-
-fn question_success_type(ty: &TypeInfo) -> Option<TypeInfo> {
-    ty.option_inner()
-        .or_else(|| ty.result_parts().map(|(ok, _)| ok))
-        .cloned()
-}
-
-fn payload_expr(
-    value: &str,
-    index: usize,
-    ty: &TypeInfo,
-    struct_names: &[String],
-    interface_names: &[String],
-) -> String {
-    let raw = format!("{value}.values[{index}]");
-    match ty {
-        TypeInfo::Unknown => raw,
-        _ => format!("{raw}.({})", go_type(ty, struct_names, interface_names)),
-    }
-}
-
-fn cast_constructor_arg(expr: String, ty: &TypeInfo) -> String {
-    match ty {
-        TypeInfo::Int => format!("int64({expr})"),
-        TypeInfo::Float => format!("float64({expr})"),
-        TypeInfo::Char => format!("rune({expr})"),
-        _ => expr,
     }
 }
 
@@ -1704,6 +1141,28 @@ fn go_binary_op(op: BinaryOp) -> &'static str {
     }
 }
 
+fn expr_ty(expr: &Expr) -> TypeInfo {
+    match expr {
+        Expr::Int(_) => TypeInfo::Int,
+        Expr::Float(_) => TypeInfo::Float,
+        Expr::String(_) => TypeInfo::String,
+        Expr::Char(_) => TypeInfo::Char,
+        Expr::Bool(_) => TypeInfo::Bool,
+        Expr::Name(_) => TypeInfo::Unknown,
+        Expr::Unary { ty, .. }
+        | Expr::Binary { ty, .. }
+        | Expr::Call { ty, .. }
+        | Expr::Field { ty, .. }
+        | Expr::MethodCall { ty, .. }
+        | Expr::StructLiteral { ty, .. }
+        | Expr::If { ty, .. }
+        | Expr::Match { ty, .. }
+        | Expr::Payload { ty, .. } => ty.clone(),
+        Expr::While { .. } | Expr::Return { .. } => TypeInfo::Unit,
+        Expr::Block(block) => block.ty.clone(),
+    }
+}
+
 impl From<fmt::Error> for BackendError {
     fn from(_: fmt::Error) -> Self {
         Self {
@@ -1726,7 +1185,9 @@ mod tests {
 "#;
         let output = parse(SourceId::new(0), source);
         assert!(output.diagnostics.is_empty(), "{output:?}");
-        let go = emit_tests(&output.module, source).expect("emission should succeed");
+        let kir = keelc_kir::lower::lower(&output.module, source);
+        assert!(kir.diagnostics.is_empty(), "{kir:?}");
+        let go = emit_tests(&kir.module).expect("emission should succeed");
         assert!(go.contains("import \"fmt\""));
         assert!(go.contains("import \"os\""));
         assert!(go.contains("func main() {"));
@@ -1749,7 +1210,9 @@ test "example" {
 "#;
         let output = parse(SourceId::new(0), source);
         assert!(output.diagnostics.is_empty(), "{output:?}");
-        let go = emit_tests(&output.module, source).expect("emission should succeed");
+        let kir = keelc_kir::lower::lower(&output.module, source);
+        assert!(kir.diagnostics.is_empty(), "{kir:?}");
+        let go = emit_tests(&kir.module).expect("emission should succeed");
         let matches: Vec<_> = go
             .lines()
             .filter(|line| line.starts_with("func main()"))
@@ -1769,7 +1232,9 @@ test "example" {
 "#;
         let output = parse(SourceId::new(0), source);
         assert!(output.diagnostics.is_empty(), "{output:?}");
-        let go = emit(&output.module).expect("emission should succeed");
+        let kir = keelc_kir::lower::lower(&output.module, source);
+        assert!(kir.diagnostics.is_empty(), "{kir:?}");
+        let go = emit(&kir.module).expect("emission should succeed");
         assert!(go.contains("package main"));
         assert!(go.contains("import \"fmt\""));
         assert!(go.contains("func main() {"));
@@ -1787,7 +1252,9 @@ fn main() -> Unit {}
 "#;
         let output = parse(SourceId::new(0), source);
         assert!(output.diagnostics.is_empty(), "{output:?}");
-        let go = emit(&output.module).expect("emission should succeed");
+        let kir = keelc_kir::lower::lower(&output.module, source);
+        assert!(kir.diagnostics.is_empty(), "{kir:?}");
+        let go = emit(&kir.module).expect("emission should succeed");
         assert!(go.contains("type Point struct {"));
         assert!(go.contains("x int64"));
         assert!(go.contains("y int64"));
@@ -1801,7 +1268,9 @@ fn main() -> Unit {}
 "#;
         let output = parse(SourceId::new(0), source);
         assert!(output.diagnostics.is_empty(), "{output:?}");
-        let go = emit(&output.module).expect("emission should succeed");
+        let kir = keelc_kir::lower::lower(&output.module, source);
+        assert!(kir.diagnostics.is_empty(), "{kir:?}");
+        let go = emit(&kir.module).expect("emission should succeed");
         assert!(go.contains("fmt.Sprint((1 + 2))"));
     }
 
@@ -1817,8 +1286,10 @@ fn main() -> Unit {}
 "#;
         let output = parse(SourceId::new(0), source);
         assert!(output.diagnostics.is_empty(), "{output:?}");
-        let go = emit(&output.module).expect("emission should succeed");
-        assert!(go.contains("if __keel_tmp_0.tag == \"Some\" {"));
+        let kir = keelc_kir::lower::lower(&output.module, source);
+        assert!(kir.diagnostics.is_empty(), "{kir:?}");
+        let go = emit(&kir.module).expect("emission should succeed");
+        assert!(go.contains("if x.tag == \"Some\" {"));
         assert!(go.contains("fmt.Println(\"none\")"));
     }
 }

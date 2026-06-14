@@ -3,6 +3,7 @@
 use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, StringLiteral};
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{Span, Spanned};
+use keelc_types::infer::{is_int_float_pair, type_absorbs, types_compatible, TypeContext};
 use keelc_types::{merge_types, TypeInfo};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -312,72 +313,20 @@ fn collect_structs(module: &Module) -> Vec<StructInfo> {
     structs
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct FunctionInfo {
-    name: String,
-    params: Vec<TypeInfo>,
-    return_type: TypeInfo,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct EnumInfo {
-    name: String,
-    variants: Vec<String>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct InterfaceInfo {
-    name: String,
-    methods: Vec<MethodInfo>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ImplInfo {
-    interface_name: String,
-    type_name: String,
-    methods: Vec<MethodInfo>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct MethodInfo {
-    name: String,
-    params: Vec<TypeInfo>,
-    return_type: TypeInfo,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct TypedBinding {
-    name: String,
-    ty: TypeInfo,
-}
-
 struct Typechecker<'a> {
     module: &'a Module,
-    functions: Vec<FunctionInfo>,
-    enums: Vec<EnumInfo>,
-    interfaces: Vec<InterfaceInfo>,
-    impls: Vec<ImplInfo>,
-    scopes: Vec<Vec<TypedBinding>>,
+    ctx: TypeContext,
     diagnostics: Vec<Diagnostic>,
     diagnostic_span_override: Option<Span>,
-    current_return_type: Option<TypeInfo>,
 }
 
 impl<'a> Typechecker<'a> {
     fn new(module: &'a Module) -> Self {
-        let interfaces = collect_interfaces(module);
-        let functions = collect_functions(module, &interfaces);
-        let impls = collect_impls(module, &interfaces);
         Self {
             module,
-            functions,
-            enums: collect_enums(module),
-            interfaces,
-            impls,
-            scopes: Vec::new(),
+            ctx: TypeContext::new(module),
             diagnostics: Vec::new(),
             diagnostic_span_override: None,
-            current_return_type: None,
         }
     }
 
@@ -457,7 +406,8 @@ impl<'a> Typechecker<'a> {
         };
 
         for method in &decl.methods {
-            let previous_return = self.current_return_type.replace(
+            let previous_return = self.ctx.current_return_type().cloned();
+            self.ctx.set_current_return_type(
                 method
                     .return_type
                     .as_ref()
@@ -482,7 +432,11 @@ impl<'a> Typechecker<'a> {
                 self.check_block(body);
             }
             self.pop_scope();
-            self.current_return_type = previous_return;
+            if let Some(return_type) = previous_return {
+                self.ctx.set_current_return_type(return_type);
+            } else {
+                self.ctx.clear_current_return_type();
+            }
         }
 
         for expected in &interface.methods {
@@ -500,11 +454,13 @@ impl<'a> Typechecker<'a> {
                 }
                 Some(actual) => {
                     let interface_names: Vec<String> = self
-                        .interfaces
+                        .ctx
+                        .interfaces()
                         .iter()
                         .map(|info| info.name.clone())
                         .collect();
-                    let actual_info = method_from_decl(actual, &interface_names);
+                    let actual_info =
+                        keelc_types::infer::method_from_decl(actual, &interface_names);
                     if actual_info.params != expected.params
                         || actual_info.return_type != expected.return_type
                     {
@@ -570,7 +526,8 @@ impl<'a> Typechecker<'a> {
             return;
         };
 
-        let previous_return_type = self.current_return_type.replace(
+        let previous_return_type = self.ctx.current_return_type().cloned();
+        self.ctx.set_current_return_type(
             self.resolve_type(
                 &function
                     .return_type
@@ -589,7 +546,11 @@ impl<'a> Typechecker<'a> {
         }
         self.check_block(body);
         self.pop_scope();
-        self.current_return_type = previous_return_type;
+        if let Some(return_type) = previous_return_type {
+            self.ctx.set_current_return_type(return_type);
+        } else {
+            self.ctx.clear_current_return_type();
+        }
     }
 
     fn check_block(&mut self, block: &Block) -> TypeInfo {
@@ -888,7 +849,8 @@ impl<'a> Typechecker<'a> {
                     .cloned()
             }
             TypeInfo::Named(type_name) => self
-                .impls
+                .ctx
+                .impls()
                 .iter()
                 .filter(|info| info.type_name == *type_name)
                 .flat_map(|info| info.methods.iter())
@@ -945,8 +907,8 @@ impl<'a> Typechecker<'a> {
                     return TypeInfo::Unknown;
                 };
                 let can_absorb = self
-                    .current_return_type
-                    .as_ref()
+                    .ctx
+                    .current_return_type()
                     .and_then(|ty| ty.result_parts())
                     .is_some_and(|(_, return_error)| type_absorbs(return_error, error_type));
                 if can_absorb {
@@ -961,8 +923,8 @@ impl<'a> Typechecker<'a> {
                     return TypeInfo::Unknown;
                 };
                 let can_absorb = self
-                    .current_return_type
-                    .as_ref()
+                    .ctx
+                    .current_return_type()
                     .and_then(|ty| ty.option_inner())
                     .is_some();
                 if can_absorb {
@@ -981,8 +943,8 @@ impl<'a> Typechecker<'a> {
 
     fn report_question_context(&mut self, span: Span, expr_type: &TypeInfo) {
         let return_type = self
-            .current_return_type
-            .as_ref()
+            .ctx
+            .current_return_type()
             .map_or_else(|| TypeInfo::Unit.to_string(), ToString::to_string);
         self.diagnostics.push(Diagnostic::error(
             registry::K0501,
@@ -1032,7 +994,7 @@ impl<'a> Typechecker<'a> {
 
         // K0403: warn on wildcard `_` against a same-module enum
         if let TypeInfo::Named(name) = scrutinee_type {
-            if self.enums.iter().any(|info| info.name == *name) {
+            if self.ctx.enums().iter().any(|info| info.name == *name) {
                 if let Some(arm) = arms
                     .iter()
                     .find(|arm| arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard(_)))
@@ -1064,45 +1026,15 @@ impl<'a> Typechecker<'a> {
     }
 
     fn exhaustive_variants(&self, ty: &TypeInfo) -> Option<Vec<String>> {
-        match ty {
-            TypeInfo::Named(name) => self
-                .enums
-                .iter()
-                .find(|info| info.name == *name)
-                .map(|info| info.variants.clone()),
-            TypeInfo::Generic { name, .. } if name == "Option" => {
-                Some(vec!["Some".to_string(), "None".to_string()])
-            }
-            TypeInfo::Generic { name, .. } if name == "Result" => {
-                Some(vec!["Ok".to_string(), "Err".to_string()])
-            }
-            TypeInfo::Union(members) => {
-                let mut variants = Vec::new();
-                for member in members {
-                    let member_variants = self.exhaustive_variants(member)?;
-                    variants.extend(member_variants);
-                }
-                Some(variants)
-            }
-            _ => None,
-        }
+        self.ctx.exhaustive_variants(ty)
     }
 
     fn builtin_value_type(&self, name: &str) -> Option<TypeInfo> {
-        match name {
-            "None" => Some(TypeInfo::Generic {
-                name: "Option".to_string(),
-                args: vec![TypeInfo::Unknown],
-            }),
-            _ => None,
-        }
+        self.ctx.builtin_value_type(name)
     }
 
     fn enum_variant_type(&self, variant_name: &str) -> Option<TypeInfo> {
-        self.enums
-            .iter()
-            .find(|info| info.variants.iter().any(|variant| variant == variant_name))
-            .map(|info| TypeInfo::Named(info.name.clone()))
+        self.ctx.enum_variant_type(variant_name)
     }
 
     fn check_string_interpolations(&mut self, literal: &Spanned<StringLiteral>) {
@@ -1120,30 +1052,15 @@ impl<'a> Typechecker<'a> {
     }
 
     fn define_value(&mut self, name: &Spanned<String>, ty: TypeInfo) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.push(TypedBinding {
-                name: name.value.clone(),
-                ty,
-            });
-        }
+        self.ctx.define_value(&name.value, ty);
     }
 
     fn value_type(&self, name: &str) -> Option<TypeInfo> {
-        self.scopes
-            .iter()
-            .rev()
-            .flat_map(|scope| scope.iter().rev())
-            .find(|binding| binding.name == name)
-            .map(|binding| binding.ty.clone())
+        self.ctx.value_type(name)
     }
 
     fn resolve_type(&self, ty: &TypeInfo) -> TypeInfo {
-        match ty {
-            TypeInfo::Named(name) if self.interfaces.iter().any(|info| info.name == *name) => {
-                TypeInfo::Interface(name.clone())
-            }
-            _ => ty.clone(),
-        }
+        self.ctx.resolve_type(ty)
     }
 
     fn check_assignable(&mut self, actual: &TypeInfo, expected: &TypeInfo, span: Span) {
@@ -1194,17 +1111,18 @@ impl<'a> Typechecker<'a> {
     }
 
     fn impl_exists(&self, type_name: &str, interface_name: &str) -> bool {
-        self.impls
+        self.ctx
+            .impls()
             .iter()
             .any(|info| info.type_name == type_name && info.interface_name == interface_name)
     }
 
-    fn interface_info(&self, name: &str) -> Option<&InterfaceInfo> {
-        self.interfaces.iter().find(|info| info.name == name)
+    fn interface_info(&self, name: &str) -> Option<&keelc_types::infer::InterfaceInfo> {
+        self.ctx.interface_info(name)
     }
 
-    fn function_info(&self, name: &str) -> Option<&FunctionInfo> {
-        self.functions.iter().find(|function| function.name == name)
+    fn function_info(&self, name: &str) -> Option<&keelc_types::infer::FunctionInfo> {
+        self.ctx.function_info(name)
     }
 
     fn diagnostic_span(&self, fallback: Span) -> Span {
@@ -1212,209 +1130,12 @@ impl<'a> Typechecker<'a> {
     }
 
     fn push_scope(&mut self) {
-        self.scopes.push(Vec::new());
+        self.ctx.push_scope();
     }
 
     fn pop_scope(&mut self) {
-        let _ = self.scopes.pop();
+        self.ctx.pop_scope();
     }
-}
-
-fn collect_functions(module: &Module, interfaces: &[InterfaceInfo]) -> Vec<FunctionInfo> {
-    let names: Vec<String> = interfaces.iter().map(|info| info.name.clone()).collect();
-    let resolve = |ty: TypeInfo| {
-        if let TypeInfo::Named(name) = &ty {
-            if names.iter().any(|info| info == name) {
-                return TypeInfo::Interface(name.clone());
-            }
-        }
-        ty
-    };
-    let mut functions = Vec::new();
-    for item in &module.items {
-        if let Item::Function(decl) = item {
-            let return_type = decl
-                .return_type
-                .as_ref()
-                .map_or(TypeInfo::Unit, TypeInfo::from_ast)
-                .map_type(&resolve);
-            let params = decl
-                .params
-                .iter()
-                .map(|param| {
-                    param
-                        .ty
-                        .as_ref()
-                        .map_or(TypeInfo::Unknown, TypeInfo::from_ast)
-                        .map_type(&resolve)
-                })
-                .collect();
-            functions.push(FunctionInfo {
-                name: decl.name.value.clone(),
-                params,
-                return_type,
-            });
-        }
-    }
-    functions.sort_by(|left, right| left.name.cmp(&right.name));
-    functions
-}
-
-fn collect_enums(module: &Module) -> Vec<EnumInfo> {
-    let mut enums = Vec::new();
-    for item in &module.items {
-        if let Item::Enum(decl) = item {
-            let mut variants: Vec<String> = decl
-                .variants
-                .iter()
-                .map(|variant| variant.name.value.clone())
-                .collect();
-            variants.sort();
-            enums.push(EnumInfo {
-                name: decl.name.value.clone(),
-                variants,
-            });
-        }
-    }
-    enums.sort_by(|left, right| left.name.cmp(&right.name));
-    enums
-}
-
-fn interface_names(module: &Module) -> Vec<String> {
-    let mut names = Vec::new();
-    for item in &module.items {
-        if let Item::Interface(decl) = item {
-            names.push(decl.name.value.clone());
-        }
-    }
-    names.sort();
-    names
-}
-
-fn collect_interfaces(module: &Module) -> Vec<InterfaceInfo> {
-    let names = interface_names(module);
-    let mut interfaces = Vec::new();
-    for item in &module.items {
-        if let Item::Interface(decl) = item {
-            let methods = decl
-                .methods
-                .iter()
-                .map(|m| method_from_decl(m, &names))
-                .collect();
-            interfaces.push(InterfaceInfo {
-                name: decl.name.value.clone(),
-                methods,
-            });
-        }
-    }
-    interfaces.sort_by(|left, right| left.name.cmp(&right.name));
-    interfaces
-}
-
-fn collect_impls(module: &Module, interfaces: &[InterfaceInfo]) -> Vec<ImplInfo> {
-    let names: Vec<String> = interfaces.iter().map(|info| info.name.clone()).collect();
-    let mut impls = Vec::new();
-    for item in &module.items {
-        if let Item::Impl(decl) = item {
-            let methods = decl
-                .methods
-                .iter()
-                .map(|m| method_from_decl(m, &names))
-                .collect();
-            impls.push(ImplInfo {
-                interface_name: decl.interface_name.value.clone(),
-                type_name: decl.type_name.value.clone(),
-                methods,
-            });
-        }
-    }
-    impls.sort_by(|left, right| {
-        left.type_name
-            .cmp(&right.type_name)
-            .then_with(|| left.interface_name.cmp(&right.interface_name))
-    });
-    impls
-}
-
-fn method_from_decl(decl: &keelc_ast::FunctionDecl, interface_names: &[String]) -> MethodInfo {
-    let resolve = |ty: TypeInfo| {
-        if let TypeInfo::Named(name) = &ty {
-            if interface_names.iter().any(|info| info == name) {
-                return TypeInfo::Interface(name.clone());
-            }
-        }
-        ty
-    };
-    let params = decl
-        .params
-        .iter()
-        .filter(|param| param.name.value != "self")
-        .map(|param| {
-            param
-                .ty
-                .as_ref()
-                .map_or(TypeInfo::Unknown, TypeInfo::from_ast)
-                .map_type(&resolve)
-        })
-        .collect();
-    let return_type = decl
-        .return_type
-        .as_ref()
-        .map_or(TypeInfo::Unit, TypeInfo::from_ast)
-        .map_type(&resolve);
-    MethodInfo {
-        name: decl.name.value.clone(),
-        params,
-        return_type,
-    }
-}
-
-fn is_int_float_pair(left: &TypeInfo, right: &TypeInfo) -> bool {
-    matches!(
-        (left, right),
-        (TypeInfo::Int, TypeInfo::Float) | (TypeInfo::Float, TypeInfo::Int)
-    )
-}
-
-fn types_compatible(left: &TypeInfo, right: &TypeInfo) -> bool {
-    if left == right || matches!(left, TypeInfo::Unknown) || matches!(right, TypeInfo::Unknown) {
-        return true;
-    }
-    match (left, right) {
-        (
-            TypeInfo::Generic {
-                name: left_name,
-                args: left_args,
-            },
-            TypeInfo::Generic {
-                name: right_name,
-                args: right_args,
-            },
-        ) if left_name == right_name && left_args.len() == right_args.len() => left_args
-            .iter()
-            .zip(right_args)
-            .all(|(left, right)| types_compatible(left, right)),
-        (TypeInfo::Union(left_members), TypeInfo::Union(right_members)) => {
-            left_members.len() == right_members.len()
-                && left_members
-                    .iter()
-                    .zip(right_members)
-                    .all(|(left, right)| types_compatible(left, right))
-        }
-        _ => false,
-    }
-}
-
-fn type_absorbs(target: &TypeInfo, source: &TypeInfo) -> bool {
-    target == source
-        || matches!(source, TypeInfo::Unknown)
-        || match (target, source) {
-            (TypeInfo::Union(_), TypeInfo::Union(sources)) => {
-                sources.iter().all(|source| type_absorbs(target, source))
-            }
-            (TypeInfo::Union(targets), source) => targets.iter().any(|target| target == source),
-            _ => false,
-        }
 }
 
 fn is_unguarded_wildcard_arm(arm: &MatchArm) -> bool {

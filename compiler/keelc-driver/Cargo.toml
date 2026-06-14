@@ -8,6 +8,7 @@ description = "Keel CLI driver library and binaries for build, run, fmt, and tes
 keelc-ast = { path = "../keelc-ast" }
 keelc-backend-go = { path = "../keelc-backend-go" }
 keelc-diag = { path = "../keelc-diag" }
+keelc-kir = { path = "../keelc-kir" }
 keelc-parse = { path = "../keelc-parse" }
 keelc-resolve = { path = "../keelc-resolve" }
 keelc-span = { path = "../keelc-span" }

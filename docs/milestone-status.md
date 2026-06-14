@@ -49,7 +49,7 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 
 **Known failures:** none.
 
-**Not done:** no `keelc-kir` crate (backend emits from AST using backend-local type env). Backend reuses canonical `TypeInfo` from `keelc-types` but type env is still backend-local.
+**Done:** `keelc-kir` crate introduced; backend emits from explicitly-typed KIR. Shared `TypeContext` in `keelc-types` supplies type information to both `keelc-resolve` and KIR lowering.
 
 ## M4 — Toolchain skeleton: CLI, fmt, test
 

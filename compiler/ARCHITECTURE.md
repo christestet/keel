@@ -12,9 +12,9 @@ post-1.0 aspiration, not a plan.
 ### Current (M5)
 
 ```
-source --> lexer --> parser --> AST --> resolver/typechecker --> backend
-             |          |                    |                          |
-             +----------+-----  diagnostics (stable K#### codes)  -----+
+source --> lexer --> parser --> AST --> resolver/typechecker --> KIR --> backend
+             |          |                    |                  |             |
+             +----------+-----  diagnostics (stable K#### codes)  ------------+
 ```
 
 ### Target
@@ -37,12 +37,12 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
 - **AST → name resolution + type checking:** `keelc-resolve` performs name
   resolution and type checking directly on the AST. Explicit function
   signatures; inference is local (`let`) only. Exhaustiveness checking is part
-  of typechecking, not a lint. A typed HIR is a future target, not the current
-  pipeline.
-- **KIR (Keel IR):** target IR: small, explicitly-typed, desugared (e.g. `?`
-  and `catch` become explicit match-and-return). All backends will consume KIR.
-  The `keelc-kir` crate does not exist yet; the Go backend currently emits from
-  the AST and performs its own local type inference.
+  of typechecking, not a lint. Type-inference helpers live in `keelc-types`
+  (`TypeContext`) so that `keelc-resolve` and `keelc-kir` lowering share the
+  same tables and rules.
+- **KIR (Keel IR):** small, explicitly-typed, desugared IR (e.g. `?` and
+  `catch` become explicit match-and-return). `keelc-kir` lowers the AST to KIR
+  and all backends consume KIR.
 - **Backends:** `backend-go` first ([KDR-0102](../docs/kdr/0102-go-backend-first.md)) — emits readable Go, drives the Go
   toolchain for codegen, GC, scheduler, cross-compile, static linking.
   `backend-native` (LLVM or cranelift) replaces it later; the conformance suite
@@ -64,9 +64,10 @@ compiler/
   keelc-parse       parser -> AST
   keelc-ast         AST definitions (+ pretty printer = the formatter's core)
   keelc-resolve     name resolution + typechecker (operates directly on the AST)
-  keelc-types       type definitions (TypeInfo, merge, collect)
-  keelc-kir         IR + lowering (not yet created)
-  keelc-backend-go  Go emission (currently consumes the AST; target is KIR)
+  keelc-types       type definitions (TypeInfo, merge, collect) and shared
+                    type-inference helpers (TypeContext)
+  keelc-kir         IR + lowering (AST -> KIR)
+  keelc-backend-go  Go emission (consumes KIR)
   keelc-driver      CLI entry; drives stages directly today, query database tomorrow;
                     builds both the user-facing `keel` binary and the `keelc`
                     binary used by the conformance runner

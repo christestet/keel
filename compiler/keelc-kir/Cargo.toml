@@ -1,11 +1,12 @@
 [package]
-name = "keelc-backend-go"
+name = "keelc-kir"
 version = "0.1.0"
 edition = "2021"
-description = "M3 Go source emitter for keelc."
+description = "Keel intermediate representation (KIR) and AST lowering."
 
 [dependencies]
-keelc-kir = { path = "../keelc-kir" }
+keelc-ast = { path = "../keelc-ast" }
+keelc-diag = { path = "../keelc-diag" }
 keelc-parse = { path = "../keelc-parse" }
 keelc-span = { path = "../keelc-span" }
 keelc-types = { path = "../keelc-types" }
