@@ -9,10 +9,20 @@ post-1.0 aspiration, not a plan.
 
 ## Pipeline
 
+### Current (M5)
+
+```
+source --> lexer --> parser --> AST --> resolver/typechecker --> backend
+             |          |                    |                          |
+             +----------+-----  diagnostics (stable K#### codes)  -----+
+```
+
+### Target
+
 ```
 source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> backend
-            |          |                    |             |                    |
-            +----------+-----  diagnostics (stable K#### codes)  -------------+
+             |          |                    |             |                    |
+             +----------+-----  diagnostics (stable K#### codes)  -------------+
 ```
 
 - **Query-based core ([salsa](https://github.com/salsa-rs/salsa)-style) is the
@@ -24,11 +34,15 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
   compiler project makes (see: rustc).
 - **Lexer/parser:** hand-written recursive descent. Parser must recover from
   errors (parse the whole file, report many diagnostics, never crash).
-- **AST → typed HIR:** name resolution, then type checking. Explicit function
+- **AST → name resolution + type checking:** `keelc-resolve` performs name
+  resolution and type checking directly on the AST. Explicit function
   signatures; inference is local (`let`) only. Exhaustiveness checking is part
-  of typechecking, not a lint.
-- **KIR (Keel IR):** small, explicitly-typed, desugared (e.g. `?` and `catch`
-  become explicit match-and-return). All backends consume KIR only.
+  of typechecking, not a lint. A typed HIR is a future target, not the current
+  pipeline.
+- **KIR (Keel IR):** target IR: small, explicitly-typed, desugared (e.g. `?`
+  and `catch` become explicit match-and-return). All backends will consume KIR.
+  The `keelc-kir` crate does not exist yet; the Go backend currently emits from
+  the AST and performs its own local type inference.
 - **Backends:** `backend-go` first ([KDR-0102](../docs/kdr/0102-go-backend-first.md)) — emits readable Go, drives the Go
   toolchain for codegen, GC, scheduler, cross-compile, static linking.
   `backend-native` (LLVM or cranelift) replaces it later; the conformance suite
@@ -40,7 +54,7 @@ Every error has a stable code `K####`, a primary span, and a "what to do" line.
 Conformance reject-tests assert on codes. Changing a code is a breaking change.
 Error message *text* may improve freely.
 
-## Crate layout (suggested)
+## Crate layout
 
 ```
 compiler/
@@ -49,13 +63,13 @@ compiler/
   keelc-lex         lexer
   keelc-parse       parser -> AST
   keelc-ast         AST definitions (+ pretty printer = the formatter's core)
-  keelc-resolve     name resolution
-  keelc-types       type definitions (TypeInfo, merge, collect) + typechecker -> typed HIR
-  keelc-kir         IR + lowering
-  keelc-backend-go  Go emission
-  keelc-driver      query database, CLI entry; builds both the user-facing
-                    `keel` binary and the `keelc` binary used by the
-                    conformance runner
+  keelc-resolve     name resolution + typechecker (operates directly on the AST)
+  keelc-types       type definitions (TypeInfo, merge, collect)
+  keelc-kir         IR + lowering (not yet created)
+  keelc-backend-go  Go emission (currently consumes the AST; target is KIR)
+  keelc-driver      CLI entry; drives stages directly today, query database tomorrow;
+                    builds both the user-facing `keel` binary and the `keelc`
+                    binary used by the conformance runner
   conformance-runner  test harness for tests/conformance/
 ```
 
