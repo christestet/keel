@@ -11,7 +11,7 @@ target predicates. Prevents $2^n$ untested configuration combinations.
 
 ## Context
 
-Derived from [`docs/vision.md`](../vision.md) §1, Appendix A. Conditional
+Derived from [`docs/vision.md`](../vision.md) §1. Conditional
 compilation is the primary mechanism by which codebases accumulate untested
 configurations: every combination of feature flags multiplies the state space,
 and CI typically tests only the default configuration. The failure mode is

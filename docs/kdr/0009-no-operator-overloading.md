@@ -12,7 +12,7 @@ compile error (`K0202`); convert explicitly.
 
 ## Context
 
-Derived from [`docs/vision.md`](../vision.md) §1, Appendix A. Operator
+Derived from [`docs/vision.md`](../vision.md) §1. Operator
 overloading lets libraries change the meaning of basic syntax, making code
 unreadable across project boundaries. A `+` that means "append to buffer" in
 one library and "encrypt" in another is the opposite of the five-year
