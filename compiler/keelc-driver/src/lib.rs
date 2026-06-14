@@ -52,11 +52,11 @@ pub fn main() -> ExitCode {
     };
 
     match command.as_os_str().to_str() {
-        Some("fmt") => return fmt_file(path, &text),
+        Some("fmt") => return fmt_file(path, &text, milestone),
         Some("check" | "run" | "build" | "test") => {}
         _ => {
             eprintln!(
-                "unsupported command `{}`; keel supports `build|run|fmt|test <file>`",
+                "unsupported command `{}`; keel supports `build|run|fmt|test|check <file>`",
                 command.to_string_lossy()
             );
             return ExitCode::from(2);
@@ -97,11 +97,11 @@ pub fn main() -> ExitCode {
 }
 
 fn usage() {
-    eprintln!("usage: keel <build|run|fmt|test> <file.keel> [--milestone M<N>]");
+    eprintln!("usage: keel <build|run|fmt|test|check> <file.keel> [--milestone M<N>]");
 }
 
-fn fmt_file(path: &Path, text: &str) -> ExitCode {
-    let output = parse_with_milestone(SourceId::new(0), text, 5);
+fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
+    let output = parse_with_milestone(SourceId::new(0), text, milestone);
     let has_error = output.diagnostics.iter().any(is_error);
     for diagnostic in &output.diagnostics {
         emit_diagnostic(path, text, diagnostic);
