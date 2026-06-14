@@ -4,7 +4,10 @@ use keelc_ast::{
     BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, Item, MatchArm, Module, Pattern,
     Stmt, StringLiteral, StructDecl, StructLiteralField, TestDecl, UnaryOp, VariantDecl,
 };
-use keelc_parse::parse;
+// The backend depends on keelc-parse only for re-parsing string-interpolation
+// snippets. Once the AST represents interpolated expressions directly (rather
+// than raw text), this dependency goes away.
+use keelc_parse::parse_interpolation_expr;
 use keelc_span::{LineIndex, SourceId, Span};
 use keelc_types::{merge_types, TypeInfo};
 use std::fmt::{self, Write as _};
@@ -1031,7 +1034,8 @@ impl<'a> Emitter<'a> {
                 if start > cursor {
                     args.push(format!("{:?}", &literal.text[cursor..start]));
                 }
-                let expr = parse_interpolation_expr(&interpolation.value)?;
+                let expr = parse_interpolation_expr(SourceId::new(0), &interpolation.value)
+                    .ok_or_else(|| BackendError::unsupported("malformed string interpolation"))?;
                 args.push(self.emit_expr(&expr)?);
                 cursor = start + needle.len();
             }
@@ -1501,33 +1505,6 @@ fn infer_match_result(emitter: &Emitter<'_>, arms: &[MatchArm]) -> TypeInfo {
         result = merge_types(&result, &arm_type);
     }
     result
-}
-
-fn parse_interpolation_expr(source: &str) -> Result<Expr, BackendError> {
-    let wrapped = format!("fn __keel_interp() {{\n{source}\n}}\n");
-    let output = parse(SourceId::new(0), &wrapped);
-    if !output.diagnostics.is_empty() {
-        return Err(BackendError::unsupported("malformed string interpolation"));
-    }
-
-    output
-        .module
-        .items
-        .iter()
-        .find_map(|item| {
-            let Item::Function(function) = item else {
-                return None;
-            };
-            let body = function.body.as_ref()?;
-            body.statements.iter().find_map(|statement| {
-                if let Stmt::Expr(expr) = statement {
-                    Some(expr.clone())
-                } else {
-                    None
-                }
-            })
-        })
-        .ok_or_else(|| BackendError::unsupported("empty string interpolation"))
 }
 
 fn collect_structs(module: &Module) -> Vec<StructInfo> {

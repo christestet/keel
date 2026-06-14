@@ -29,6 +29,35 @@ pub fn parse_with_milestone(source: SourceId, text: &str, milestone: u32) -> Par
     Parser::new(source, tokens, diagnostics, milestone).parse_module()
 }
 
+/// Parse a single expression that appears inside a string interpolation.
+///
+/// Interpolations are stored as raw text in the lexer/parser, so semantic
+/// stages and backends re-parse them as expressions. The helper wraps the
+/// snippet in a dummy function and returns the first expression statement from
+/// that function's body, or `None` if the snippet is empty or malformed.
+#[must_use]
+pub fn parse_interpolation_expr(source: SourceId, expr_text: &str) -> Option<Expr> {
+    let wrapped = format!("fn __keel_interp() {{\n{expr_text}\n}}\n");
+    let output = parse(source, &wrapped);
+    if !output.diagnostics.is_empty() {
+        return None;
+    }
+
+    output.module.items.iter().find_map(|item| {
+        let Item::Function(function) = item else {
+            return None;
+        };
+        let body = function.body.as_ref()?;
+        body.statements.iter().find_map(|statement| {
+            if let Stmt::Expr(expr) = statement {
+                Some(expr.clone())
+            } else {
+                None
+            }
+        })
+    })
+}
+
 struct Parser {
     source: SourceId,
     tokens: Vec<Token>,

@@ -2,7 +2,6 @@
 
 use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, StringLiteral};
 use keelc_diag::{registry, Diagnostic};
-use keelc_parse::parse;
 use keelc_span::{Span, Spanned};
 use keelc_types::{merge_types, TypeInfo};
 
@@ -1108,8 +1107,10 @@ impl<'a> Typechecker<'a> {
 
     fn check_string_interpolations(&mut self, literal: &Spanned<StringLiteral>) {
         for interpolation in &literal.value.interpolations {
-            let Some(expr) = parse_interpolation_expr(interpolation.span, &interpolation.value)
-            else {
+            let Some(expr) = keelc_parse::parse_interpolation_expr(
+                interpolation.span.source,
+                &interpolation.value,
+            ) else {
                 continue;
             };
             let previous_override = self.diagnostic_span_override.replace(interpolation.span);
@@ -1435,28 +1436,6 @@ fn arm_pattern_name(arm: &MatchArm) -> Option<&str> {
         Pattern::Name { name, .. } => Some(name.value.as_str()),
         Pattern::Wildcard(_) => None,
     }
-}
-
-fn parse_interpolation_expr(span: Span, source: &str) -> Option<Expr> {
-    let wrapped = format!("fn __keel_interp() {{\n{source}\n}}\n");
-    let output = parse(span.source, &wrapped);
-    if !output.diagnostics.is_empty() {
-        return None;
-    }
-
-    output.module.items.iter().find_map(|item| {
-        let Item::Function(function) = item else {
-            return None;
-        };
-        let body = function.body.as_ref()?;
-        body.statements.iter().find_map(|statement| {
-            if let Stmt::Expr(expr) = statement {
-                Some(expr.clone())
-            } else {
-                None
-            }
-        })
-    })
 }
 
 #[cfg(test)]
