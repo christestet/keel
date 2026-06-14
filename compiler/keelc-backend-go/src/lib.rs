@@ -264,9 +264,7 @@ impl<'a> Emitter<'a> {
             .collect();
         for test in &tests {
             let name_literal = go_string_literal(&test.name.value);
-            self.line_fmt(format_args!(
-                "fmt.Printf(\"test %q ... \", {name_literal})"
-            ))?;
+            self.line_fmt(format_args!("fmt.Printf(\"test %q ... \", {name_literal})"))?;
             self.line("func() {")?;
             self.indent += 1;
             self.emit_block_statements(&test.body, false)?;
@@ -436,7 +434,9 @@ impl<'a> Emitter<'a> {
         none_branch: &str,
         ok_prefix: &str,
     ) -> Result<(), BackendError> {
-        self.line_fmt(format_args!("func {name}(left int64, right int64) {ret} {{"))?;
+        self.line_fmt(format_args!(
+            "func {name}(left int64, right int64) {ret} {{"
+        ))?;
         self.indent += 1;
         self.line_fmt(format_args!("if right == 0 {{ {none_branch} }}"))?;
         if ok_prefix.is_empty() {
@@ -1714,7 +1714,7 @@ impl From<fmt::Error> for BackendError {
 
 #[cfg(test)]
 mod tests {
-    use super::emit_tests;
+    use super::{emit, emit_tests};
     use keelc_parse::parse;
     use keelc_span::SourceId;
 
@@ -1759,5 +1759,66 @@ test "example" {
             1,
             "test runner must define exactly one main function"
         );
+    }
+
+    #[test]
+    fn emits_simple_function() {
+        let source = r#"fn main() {
+    print("hello")
+}
+"#;
+        let output = parse(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{output:?}");
+        let go = emit(&output.module).expect("emission should succeed");
+        assert!(go.contains("package main"));
+        assert!(go.contains("import \"fmt\""));
+        assert!(go.contains("func main() {"));
+        assert!(go.contains("fmt.Println(\"hello\")"));
+    }
+
+    #[test]
+    fn emits_struct_decl() {
+        let source = r#"struct Point {
+    x: Int
+    y: Int
+}
+
+fn main() -> Unit {}
+"#;
+        let output = parse(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{output:?}");
+        let go = emit(&output.module).expect("emission should succeed");
+        assert!(go.contains("type Point struct {"));
+        assert!(go.contains("x int64"));
+        assert!(go.contains("y int64"));
+    }
+
+    #[test]
+    fn emits_string_interpolation() {
+        let source = r#"fn main() {
+    print("{1 + 2}")
+}
+"#;
+        let output = parse(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{output:?}");
+        let go = emit(&output.module).expect("emission should succeed");
+        assert!(go.contains("fmt.Sprint((1 + 2))"));
+    }
+
+    #[test]
+    fn emits_match_expression() {
+        let source = r#"fn main() {
+    let x = Some(1)
+    match x {
+        Some(n) => print("{n}")
+        other => print("none")
+    }
+}
+"#;
+        let output = parse(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{output:?}");
+        let go = emit(&output.module).expect("emission should succeed");
+        assert!(go.contains("if __keel_tmp_0.tag == \"Some\" {"));
+        assert!(go.contains("fmt.Println(\"none\")"));
     }
 }
