@@ -123,7 +123,7 @@ arithmetic/boolean values and `4xx` expression control flow, see
   [§4 (expressions)](keel-core.md).
 - Related decisions honoured: KDR-0005 (panics uncatchable), KDR-0009 (no
   implicit conversion / no overloading), KDR-0102 (Go backend semantics). See
-  [`kdr/INDEX.md`](../kdr/INDEX.md) for stub locations.
+  [`kdr/INDEX.md`](../kdr/INDEX.md) for the status of related decisions.
 - Code registry: `K0204` registered in
   [`compiler/keelc-diag/src/registry.rs`](../../compiler/keelc-diag/src/registry.rs)
   at spec-writing time ([`docs/spec/AGENTS.md`](AGENTS.md)). `K0202`, `K0203`,

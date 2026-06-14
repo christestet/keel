@@ -30,5 +30,6 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
 
-**Stubs** are accepted decisions that have not yet been expanded from vision.md
-into a full KDR file. See [`kdr/AGENTS.md`](AGENTS.md) for expansion rules.
+All decisions derived from [`docs/vision.md`](../vision.md) are expanded above.
+`proposed` entries are not yet accepted; see [`kdr/AGENTS.md`](AGENTS.md) for
+expansion rules.
