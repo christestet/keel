@@ -108,9 +108,11 @@ struct Emitter<'a> {
     module: &'a Module,
     line_index: Option<LineIndex>,
     structs: Vec<StructInfo>,
+    struct_names: Vec<String>,
     enums: Vec<EnumInfo>,
     functions: Vec<FunctionInfo>,
     interfaces: Vec<InterfaceInfo>,
+    interface_names: Vec<String>,
     impls: Vec<ImplInfo>,
     scopes: Vec<Vec<Binding>>,
     current_return_type: TypeInfo,
@@ -129,13 +131,19 @@ impl<'a> Emitter<'a> {
     }
 
     fn with_source(module: &'a Module, line_index: Option<LineIndex>) -> Self {
+        let structs = collect_structs(module);
+        let struct_names = structs.iter().map(|s| s.name.clone()).collect();
+        let interfaces = collect_interfaces(module);
+        let interface_names = interfaces.iter().map(|i| i.name.clone()).collect();
         Self {
             module,
             line_index,
-            structs: collect_structs(module),
+            structs,
+            struct_names,
             enums: collect_enums(module),
             functions: collect_functions(module),
-            interfaces: collect_interfaces(module),
+            interfaces,
+            interface_names,
             impls: collect_impls(module),
             scopes: Vec::new(),
             current_return_type: TypeInfo::Unit,
@@ -145,34 +153,12 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn struct_names(&self) -> Vec<&str> {
-        self.structs.iter().map(|s| s.name.as_str()).collect()
-    }
-
     fn go_type(&self, ty: &TypeInfo) -> String {
-        go_type(
-            ty,
-            &self.struct_names(),
-            &self
-                .interfaces
-                .iter()
-                .map(|i| i.name.as_str())
-                .collect::<Vec<_>>(),
-        )
+        go_type(ty, &self.struct_names, &self.interface_names)
     }
 
     fn payload_expr(&self, value: &str, index: usize, ty: &TypeInfo) -> String {
-        payload_expr(
-            value,
-            index,
-            ty,
-            &self.struct_names(),
-            &self
-                .interfaces
-                .iter()
-                .map(|i| i.name.as_str())
-                .collect::<Vec<_>>(),
-        )
+        payload_expr(value, index, ty, &self.struct_names, &self.interface_names)
     }
 
     fn emit(mut self) -> Result<String, BackendError> {
@@ -1624,10 +1610,10 @@ fn method_from_decl(decl: &FunctionDecl) -> MethodInfo {
     }
 }
 
-fn go_type(ty: &TypeInfo, struct_names: &[&str], interface_names: &[&str]) -> String {
+fn go_type(ty: &TypeInfo, struct_names: &[String], interface_names: &[String]) -> String {
     match ty {
-        TypeInfo::Named(name) if struct_names.contains(&name.as_str()) => name.clone(),
-        TypeInfo::Named(name) if interface_names.contains(&name.as_str()) => name.clone(),
+        TypeInfo::Named(name) if struct_names.iter().any(|n| n == name) => name.clone(),
+        TypeInfo::Named(name) if interface_names.iter().any(|n| n == name) => name.clone(),
         TypeInfo::Int => "int64".to_string(),
         TypeInfo::Float => "float64".to_string(),
         TypeInfo::Bool => "bool".to_string(),
@@ -1652,8 +1638,8 @@ fn payload_expr(
     value: &str,
     index: usize,
     ty: &TypeInfo,
-    struct_names: &[&str],
-    interface_names: &[&str],
+    struct_names: &[String],
+    interface_names: &[String],
 ) -> String {
     let raw = format!("{value}.values[{index}]");
     match ty {
