@@ -80,6 +80,7 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_struct_decl(&mut self, decl: &keelc_ast::StructDecl) -> StructDecl {
+        let type_params = keelc_types::type_param_bounds(&decl.type_params);
         StructDecl {
             name: decl.name.value.clone(),
             fields: decl
@@ -87,7 +88,10 @@ impl<'a> Lowerer<'a> {
                 .iter()
                 .map(|field| Field {
                     name: field.name.value.clone(),
-                    ty: TypeInfo::from_ast(&field.ty),
+                    ty: keelc_types::substitute_type_params(
+                        &TypeInfo::from_ast(&field.ty),
+                        &type_params,
+                    ),
                     default: field.default.as_ref().map(|expr| self.lower_expr(expr)),
                 })
                 .collect(),
@@ -126,18 +130,25 @@ impl<'a> Lowerer<'a> {
             return None;
         };
 
-        let return_type = decl
-            .return_type
-            .as_ref()
-            .map_or(TypeInfo::Unit, TypeInfo::from_ast);
+        let type_params = keelc_types::type_param_bounds(&decl.type_params);
+        let return_type = keelc_types::substitute_type_params(
+            &decl
+                .return_type
+                .as_ref()
+                .map_or(TypeInfo::Unit, TypeInfo::from_ast),
+            &type_params,
+        );
 
         let mut params = Vec::new();
         self.ctx.push_scope();
         for param in &decl.params {
-            let ty = param
-                .ty
-                .as_ref()
-                .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
+            let ty = keelc_types::substitute_type_params(
+                &param
+                    .ty
+                    .as_ref()
+                    .map_or(TypeInfo::Unknown, TypeInfo::from_ast),
+                &type_params,
+            );
             if param.ty.is_none() && param.name.value != "self" {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K0302,

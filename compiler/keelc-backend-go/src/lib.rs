@@ -121,12 +121,7 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        for impl_decl in self.impls.clone() {
-            for method in &impl_decl.methods {
-                self.emit_impl_method(&impl_decl, method)?;
-                self.line("")?;
-            }
-        }
+        self.emit_impls()?;
 
         for item in &self.module.items {
             if let Item::Function(function) = item {
@@ -159,12 +154,7 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        for impl_decl in self.impls.clone() {
-            for method in &impl_decl.methods {
-                self.emit_impl_method(&impl_decl, method)?;
-                self.line("")?;
-            }
-        }
+        self.emit_impls()?;
 
         for item in &self.module.items {
             if let Item::Function(function) = item {
@@ -326,6 +316,95 @@ impl<'a> Emitter<'a> {
         self.output.push_str(" {\n");
 
         self.indent += 1;
+        self.emit_block_statements(&method.body, method.return_type != TypeInfo::Unit)?;
+        self.indent -= 1;
+
+        self.line("}")?;
+        Ok(())
+    }
+
+    /// Emit every `impl`'s methods. Struct (and enum) impls keep Go receiver
+    /// methods for nominal dispatch; primitive impls become boxed wrapper types
+    /// because Go forbids methods on predeclared types like `int64`.
+    fn emit_impls(&mut self) -> Result<(), BackendError> {
+        for impl_decl in self.impls.clone() {
+            if primitive_underlying(&impl_decl.type_name).is_some() {
+                continue;
+            }
+            for method in &impl_decl.methods {
+                self.emit_impl_method(&impl_decl, method)?;
+                self.line("")?;
+            }
+        }
+        self.emit_primitive_boxes()?;
+        Ok(())
+    }
+
+    /// For each primitive type carrying at least one `impl`, emit a defined
+    /// wrapper type (`type keelBox_Int int64`) plus every impl method, so the
+    /// wrapper satisfies any interface bound structurally and can be passed
+    /// where an erased type parameter expects its bound interface.
+    fn emit_primitive_boxes(&mut self) -> Result<(), BackendError> {
+        let mut primitives: Vec<String> = self
+            .impls
+            .iter()
+            .filter(|info| primitive_underlying(&info.type_name).is_some())
+            .map(|info| info.type_name.clone())
+            .collect();
+        primitives.sort();
+        primitives.dedup();
+
+        let impls = self.impls.clone();
+        for primitive in primitives {
+            let Some(underlying) = primitive_underlying(&primitive) else {
+                continue;
+            };
+            let box_name = format!("keelBox_{primitive}");
+            self.line_fmt(format_args!("type {box_name} {underlying}"))?;
+            self.line("")?;
+            let mut emitted = Vec::new();
+            for impl_decl in &impls {
+                if impl_decl.type_name != primitive {
+                    continue;
+                }
+                for method in &impl_decl.methods {
+                    if emitted.contains(&method.name) {
+                        continue;
+                    }
+                    emitted.push(method.name.clone());
+                    self.emit_box_method(&box_name, underlying, method)?;
+                    self.line("")?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_box_method(
+        &mut self,
+        box_name: &str,
+        underlying: &str,
+        method: &FunctionDecl,
+    ) -> Result<(), BackendError> {
+        write!(self.output, "func (recv {box_name}) {}(", method.name)?;
+        for (index, param) in method.params.iter().enumerate() {
+            if index > 0 {
+                self.output.push_str(", ");
+            }
+            write!(self.output, "{} {}", param.name, self.go_type(&param.ty))?;
+        }
+        self.output.push(')');
+        if method.return_type != TypeInfo::Unit {
+            self.output.push(' ');
+            self.output.push_str(&self.go_type(&method.return_type));
+        }
+        self.output.push_str(" {\n");
+
+        self.indent += 1;
+        // Rebind `self` to the raw primitive so method bodies operate on the
+        // underlying value rather than the wrapper type.
+        self.line_fmt(format_args!("self := {underlying}(recv)"))?;
+        self.line("_ = self")?;
         self.emit_block_statements(&method.body, method.return_type != TypeInfo::Unit)?;
         self.indent -= 1;
 
@@ -627,8 +706,38 @@ impl<'a> Emitter<'a> {
             }
         }
 
+        let final_args = if let Some(params) = self.callee_param_types(callee) {
+            args.iter()
+                .zip(emitted_args)
+                .enumerate()
+                .map(|(index, (arg, emitted))| match params.get(index) {
+                    Some(slot) => box_for_slot(slot, arg, emitted),
+                    None => emitted,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            emitted_args
+        };
         let callee = self.emit_expr(callee)?;
-        Ok(format!("{callee}({})", emitted_args.join(", ")))
+        Ok(format!("{callee}({})", final_args.join(", ")))
+    }
+
+    /// Declared parameter types for a directly-named user function, used to box
+    /// primitive arguments flowing into erased type-parameter / interface slots.
+    fn callee_param_types(&self, callee: &Expr) -> Option<Vec<TypeInfo>> {
+        let Expr::Name(name) = callee else {
+            return None;
+        };
+        self.module.items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == *name => Some(
+                function
+                    .params
+                    .iter()
+                    .map(|param| param.ty.clone())
+                    .collect(),
+            ),
+            _ => None,
+        })
     }
 
     fn cast_constructor_arg(&mut self, arg: &Expr) -> Result<String, BackendError> {
@@ -665,7 +774,8 @@ impl<'a> Emitter<'a> {
         let mut parts = Vec::new();
         for field in &info.fields {
             let value = if let Some((_, provided)) = fields.iter().find(|(n, _)| n == &field.name) {
-                self.emit_expr(provided)?
+                let emitted = self.emit_expr(provided)?;
+                box_for_slot(&field.ty, provided, emitted)
             } else if let Some(default) = &field.default {
                 self.emit_expr(default)?
             } else {
@@ -1089,7 +1199,9 @@ fn go_type(ty: &TypeInfo, struct_names: &[String], interface_names: &[String]) -
         TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => {
             "KeelEnum".to_string()
         }
-        TypeInfo::Interface(name) => name.clone(),
+        // A type parameter erases to its bound interface (§8, dictionary-free
+        // erasure leveraging Go's structural interface dispatch).
+        TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => name.clone(),
         TypeInfo::Unknown => "any".to_string(),
     }
 }
@@ -1101,7 +1213,7 @@ fn zero_value(ty: &TypeInfo) -> &'static str {
         TypeInfo::String => "\"\"",
         TypeInfo::Unit => "",
         TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => "KeelEnum{}",
-        TypeInfo::Interface(_) => "nil",
+        TypeInfo::Interface(_) | TypeInfo::TypeParam { .. } => "nil",
         TypeInfo::Unknown => "nil",
     }
 }
@@ -1139,6 +1251,43 @@ fn go_binary_op(op: BinaryOp) -> &'static str {
         BinaryOp::And => "&&",
         BinaryOp::Or => "||",
     }
+}
+
+/// The Go underlying type for a boxable primitive `impl` target, or `None` for
+/// non-primitive (struct/enum) types.
+fn primitive_underlying(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        "Int" => Some("int64"),
+        "Float" => Some("float64"),
+        "Bool" => Some("bool"),
+        "String" => Some("string"),
+        "Char" => Some("rune"),
+        _ => None,
+    }
+}
+
+/// The boxed wrapper type name for a primitive value type, or `None` otherwise.
+fn primitive_box_name(ty: &TypeInfo) -> Option<&'static str> {
+    match ty {
+        TypeInfo::Int => Some("keelBox_Int"),
+        TypeInfo::Float => Some("keelBox_Float"),
+        TypeInfo::Bool => Some("keelBox_Bool"),
+        TypeInfo::String => Some("keelBox_String"),
+        TypeInfo::Char => Some("keelBox_Char"),
+        _ => None,
+    }
+}
+
+/// Wrap a primitive value in its boxed wrapper when it flows into an interface
+/// or erased type-parameter slot; pass structs (which carry Go methods)
+/// through unchanged.
+fn box_for_slot(slot_ty: &TypeInfo, value: &Expr, emitted: String) -> String {
+    if matches!(slot_ty, TypeInfo::Interface(_) | TypeInfo::TypeParam { .. }) {
+        if let Some(box_name) = primitive_box_name(&expr_ty(value)) {
+            return format!("{box_name}({emitted})");
+        }
+    }
+    emitted
 }
 
 fn expr_ty(expr: &Expr) -> TypeInfo {

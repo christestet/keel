@@ -19,7 +19,18 @@ pub enum TypeInfo {
     Unit,
     Named(String),
     Interface(String),
-    Generic { name: String, args: Vec<TypeInfo> },
+    /// A generic type parameter `T` constrained by interface `bound`.
+    /// Erased to its bound interface by the backend; kept distinct during
+    /// checking so method access (`K0802`) and constraint satisfaction
+    /// (`K0803`) can be diagnosed separately from nominal interface values.
+    TypeParam {
+        name: String,
+        bound: String,
+    },
+    Generic {
+        name: String,
+        args: Vec<TypeInfo>,
+    },
     Union(Vec<TypeInfo>),
     Unknown,
 }
@@ -99,6 +110,7 @@ impl fmt::Display for TypeInfo {
             Self::Unit => f.write_str("Unit"),
             Self::Named(name) => f.write_str(name),
             Self::Interface(name) => f.write_str(name),
+            Self::TypeParam { name, .. } => f.write_str(name),
             Self::Generic { name, args } => {
                 write!(f, "{name}<")?;
                 write_type_list(f, args, ", ")?;
@@ -121,6 +133,42 @@ fn write_type_list(f: &mut fmt::Formatter<'_>, types: &[TypeInfo], separator: &s
         write!(f, "{ty}")?;
     }
     Ok(())
+}
+
+/// Extract `(name, bound-interface)` pairs from a declaration's type parameters.
+/// An unbound parameter (already reported as `K0801` by the parser) yields an
+/// empty bound string.
+#[must_use]
+pub fn type_param_bounds(type_params: &[keelc_ast::TypeParam]) -> Vec<(String, String)> {
+    type_params
+        .iter()
+        .map(|tp| {
+            (
+                tp.name.value.clone(),
+                tp.bound
+                    .as_ref()
+                    .map_or_else(String::new, |bound| bound.value.clone()),
+            )
+        })
+        .collect()
+}
+
+/// Rewrite any `Named(T)` that matches a type-parameter name into the
+/// corresponding [`TypeInfo::TypeParam`], recursing through generic and union
+/// types. Used by the typechecker and KIR lowering so type parameters carry
+/// their interface bound.
+#[must_use]
+pub fn substitute_type_params(ty: &TypeInfo, params: &[(String, String)]) -> TypeInfo {
+    ty.map_type(&|inner| match &inner {
+        TypeInfo::Named(name) => params
+            .iter()
+            .find(|(param_name, _)| param_name == name)
+            .map_or(inner.clone(), |(param_name, bound)| TypeInfo::TypeParam {
+                name: param_name.clone(),
+                bound: bound.clone(),
+            }),
+        _ => inner,
+    })
 }
 
 #[must_use]

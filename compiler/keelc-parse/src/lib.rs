@@ -507,10 +507,12 @@ impl Parser {
 
     fn parse_type_params(&mut self) -> Vec<TypeParam> {
         let mut params = Vec::new();
-        self.expect_kind(
-            &TokenKind::LeftBracket,
-            "expected `[` before type parameters",
-        );
+        let bracket_span = self
+            .expect_kind(
+                &TokenKind::LeftBracket,
+                "expected `[` before type parameters",
+            )
+            .unwrap_or_else(|| self.empty_span());
         self.skip_separators();
         let mut seen_names: Vec<String> = Vec::new();
         while !self.at_eof() && !self.at_kind(&TokenKind::RightBracket) {
@@ -568,7 +570,7 @@ impl Parser {
         if params.len() > 256 {
             self.diagnostics.push(Diagnostic::error(
                 registry::K0806,
-                params[256].name.span,
+                bracket_span,
                 "too many type parameters; at most 256 are allowed",
             ));
         }

@@ -75,16 +75,25 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 | Formatter | `keel fmt` round-trips interface and impl syntax. |
 | Conformance | Cases `212-interface-declaration` through `222-impl-extra-method` exercise accept and reject behavior. |
 
-**Remaining M5 work:** user generics ([`docs/spec/08-generics.md`](spec/08-generics.md))
-typechecker (K0802, K0803, K0807), KIR lowering, Go backend dictionary
-passing/monomorphization; `scope`/`spawn` structured concurrency (chapter 09).
+**User generics (done):** [`docs/spec/08-generics.md`](spec/08-generics.md) is
+implemented end-to-end. Type parameters are represented as `TypeInfo::TypeParam`
+and erased to their bound interface in Go; structs satisfy bounds through their
+receiver methods and primitive `impl`s become `keelBox_<Prim>` wrapper types
+(Go cannot attach methods to predeclared types). The typechecker emits `K0802`
+(method outside the bound, at the definition site) and `K0803` (type argument
+fails structural constraint satisfaction, at the call site). Cases `223`–`233`
+pass at M5. See [`docs/generics-implementation.md`](generics-implementation.md).
+
+**Remaining M5 work:** `scope`/`spawn` structured concurrency (chapter 09) — not
+started.
 
 **Generics parser (done):** `TypeParam` AST node with `name`, `bound`, `span`;
 `type_params` on `FunctionDecl`, `StructDecl`, `EnumDecl`; `type_args` on `Expr::Call`,
 `Expr::StructLiteral`, `ImplDecl`. Parser accepts `[T: Bound]` on functions, structs,
 enums, and impls, and `[T, U]` on calls and struct literals — all gated to milestone
-≥5. Diagnostic codes K0801–K0807 registered; K0801/K0804/K0805/K0806 emitted by parser.
-Pretty printer round-trips all generic syntax.
+≥5. Diagnostic codes K0801–K0807 registered; K0801/K0804/K0805/K0806 emitted by parser;
+K0802/K0803 by the typechecker; K0807 is subsumed by K0601. Pretty printer round-trips
+all generic syntax.
 
 **Known limitations:** interfaces are limited to ≤5 methods (KDR-0003); no default methods, inheritance, or structural subtyping.
 
@@ -133,7 +142,7 @@ M5 adds interfaces; validate with:
 
 ```sh
 KEEL_MILESTONE=M5 scripts/preflight.sh
-# → 103 passed, 0 failed, 1 skipped
+# → 114 passed, 0 failed, 1 skipped
 ```
 
 ## Dependency chain
