@@ -3,9 +3,37 @@
 Non-normative implementation tracking for interface-constrained generics (M5,
 [`docs/spec/08-generics.md`](spec/08-generics.md)).
 
-## Status — parser scaffolding complete
+## Status — end-to-end (typechecker + backend) complete
 
-### Done
+All eleven generics conformance cases (`223`–`233`) pass at `M5`. The approach is
+**type erasure to the bound interface** with **primitive boxing**: a type
+parameter `T: I` lowers to the Go interface `I`, structs satisfy it through their
+existing receiver methods, and primitive `impl`s (which Go cannot attach to
+predeclared types) are emitted as `keelBox_<Prim>` wrapper types carrying every
+impl method. No monomorphization or dictionary passing is required.
+
+### Done (this milestone)
+
+- **Type representation:** `TypeInfo::TypeParam { name, bound }` in `keelc-types`,
+  with `type_param_bounds` / `substitute_type_params` helpers. Type parameters are
+  kept distinct through checking and erased to the bound interface only at Go
+  emission.
+- **Typechecker (`keelc-resolve`):** `check_function` substitutes `Named(T)` →
+  `TypeParam`; `infer_method_call` emits `K0802` when a body calls a method outside
+  the bound; `check_assignable` performs structural constraint satisfaction and
+  emits `K0803` (with the missing method names) when a concrete type argument lacks
+  a bound method. Struct field access now resolves field types so methods can be
+  called on generic-struct fields.
+- **KIR lowering (`keelc-kir`):** `lower_function` / `lower_struct_decl` forward
+  the substituted `TypeParam` types into KIR params, returns, and fields.
+- **Go backend (`keelc-backend-go`):** `go_type`/`zero_value` erase `TypeParam` to
+  its bound interface; `keelBox_<Prim>` wrapper types + methods are emitted for
+  primitive impls; primitive arguments are boxed when flowing into interface /
+  type-parameter slots at call sites and struct literals.
+- **Parser:** `K0806` now points at the type-parameter `[` (so reject-case `232`
+  matches `line:1`).
+
+### Done (parser scaffolding, earlier)
 
 - **Diagnostic registry:** `K0801`–`K0807` registered in
   `compiler/keelc-diag/src/registry.rs`. Parser emits `K0801` (missing bound),
@@ -29,18 +57,21 @@ Non-normative implementation tracking for interface-constrained generics (M5,
 - **Conformance fix:** test 233 `expected.error` changed `K0807` → `K0601` (subsumed);
   spec note added about overlap.
 
-### Explicitly not done
+### Explicitly not done (beyond the conformance surface)
 
-- **Typechecker** (`compiler/keelc-resolve`): generic function resolution, type
-  argument inference at call sites, bound satisfaction checking (K0802, K0803, K0807).
-  No type param scope tracking during resolution.
-- **KIR lowering** (`compiler/keelc-kir`): `type_params`/`type_args` not forwarded
-  from AST to KIR declarations.
-- **Go backend** (`compiler/keelc-backend-go`): dictionary passing for generic
-  functions (erase params to bound interface types), monomorphization for generic
-  structs, `impl` dispatch for generic impls.
-- **Type inference:** `Pair{...}` without explicit `[Int, String]` type args does
-  not infer from field types for generic structs.
+- **`K0807`** (interface bound declares >5 methods) stays a reserved safety net,
+  subsumed by `K0601` at the interface declaration site (case `233` asserts
+  `K0601`). It is not separately emitted.
+- **Type-argument inference from struct-literal fields:** `Pair { ... }` without
+  explicit `[Int, String]` is not inferred; explicit type args are used. Inference
+  is implemented only for function-call value arguments (Go-side erasure makes the
+  explicit args inert at runtime).
+- **Generic `impl` blocks** (`impl I for Pair[A, B]`) and generic enums are parsed
+  but not exercised by conformance; no method-body type-parameter scope is set up
+  for them yet.
+- **`expr_ty(Name)` is `Unknown` in the backend**, so boxing a *variable* of
+  primitive type into an interface slot is not yet handled — every conformance case
+  passes literals. Revisit when a case needs it.
 
 ## Dependency chain
 
@@ -58,28 +89,23 @@ enabled at milestone ≥5). All existing M0–M4 tests pass unchanged at M1.
 ## Validation snapshot
 
 ```
-$ cargo test --workspace && cargo run -p conformance-runner -- --keelc target/release/keelc
-suite ok: 115 case(s)
+$ KEEL_MILESTONE=M5 scripts/preflight.sh
+...
+114 passed, 0 failed, 1 skipped
+preflight: green
+```
+
+At the runner's default (M1) gate, generics and interface cases remain skipped:
+
+```
+$ cargo run -p conformance-runner -- --keelc target/release/keelc
 89 passed, 0 failed, 26 skipped
 ```
 
-All 11 generics cases skipped at M1 (gated to M5).
-
 ## Next work
 
-1. **Typechecker** — `keelc-resolve`:
-   - Track type param declarations in function/struct/enum scope
-   - At call sites, infer type args from value arguments
-   - Check bound satisfaction structurally (K0803)
-   - Check method access against bounds (K0802)
-2. **KIR lowering** — `keelc-kir/src/lower.rs`:
-   - Forward `type_params` from AST `FunctionDecl`, `StructDecl`, `EnumDecl` to
-     KIR equivalents
-   - Forward `type_args` from `Expr::Call`, `Expr::StructLiteral` to KIR expressions
-3. **Go backend** — `keelc-backend-go`:
-   - Generic functions: erase type params to bound interface types in Go signatures,
-     leverage Go's native interface vtable dispatch
-   - Generic structs: monomorphize (rename per instantiation)
-   - Generic impls: emit standalone Go functions for primitive type impls
-4. **Run at M5:** `KEEL_MILESTONE=M5 cargo run -p conformance-runner -- --keelc target/release/keelc`
-   — verify generics cases pass
+- **`scope` / `spawn` structured concurrency** (chapter 09) is the remaining M5
+  language-completion item; generics are complete.
+- Optional hardening (not blocking M5): type-argument inference for generic struct
+  literals, generic `impl`/enum bodies, and backend boxing of primitive *variables*
+  (see "Explicitly not done").

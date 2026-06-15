@@ -6,7 +6,7 @@
 //! `keelc-kir` lowering (which needs typed KIR) can share the same inference
 //! logic.
 
-use crate::{merge_types, TypeInfo};
+use crate::{merge_types, substitute_type_params, type_param_bounds, TypeInfo};
 use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Stmt, UnaryOp};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -281,7 +281,7 @@ impl TypeContext {
             let _ = self.infer_expr(arg);
         }
         let method_info = match &receiver_type {
-            TypeInfo::Interface(name) => self
+            TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => self
                 .interface_info(name)
                 .and_then(|interface| interface.methods.iter().find(|m| m.name == method).cloned()),
             TypeInfo::Named(type_name) => self
@@ -541,6 +541,7 @@ fn collect_structs(module: &Module) -> Vec<StructInfo> {
     let mut structs = Vec::new();
     for item in &module.items {
         if let Item::Struct(decl) = item {
+            let params = type_param_bounds(&decl.type_params);
             structs.push(StructInfo {
                 name: decl.name.value.clone(),
                 fields: decl
@@ -548,7 +549,7 @@ fn collect_structs(module: &Module) -> Vec<StructInfo> {
                     .iter()
                     .map(|field| StructFieldInfo {
                         name: field.name.value.clone(),
-                        ty: TypeInfo::from_ast(&field.ty),
+                        ty: substitute_type_params(&TypeInfo::from_ast(&field.ty), &params),
                     })
                     .collect(),
             });
@@ -570,20 +571,27 @@ fn collect_functions(module: &Module, interface_names: &[String]) -> Vec<Functio
     let mut functions = Vec::new();
     for item in &module.items {
         if let Item::Function(decl) = item {
-            let return_type = decl
-                .return_type
-                .as_ref()
-                .map_or(TypeInfo::Unit, TypeInfo::from_ast)
-                .map_type(&resolve);
+            let type_params = type_param_bounds(&decl.type_params);
+            let return_type = substitute_type_params(
+                &decl
+                    .return_type
+                    .as_ref()
+                    .map_or(TypeInfo::Unit, TypeInfo::from_ast)
+                    .map_type(&resolve),
+                &type_params,
+            );
             let params = decl
                 .params
                 .iter()
                 .map(|param| {
-                    param
-                        .ty
-                        .as_ref()
-                        .map_or(TypeInfo::Unknown, TypeInfo::from_ast)
-                        .map_type(&resolve)
+                    substitute_type_params(
+                        &param
+                            .ty
+                            .as_ref()
+                            .map_or(TypeInfo::Unknown, TypeInfo::from_ast)
+                            .map_type(&resolve),
+                        &type_params,
+                    )
                 })
                 .collect();
             functions.push(FunctionInfo {

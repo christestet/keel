@@ -526,23 +526,26 @@ impl<'a> Typechecker<'a> {
             return;
         };
 
+        let type_params = keelc_types::type_param_bounds(&function.type_params);
         let previous_return_type = self.ctx.current_return_type().cloned();
-        self.ctx.set_current_return_type(
-            self.resolve_type(
-                &function
-                    .return_type
-                    .as_ref()
-                    .map_or(TypeInfo::Unit, TypeInfo::from_ast),
-            )
-            .clone(),
-        );
+        self.ctx
+            .set_current_return_type(keelc_types::substitute_type_params(
+                &self.resolve_type(
+                    &function
+                        .return_type
+                        .as_ref()
+                        .map_or(TypeInfo::Unit, TypeInfo::from_ast),
+                ),
+                &type_params,
+            ));
         self.push_scope();
         for param in &function.params {
             let ty = param
                 .ty
                 .as_ref()
                 .map_or(TypeInfo::Unknown, TypeInfo::from_ast);
-            self.define_value(&param.name, self.resolve_type(&ty).clone());
+            let ty = keelc_types::substitute_type_params(&self.resolve_type(&ty), &type_params);
+            self.define_value(&param.name, ty);
         }
         self.check_block(body);
         self.pop_scope();
@@ -629,9 +632,11 @@ impl<'a> Typechecker<'a> {
                 span,
             } => self.infer_binary(left, *op, right, *span),
             Expr::Call { callee, args, .. } => self.infer_call(callee, args),
-            Expr::Field { target, .. } => {
-                self.infer_expr(target);
-                TypeInfo::Unknown
+            Expr::Field { target, field, .. } => {
+                let target_type = self.infer_expr(target);
+                self.ctx
+                    .field_type(&target_type, &field.value)
+                    .unwrap_or(TypeInfo::Unknown)
             }
             Expr::MethodCall {
                 receiver,
@@ -837,7 +842,7 @@ impl<'a> Typechecker<'a> {
             self.infer_expr(arg);
         }
         let method_info = match &receiver_type {
-            TypeInfo::Interface(name) => {
+            TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => {
                 let interface = match self.interface_info(name) {
                     Some(info) => info,
                     None => return TypeInfo::Unknown,
@@ -864,11 +869,22 @@ impl<'a> Typechecker<'a> {
                 info.return_type
             }
             None => {
-                self.diagnostics.push(Diagnostic::error(
-                    registry::K0606,
-                    self.diagnostic_span(span),
-                    format!("method `{}` not found on `{}`", method.value, receiver_type),
-                ));
+                if let TypeInfo::TypeParam { name, bound } = &receiver_type {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0802,
+                        self.diagnostic_span(span),
+                        format!(
+                            "method `{}` is not declared by the bound `{bound}` of type parameter `{name}`",
+                            method.value
+                        ),
+                    ));
+                } else {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0606,
+                        self.diagnostic_span(span),
+                        format!("method `{}` not found on `{}`", method.value, receiver_type),
+                    ));
+                }
                 TypeInfo::Unknown
             }
         }
@@ -1083,6 +1099,34 @@ impl<'a> Typechecker<'a> {
             ));
             return;
         }
+        if let TypeInfo::TypeParam { name, bound } = expected {
+            // A type argument flowing into a type-parameter slot must satisfy
+            // the parameter's interface bound structurally (§8.3).
+            if let TypeInfo::TypeParam {
+                name: actual_name, ..
+            } = actual
+            {
+                if actual_name == name {
+                    return;
+                }
+            }
+            let missing = self.bound_methods_missing_on(actual, bound);
+            if !missing.is_empty() {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0803,
+                    self.diagnostic_span(span),
+                    format!(
+                        "type `{actual}` does not satisfy bound `{bound}` of type parameter `{name}`; missing {}",
+                        missing
+                            .iter()
+                            .map(|m| format!("`{m}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            }
+            return;
+        }
         if let (
             TypeInfo::Generic {
                 name: actual_name,
@@ -1117,6 +1161,43 @@ impl<'a> Typechecker<'a> {
             .any(|info| info.type_name == type_name && info.interface_name == interface_name)
     }
 
+    /// Names of the methods declared by `bound` that `actual` does not provide
+    /// structurally — i.e. no `impl` on the type supplies a method with a
+    /// matching name, parameter types, and return type (§8.3). An empty result
+    /// means the bound is satisfied.
+    fn bound_methods_missing_on(&self, actual: &TypeInfo, bound: &str) -> Vec<String> {
+        let Some(interface) = self.interface_info(bound) else {
+            return Vec::new();
+        };
+        let Some(type_name) = type_satisfaction_name(actual) else {
+            // Unknown/unresolved receiver — defer rather than over-report.
+            return Vec::new();
+        };
+        let methods = interface.methods.clone();
+        methods
+            .iter()
+            .filter(|required| !self.type_has_matching_method(type_name, required))
+            .map(|required| required.name.clone())
+            .collect()
+    }
+
+    fn type_has_matching_method(
+        &self,
+        type_name: &str,
+        required: &keelc_types::infer::MethodInfo,
+    ) -> bool {
+        self.ctx
+            .impls()
+            .iter()
+            .filter(|info| info.type_name == type_name)
+            .flat_map(|info| info.methods.iter())
+            .any(|candidate| {
+                candidate.name == required.name
+                    && candidate.params == required.params
+                    && candidate.return_type == required.return_type
+            })
+    }
+
     fn interface_info(&self, name: &str) -> Option<&keelc_types::infer::InterfaceInfo> {
         self.ctx.interface_info(name)
     }
@@ -1135,6 +1216,21 @@ impl<'a> Typechecker<'a> {
 
     fn pop_scope(&mut self) {
         self.ctx.pop_scope();
+    }
+}
+
+/// The `impl` type name used to look up methods for a concrete type during
+/// structural constraint satisfaction. Primitives carry built-in impls keyed
+/// by their spelled name (`Int`, `Float`, ...).
+fn type_satisfaction_name(ty: &TypeInfo) -> Option<&str> {
+    match ty {
+        TypeInfo::Named(name) => Some(name),
+        TypeInfo::Int => Some("Int"),
+        TypeInfo::Float => Some("Float"),
+        TypeInfo::Bool => Some("Bool"),
+        TypeInfo::String => Some("String"),
+        TypeInfo::Char => Some("Char"),
+        _ => None,
     }
 }
 
