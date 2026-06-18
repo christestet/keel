@@ -84,8 +84,18 @@ receiver methods and primitive `impl`s become `keelBox_<Prim>` wrapper types
 fails structural constraint satisfaction, at the call site). Cases `223`–`233`
 pass at M5. See [`docs/generics-implementation.md`](generics-implementation.md).
 
-**Remaining M5 work:** `scope`/`spawn` structured concurrency (chapter 09) — not
-started.
+**Structured concurrency (partially done):** [`docs/spec/09-concurrency.md`](spec/09-concurrency.md)
+is implemented for the initial M5 executable slice. The compiler parses
+`scope`/`spawn`, formats the syntax, types `Task<T>`, enforces `K0701`-`K0703`,
+lowers through KIR, and emits Go with a join barrier, `context.WithCancel`,
+`sync.WaitGroup`, and deterministic first-error selection by spawn order.
+Conformance cases `710`-`715` pass at M5, and `903-no-scope-spawn` is gated
+through M4.
+
+**Remaining concurrency work:** `scope(deadline: ...)` parses and lowers, but Go
+backend deadline emission is intentionally still unsupported until M6 provides
+the time/duration stdlib surface. Explicit cancellation checkpoint APIs such as
+`check_cancel()` are specified but not exposed by the current stdlib slice.
 
 **Generics parser (done):** `TypeParam` AST node with `name`, `bound`, `span`;
 `type_params` on `FunctionDecl`, `StructDecl`, `EnumDecl`; `type_args` on `Expr::Call`,
@@ -138,11 +148,12 @@ M4 adds `keel test` execution; validate with:
 KEEL_MILESTONE=M4 scripts/preflight.sh
 ```
 
-M5 adds interfaces; validate with:
+M5 adds interfaces, generics, and the initial `scope`/`spawn` implementation;
+validate with:
 
 ```sh
 KEEL_MILESTONE=M5 scripts/preflight.sh
-# → 114 passed, 0 failed, 1 skipped
+# → 119 passed, 0 failed, 2 skipped
 ```
 
 ## Dependency chain

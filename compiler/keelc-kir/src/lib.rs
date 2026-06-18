@@ -179,6 +179,16 @@ pub enum Expr {
         condition: Box<Expr>,
         body: Block,
     },
+    Scope {
+        deadline: Option<Box<Expr>>,
+        body: Block,
+        ty: TypeInfo,
+        error_ty: Option<TypeInfo>,
+    },
+    Spawn {
+        expr: Box<Expr>,
+        ty: TypeInfo,
+    },
     Payload {
         value: Box<Expr>,
         index: usize,

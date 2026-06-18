@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The executable definition of done. Runs exactly what CI runs
-# (.github/workflows/ci.yml) — no CI-only magic, no local-only shortcuts.
+# The executable definition of done. Runs the full local gate; CI uses the same
+# commands but scopes expensive jobs to the files changed in a PR/push.
 # Humans and agents alike: run this before declaring any task complete
 # (root AGENTS.md, "What done means").
 set -euo pipefail

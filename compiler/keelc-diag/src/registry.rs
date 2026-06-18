@@ -34,6 +34,9 @@ pub const K0604: Code = Code::new("K0604");
 pub const K0605: Code = Code::new("K0605");
 pub const K0606: Code = Code::new("K0606");
 pub const K0607: Code = Code::new("K0607");
+pub const K0701: Code = Code::new("K0701");
+pub const K0702: Code = Code::new("K0702");
+pub const K0703: Code = Code::new("K0703");
 pub const K0801: Code = Code::new("K0801");
 pub const K0802: Code = Code::new("K0802");
 pub const K0803: Code = Code::new("K0803");
@@ -154,6 +157,18 @@ pub const ALL_CODES: &[RegistryEntry] = &[
     RegistryEntry {
         code: K0607,
         summary: "extraneous method in impl",
+    },
+    RegistryEntry {
+        code: K0701,
+        summary: "spawn outside a scope",
+    },
+    RegistryEntry {
+        code: K0702,
+        summary: "task result read before join barrier",
+    },
+    RegistryEntry {
+        code: K0703,
+        summary: "task handle escapes its scope",
     },
     RegistryEntry {
         code: K0801,

@@ -696,7 +696,10 @@ impl Parser {
 
     fn parse_return_stmt(&mut self) -> Stmt {
         let start = self.advance().map_or_else(|| self.empty_span(), |t| t.span);
-        let value = if self.at_separator() || self.at_kind(&TokenKind::RightBrace) {
+        let value = if self.at_separator()
+            || self.at_kind(&TokenKind::RightBrace)
+            || self.at_kind(&TokenKind::Comma)
+        {
             None
         } else {
             Some(self.parse_expr())
@@ -944,13 +947,29 @@ impl Parser {
                 span,
             }) => self.finish_while(span),
             Some(Token {
+                kind: TokenKind::Keyword(Keyword::Scope),
+                span,
+            }) => {
+                if self.milestone >= 5 {
+                    self.finish_scope(span)
+                } else {
+                    self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
+                }
+            }
+            Some(Token {
+                kind: TokenKind::Keyword(Keyword::Spawn),
+                span,
+            }) => {
+                if self.milestone >= 5 {
+                    self.finish_spawn(span)
+                } else {
+                    self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
+                }
+            }
+            Some(Token {
                 kind: TokenKind::Keyword(Keyword::Return),
                 span,
             }) => self.finish_return_expr(span),
-            Some(Token {
-                kind: TokenKind::Keyword(Keyword::Scope | Keyword::Spawn),
-                span,
-            }) => self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core"),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Arena),
                 span,
@@ -1081,8 +1100,49 @@ impl Parser {
         }
     }
 
+    fn finish_scope(&mut self, start: Span) -> Expr {
+        let deadline = if self.eat_kind(&TokenKind::LeftParen).is_some() {
+            let name = self.expect_identifier("expected scope option");
+            let mut deadline = None;
+            if name.value == "deadline" {
+                self.expect_kind(&TokenKind::Colon, "expected `:` after scope deadline");
+                deadline = Some(Box::new(self.parse_expr()));
+            } else {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0003,
+                    name.span,
+                    "expected `deadline` scope option",
+                ));
+                if !self.at_kind(&TokenKind::RightParen) {
+                    let _ = self.parse_expr();
+                }
+            }
+            self.expect_kind(&TokenKind::RightParen, "expected `)` after scope options");
+            deadline
+        } else {
+            None
+        };
+        let body = self.parse_block();
+        Expr::Scope {
+            deadline,
+            span: start.join(body.span),
+            body,
+        }
+    }
+
+    fn finish_spawn(&mut self, start: Span) -> Expr {
+        let expr = self.parse_expr();
+        Expr::Spawn {
+            span: start.join(expr.span()),
+            expr: Box::new(expr),
+        }
+    }
+
     fn finish_return_expr(&mut self, start: Span) -> Expr {
-        let value = if self.at_separator() || self.at_kind(&TokenKind::RightBrace) {
+        let value = if self.at_separator()
+            || self.at_kind(&TokenKind::RightBrace)
+            || self.at_kind(&TokenKind::Comma)
+        {
             None
         } else {
             Some(Box::new(self.parse_expr()))
