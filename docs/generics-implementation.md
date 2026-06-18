@@ -10,7 +10,17 @@ All eleven generics conformance cases (`223`–`233`) pass at `M5`. The approach
 parameter `T: I` lowers to the Go interface `I`, structs satisfy it through their
 existing receiver methods, and primitive `impl`s (which Go cannot attach to
 predeclared types) are emitted as `keelBox_<Prim>` wrapper types carrying every
-impl method. No monomorphization or dictionary passing is required.
+impl method.
+
+This **is** the dictionary-passing strategy mandated by
+[`KDR-0022`](kdr/0022-interface-constrained-generics.md) §2, realised on the Go
+backend: a Go interface value carries an `itab` (method table) — exactly the
+per-constraint "method dictionary (vtable)" the KDR describes — so the generic
+body is compiled once and constrained calls dispatch through it. We do **not**
+monomorphize (the KDR rejects it for separate-compilation and code-size
+reasons); boxing simply gives primitives the itab they otherwise lack. Per-
+instantiation specialization stays available as a future backend optimisation
+(KDR-0022 §2), not a language guarantee.
 
 ### Done (this milestone)
 
