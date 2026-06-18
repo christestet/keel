@@ -1,6 +1,6 @@
 # KDR-0023: User `impl` blocks on primitive types
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-18
 - **Scope:** language
 
