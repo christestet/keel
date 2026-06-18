@@ -77,6 +77,34 @@ compiler/
   conformance-runner  test harness for tests/conformance/
 ```
 
+## Cross-cutting gotchas
+
+Hard-won invariants that span crates. Ignoring these produces either a
+non-compiling Rust workspace or invalid generated Go — both caught late.
+
+- **A new `TypeInfo` variant ripples across exhaustive matches.** `TypeInfo`
+  lives in `keelc-types`, but `Display for TypeInfo`, the backend `go_type`,
+  and `zero_value` (in `keelc-backend-go`) match it exhaustively. Add the
+  variant, then let `cargo build` walk you to every site — don't hand-search.
+  Resolver/KIR inference mostly match specific arms with an `_` fallback, so
+  *also* audit those: a silent `_ => Unknown` is how a new type gets dropped.
+- **Go forbids methods on predeclared types** (`int64`, `string`, …). Any time
+  Keel attaches behaviour to a primitive (interface `impl`s, generic bounds),
+  the backend must box it into a defined wrapper type. See the `keelBox_<Prim>`
+  pattern and erasure strategy in
+  [`docs/generics-implementation.md`](../docs/generics-implementation.md).
+- **`expr_ty(Name)` is `Unknown` in `keelc-backend-go`.** The backend does not
+  re-derive the type of a bare name. Codegen that must know a variable's static
+  type (e.g. to box it) currently can't for `Name`s — only literals carry a
+  type. Widen this deliberately, with a conformance case, when a feature needs
+  it; don't assume it already works.
+- **Type parameters are erased, not monomorphized.** `TypeInfo::TypeParam` is
+  kept distinct only through checking (so `K0802`/`K0803` can fire) and lowers
+  to its bound interface for emission. A future feature that needs per-
+  instantiation specialization (e.g. generic-over-primitive arithmetic) does
+  not yet have a code path — that's a design decision to revisit, not a bug to
+  patch around.
+
 ## Iron rules
 
 1. No stage may panic on any input. Malformed source produces diagnostics.
