@@ -7,11 +7,11 @@ the frozen rules in [`keel-core.md`](keel-core.md); on any conflict with
 `keel-core.md`, file an issue rather than reconciling silently (the prime
 directive in the root [`AGENTS.md`](../../AGENTS.md)).
 
-Implementation status: parser scaffolding complete (AST types, pretty printer, M5-gated
-parsing of `[T: Bound]` on functions/structs/enums/impls and `[T, U]` on calls/struct
-literals). Typechecker (K0802, K0803) and Go backend (dictionary passing,
-monomorphization) not yet implemented; see
-[`docs/milestone-status.md`](../milestone-status.md) §M5 and
+Implementation status: implemented end-to-end at M5 — parser, typechecker
+(`K0802`, `K0803`), KIR lowering, and Go backend. The backend erases each type
+parameter to its bound interface (KDR-0022 §2's dictionary passing, realized via
+Go interface tables; no monomorphization) and boxes primitives that carry
+`impl`s. See [`docs/milestone-status.md`](../milestone-status.md) §M5 and
 [`docs/generics-implementation.md`](../generics-implementation.md).
 
 Generics in Keel are structurally constrained by interfaces:
@@ -137,11 +137,18 @@ runtime dispatch (interface values, §7.2) and supplies the method evidence
 for structural constraint checking (generics). No separate declaration is
 needed for each role.
 
-### 8.3.1 Intrinsic satisfaction for primitive types
+### 8.3.1 Primitive types as constraint targets
 
-The built-in primitive types (`Int`, `Float`, `Bool`, `String`, `Char`) satisfy
-interface bounds structurally if they have compiler-built-in methods matching
-the interface. No `impl` block is needed or possible.
+The built-in primitive types (`Int`, `Float`, `Bool`, `String`, `Char`) are
+first-class `impl` targets ([`KDR-0023`](../kdr/0023-impls-on-primitive-types.md)).
+A primitive satisfies an interface bound through its `impl` blocks, exactly as a
+`struct` or `enum` does (§8.3): for example, `impl Stringer for Int { ... }`
+makes `Int` satisfy a `T: Stringer` bound.
+
+A future compiler may additionally provide intrinsic, built-in methods that
+satisfy a bound without an `impl` block, as an optional backend specialization
+([`KDR-0022`](../kdr/0022-interface-constrained-generics.md) §2). No such
+intrinsic methods exist today; satisfaction is via `impl` blocks.
 
 ## 8.4 Instantiation
 
