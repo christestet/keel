@@ -67,6 +67,8 @@ struct Emitter<'a> {
     interfaces: Vec<InterfaceInfo>,
     interface_names: Vec<String>,
     impls: Vec<ImplInfo>,
+    uses_concurrency: bool,
+    task_values: Vec<Vec<(String, TypeInfo)>>,
     output: String,
     indent: usize,
     temp_index: usize,
@@ -79,6 +81,7 @@ impl<'a> Emitter<'a> {
         let interfaces = collect_interfaces(module);
         let interface_names = interfaces.iter().map(|i| i.name.clone()).collect();
         let enum_variant_names = collect_enum_variant_names(module);
+        let uses_concurrency = module_uses_concurrency(module);
         Self {
             module,
             structs,
@@ -87,6 +90,8 @@ impl<'a> Emitter<'a> {
             interfaces,
             interface_names,
             impls: collect_impls(module),
+            uses_concurrency,
+            task_values: Vec::new(),
             output: String::new(),
             indent: 0,
             temp_index: 0,
@@ -104,7 +109,7 @@ impl<'a> Emitter<'a> {
     fn emit(mut self) -> Result<String, BackendError> {
         self.line("package main")?;
         self.line("")?;
-        self.line("import \"fmt\"")?;
+        self.emit_imports(false)?;
         self.line("")?;
         self.emit_runtime()?;
 
@@ -136,8 +141,7 @@ impl<'a> Emitter<'a> {
     fn emit_test_runner(mut self) -> Result<String, BackendError> {
         self.line("package main")?;
         self.line("")?;
-        self.line("import \"fmt\"")?;
-        self.line("import \"os\"")?;
+        self.emit_imports(true)?;
         self.line("")?;
         self.emit_runtime()?;
 
@@ -186,11 +190,41 @@ impl<'a> Emitter<'a> {
         Ok(self.output)
     }
 
+    fn emit_imports(&mut self, include_os: bool) -> Result<(), BackendError> {
+        let mut imports = vec!["fmt"];
+        if include_os {
+            imports.push("os");
+        }
+        if self.uses_concurrency {
+            imports.push("context");
+            imports.push("sync");
+        }
+        imports.sort();
+        if imports.len() == 1 {
+            self.line_fmt(format_args!("import {:?}", imports[0]))?;
+            return Ok(());
+        }
+        self.line("import (")?;
+        self.indent += 1;
+        for import in imports {
+            self.line_fmt(format_args!("{import:?}"))?;
+        }
+        self.indent -= 1;
+        self.line(")")
+    }
+
     fn emit_runtime(&mut self) -> Result<(), BackendError> {
         self.line("type KeelEnum struct {")?;
         self.indent += 1;
         self.line("tag string")?;
         self.line("values []any")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
+        self.line("type keelTask struct {")?;
+        self.indent += 1;
+        self.line("value any")?;
+        self.line("result KeelEnum")?;
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;
@@ -595,6 +629,14 @@ impl<'a> Emitter<'a> {
             }
             Expr::Call { callee, args, .. } => self.emit_call(callee, args),
             Expr::Field { target, field, .. } => {
+                if field == "value" {
+                    if let Expr::Name(name) = target.as_ref() {
+                        if let Some(value_ty) = self.task_value_type(name) {
+                            let target = self.emit_expr(target)?;
+                            return Ok(format!("{target}.value.({})", self.go_type(&value_ty)));
+                        }
+                    }
+                }
                 let target = self.emit_expr(target)?;
                 Ok(format!("{target}.{field}"))
             }
@@ -617,6 +659,15 @@ impl<'a> Emitter<'a> {
                 ty,
             } => self.emit_match_expr(scrutinee, arms, ty),
             Expr::While { condition, body } => self.emit_while_expr(condition, body),
+            Expr::Scope {
+                deadline,
+                body,
+                ty,
+                error_ty,
+            } => self.emit_scope_expr(deadline.as_deref(), body, ty, error_ty.as_ref()),
+            Expr::Spawn { .. } => Err(BackendError::unsupported(
+                "`spawn` outside scope lowering context",
+            )),
             Expr::Block(block) => self.emit_block_expr(block),
             Expr::Payload { value, index, ty } => {
                 let value = self.emit_expr(value)?;
@@ -738,6 +789,15 @@ impl<'a> Emitter<'a> {
             ),
             _ => None,
         })
+    }
+
+    fn task_value_type(&self, name: &str) -> Option<TypeInfo> {
+        self.task_values
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev())
+            .find(|(task_name, _)| task_name == name)
+            .map(|(_, ty)| ty.clone())
     }
 
     fn cast_constructor_arg(&mut self, arg: &Expr) -> Result<String, BackendError> {
@@ -1026,6 +1086,127 @@ impl<'a> Emitter<'a> {
         Ok(format!("func() {ty} {{ {body} }}()"))
     }
 
+    fn emit_scope_expr(
+        &mut self,
+        deadline: Option<&Expr>,
+        body: &Block,
+        ty: &TypeInfo,
+        error_ty: Option<&TypeInfo>,
+    ) -> Result<String, BackendError> {
+        if deadline.is_some() {
+            return Err(BackendError::unsupported("scope deadlines"));
+        }
+        let return_ty = self.go_type(ty);
+        let mut out = String::new();
+        if return_ty.is_empty() {
+            out.push_str("func() { ");
+        } else {
+            write!(out, "func() {return_ty} {{ ")?;
+        }
+        out.push_str("ctx, cancel := context.WithCancel(context.Background()); _ = ctx; defer cancel(); var wg sync.WaitGroup; ");
+        if error_ty.is_some() {
+            out.push_str(
+                "var firstErr KeelEnum; firstErrIndex := int64(-1); var errMu sync.Mutex; ",
+            );
+        }
+
+        self.task_values.push(Vec::new());
+        let Some((tail, prefix)) = body.statements.split_last() else {
+            self.task_values.pop();
+            if return_ty.is_empty() {
+                out.push_str("}()");
+            } else {
+                write!(out, "return {}; }}()", zero_value(ty))?;
+            }
+            return Ok(out);
+        };
+
+        let mut spawn_index = 0usize;
+        for statement in prefix {
+            if let Stmt::Let {
+                name,
+                value: Expr::Spawn { expr, ty },
+                ..
+            } = statement
+            {
+                self.emit_scope_spawn(&mut out, name, expr, ty, spawn_index)?;
+                spawn_index += 1;
+            } else {
+                out.push_str(&self.emit_inline_stmt(statement)?);
+                out.push(' ');
+            }
+        }
+
+        out.push_str("wg.Wait(); ");
+        if error_ty.is_some() {
+            out.push_str("if firstErrIndex >= 0 { return firstErr }; ");
+        }
+
+        match tail {
+            Stmt::Expr(expr) if error_ty.is_some() => {
+                let value = self.cast_constructor_arg(expr)?;
+                write!(out, "return Ok({value}); ")?;
+            }
+            Stmt::Expr(expr) if return_ty.is_empty() => {
+                let expr = self.emit_expr(expr)?;
+                write!(out, "{expr}; ")?;
+            }
+            Stmt::Expr(expr) => {
+                let expr = self.emit_expr(expr)?;
+                write!(out, "return {expr}; ")?;
+            }
+            _ => {
+                out.push_str(&self.emit_inline_stmt(tail)?);
+                if !return_ty.is_empty() {
+                    write!(out, "return {}; ", zero_value(ty))?;
+                }
+            }
+        }
+
+        self.task_values.pop();
+        out.push_str("}()");
+        Ok(out)
+    }
+
+    fn emit_scope_spawn(
+        &mut self,
+        out: &mut String,
+        name: &str,
+        expr: &Expr,
+        task_ty: &TypeInfo,
+        spawn_index: usize,
+    ) -> Result<(), BackendError> {
+        let Some(inner_ty) = task_inner(task_ty) else {
+            return Err(BackendError::unsupported("spawn without Task type"));
+        };
+        let value_ty = task_value_type(inner_ty);
+        if let Some(scope) = self.task_values.last_mut() {
+            scope.push((name.to_string(), value_ty.clone()));
+        }
+
+        write!(
+            out,
+            "var {name} keelTask; wg.Add(1); go func() {{ defer wg.Done(); "
+        )?;
+        let expr = self.emit_expr(expr)?;
+        if inner_ty.result_parts().is_some() {
+            let result_name = format!("__keel_task_result_{spawn_index}");
+            write!(
+                out,
+                "{result_name} := {expr}; {name}.result = {result_name}; "
+            )?;
+            write!(
+                out,
+                "if {result_name}.tag == \"Err\" {{ errMu.Lock(); if firstErrIndex == -1 || int64({spawn_index}) < firstErrIndex {{ firstErr = {result_name}; firstErrIndex = int64({spawn_index}) }}; errMu.Unlock(); cancel(); return }}; "
+            )?;
+            write!(out, "{name}.value = {result_name}.values[0]; ")?;
+        } else {
+            write!(out, "{name}.value = {expr}; ")?;
+        }
+        out.push_str("}(); ");
+        Ok(())
+    }
+
     fn emit_returning_block(&mut self, block: &Block) -> Result<String, BackendError> {
         let Some((last, prefix)) = block.statements.split_last() else {
             return Err(BackendError::unsupported("empty block expressions"));
@@ -1290,6 +1471,110 @@ fn box_for_slot(slot_ty: &TypeInfo, value: &Expr, emitted: String) -> String {
     emitted
 }
 
+fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
+    match ty {
+        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
+        _ => None,
+    }
+}
+
+fn task_value_type(inner: &TypeInfo) -> TypeInfo {
+    inner
+        .result_parts()
+        .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())
+}
+
+fn module_uses_concurrency(module: &Module) -> bool {
+    module.items.iter().any(item_uses_concurrency)
+}
+
+fn item_uses_concurrency(item: &Item) -> bool {
+    match item {
+        Item::Struct(decl) => decl
+            .fields
+            .iter()
+            .any(|field| field.default.as_ref().is_some_and(expr_uses_concurrency)),
+        Item::Function(decl) => block_uses_concurrency(&decl.body),
+        Item::Impl(decl) => decl
+            .methods
+            .iter()
+            .any(|method| block_uses_concurrency(&method.body)),
+        Item::Test(decl) => block_uses_concurrency(&decl.body),
+        Item::Enum(_) | Item::Interface(_) => false,
+    }
+}
+
+fn block_uses_concurrency(block: &Block) -> bool {
+    block.statements.iter().any(stmt_uses_concurrency)
+}
+
+fn stmt_uses_concurrency(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
+            expr_uses_concurrency(value)
+        }
+        Stmt::Return {
+            value: Some(value), ..
+        }
+        | Stmt::Assert { value, .. } => expr_uses_concurrency(value),
+        Stmt::Var { .. } | Stmt::Return { value: None } | Stmt::Break | Stmt::Continue => false,
+    }
+}
+
+fn expr_uses_concurrency(expr: &Expr) -> bool {
+    match expr {
+        Expr::Scope { .. } | Expr::Spawn { .. } => true,
+        Expr::Unary { expr, .. } => expr_uses_concurrency(expr),
+        Expr::Binary { left, right, .. } => {
+            expr_uses_concurrency(left) || expr_uses_concurrency(right)
+        }
+        Expr::Call { callee, args, .. } => {
+            expr_uses_concurrency(callee) || args.iter().any(expr_uses_concurrency)
+        }
+        Expr::Field { target, .. } => expr_uses_concurrency(target),
+        Expr::MethodCall { receiver, args, .. } => {
+            expr_uses_concurrency(receiver) || args.iter().any(expr_uses_concurrency)
+        }
+        Expr::StructLiteral { fields, .. } => {
+            fields.iter().any(|(_, value)| expr_uses_concurrency(value))
+        }
+        Expr::If {
+            condition,
+            then_block,
+            else_block,
+            ..
+        } => {
+            expr_uses_concurrency(condition)
+                || block_uses_concurrency(then_block)
+                || block_uses_concurrency(else_block)
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            expr_uses_concurrency(scrutinee)
+                || arms.iter().any(|arm| {
+                    arm.guard.as_ref().is_some_and(expr_uses_concurrency)
+                        || expr_uses_concurrency(&arm.value)
+                })
+        }
+        Expr::While { condition, body } => {
+            expr_uses_concurrency(condition) || block_uses_concurrency(body)
+        }
+        Expr::Payload { value, .. } => expr_uses_concurrency(value),
+        Expr::Block(block) => block_uses_concurrency(block),
+        Expr::Return {
+            value: Some(value), ..
+        } => expr_uses_concurrency(value),
+        Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::String(_)
+        | Expr::Char(_)
+        | Expr::Bool(_)
+        | Expr::Name(_)
+        | Expr::Return { value: None } => false,
+    }
+}
+
 fn expr_ty(expr: &Expr) -> TypeInfo {
     match expr {
         Expr::Int(_) => TypeInfo::Int,
@@ -1306,7 +1591,9 @@ fn expr_ty(expr: &Expr) -> TypeInfo {
         | Expr::StructLiteral { ty, .. }
         | Expr::If { ty, .. }
         | Expr::Match { ty, .. }
-        | Expr::Payload { ty, .. } => ty.clone(),
+        | Expr::Payload { ty, .. }
+        | Expr::Scope { ty, .. }
+        | Expr::Spawn { ty, .. } => ty.clone(),
         Expr::While { .. } | Expr::Return { .. } => TypeInfo::Unit,
         Expr::Block(block) => block.ty.clone(),
     }
@@ -1337,8 +1624,9 @@ mod tests {
         let kir = keelc_kir::lower::lower(&output.module, source);
         assert!(kir.diagnostics.is_empty(), "{kir:?}");
         let go = emit_tests(&kir.module).expect("emission should succeed");
-        assert!(go.contains("import \"fmt\""));
-        assert!(go.contains("import \"os\""));
+        assert!(go.contains("import ("));
+        assert!(go.contains("\"fmt\""));
+        assert!(go.contains("\"os\""));
         assert!(go.contains("func main() {"));
         assert!(go.contains(r#"fmt.Printf("test %q ... ", "addition holds")"#));
         assert!(go.contains("fmt.Println(\"ok\")"));

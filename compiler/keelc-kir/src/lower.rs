@@ -427,6 +427,27 @@ impl<'a> Lowerer<'a> {
                 condition: Box::new(self.lower_expr(condition)),
                 body: self.lower_block(body),
             },
+            keelc_ast::Expr::Scope { deadline, body, .. } => {
+                let deadline = deadline
+                    .as_ref()
+                    .map(|deadline| Box::new(self.lower_expr(deadline)));
+                let body = self.lower_block(body);
+                let error_ty = scope_error_type(&body);
+                let scope_ty = error_ty.as_ref().map_or_else(
+                    || body.ty.clone(),
+                    |error| TypeInfo::generic("Result", vec![body.ty.clone(), error.clone()]),
+                );
+                Expr::Scope {
+                    deadline,
+                    body,
+                    ty: scope_ty,
+                    error_ty,
+                }
+            }
+            keelc_ast::Expr::Spawn { expr, .. } => Expr::Spawn {
+                expr: Box::new(self.lower_expr(expr)),
+                ty,
+            },
             keelc_ast::Expr::Block(block) => Expr::Block(self.lower_block(block)),
             keelc_ast::Expr::Question { expr, .. } => {
                 let (mut stmts, result) = self.desugar_question_expr(expr);
@@ -729,12 +750,17 @@ impl<'a> Lowerer<'a> {
                     }),
                 };
                 if let Some((name, ty)) = binding {
+                    let binding_name = name.clone();
                     value = Expr::Block(Block {
                         statements: vec![
                             Stmt::Let {
                                 name,
                                 ty,
                                 value: Expr::Name(error_name.value.clone()),
+                            },
+                            Stmt::Assign {
+                                target: Expr::Name("_".to_string()),
+                                value: Expr::Name(binding_name),
                             },
                             Stmt::Expr(value),
                         ],
@@ -832,6 +858,112 @@ fn expr_ty(expr: &Expr) -> TypeInfo {
         | Expr::Match { ty, .. }
         | Expr::Payload { ty, .. } => ty.clone(),
         Expr::While { .. } | Expr::Return { .. } => TypeInfo::Unit,
+        Expr::Spawn { ty, .. } | Expr::Scope { ty, .. } => ty.clone(),
         Expr::Block(block) => block.ty.clone(),
+    }
+}
+
+fn scope_error_type(block: &Block) -> Option<TypeInfo> {
+    let mut errors = Vec::new();
+    collect_scope_errors(block, &mut errors);
+    match errors.len() {
+        0 => None,
+        1 => errors.into_iter().next(),
+        _ => Some(TypeInfo::Union(errors)),
+    }
+}
+
+fn collect_scope_errors(block: &Block, errors: &mut Vec<TypeInfo>) {
+    for statement in &block.statements {
+        match statement {
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
+                collect_expr_scope_errors(value, errors);
+            }
+            Stmt::Return {
+                value: Some(value), ..
+            }
+            | Stmt::Assert { value, .. } => collect_expr_scope_errors(value, errors),
+            Stmt::Var { .. } | Stmt::Return { value: None } | Stmt::Break | Stmt::Continue => {}
+        }
+    }
+}
+
+fn collect_expr_scope_errors(expr: &Expr, errors: &mut Vec<TypeInfo>) {
+    match expr {
+        Expr::Spawn { ty, .. } => {
+            if let Some((_, error)) = task_inner(ty).and_then(TypeInfo::result_parts) {
+                if !errors.iter().any(|seen| seen == error) {
+                    errors.push(error.clone());
+                }
+            }
+        }
+        Expr::Unary { expr, .. } => collect_expr_scope_errors(expr, errors),
+        Expr::Binary { left, right, .. } => {
+            collect_expr_scope_errors(left, errors);
+            collect_expr_scope_errors(right, errors);
+        }
+        Expr::Call { callee, args, .. } => {
+            collect_expr_scope_errors(callee, errors);
+            for arg in args {
+                collect_expr_scope_errors(arg, errors);
+            }
+        }
+        Expr::Field { target, .. } => collect_expr_scope_errors(target, errors),
+        Expr::MethodCall { receiver, args, .. } => {
+            collect_expr_scope_errors(receiver, errors);
+            for arg in args {
+                collect_expr_scope_errors(arg, errors);
+            }
+        }
+        Expr::StructLiteral { fields, .. } => {
+            for (_, value) in fields {
+                collect_expr_scope_errors(value, errors);
+            }
+        }
+        Expr::If {
+            condition,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_expr_scope_errors(condition, errors);
+            collect_scope_errors(then_block, errors);
+            collect_scope_errors(else_block, errors);
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            collect_expr_scope_errors(scrutinee, errors);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    collect_expr_scope_errors(guard, errors);
+                }
+                collect_expr_scope_errors(&arm.value, errors);
+            }
+        }
+        Expr::While { condition, body } => {
+            collect_expr_scope_errors(condition, errors);
+            collect_scope_errors(body, errors);
+        }
+        Expr::Scope { .. } => {}
+        Expr::Payload { value, .. } => collect_expr_scope_errors(value, errors),
+        Expr::Block(block) => collect_scope_errors(block, errors),
+        Expr::Return {
+            value: Some(value), ..
+        } => collect_expr_scope_errors(value, errors),
+        Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::String(_)
+        | Expr::Char(_)
+        | Expr::Bool(_)
+        | Expr::Name(_)
+        | Expr::Return { value: None } => {}
+    }
+}
+
+fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
+    match ty {
+        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
+        _ => None,
     }
 }

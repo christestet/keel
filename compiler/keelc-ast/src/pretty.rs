@@ -416,6 +416,20 @@ impl Printer {
                 );
                 (result, 10)
             }
+            Expr::Scope { deadline, body, .. } => {
+                let options = deadline
+                    .as_ref()
+                    .map(|expr| format!("(deadline: {})", self.expr(expr, 0, base_indent)))
+                    .unwrap_or_default();
+                (
+                    format!("scope{options} {}", self.inline_block(body, base_indent)),
+                    10,
+                )
+            }
+            Expr::Spawn { expr, .. } => {
+                let inner = self.expr(expr, 90, base_indent);
+                (format!("spawn {inner}"), 90)
+            }
             Expr::Question { expr, .. } => {
                 let inner = self.expr(expr, 100, base_indent);
                 (format!("{inner}?"), 100)

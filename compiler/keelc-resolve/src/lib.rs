@@ -199,6 +199,13 @@ impl<'a> Resolver<'a> {
                 self.resolve_expr(condition);
                 self.resolve_block(body);
             }
+            Expr::Scope { deadline, body, .. } => {
+                if let Some(deadline) = deadline {
+                    self.resolve_expr(deadline);
+                }
+                self.resolve_block(body);
+            }
+            Expr::Spawn { expr, .. } => self.resolve_expr(expr),
             Expr::Block(block) => self.resolve_block(block),
             Expr::Catch {
                 expr,
@@ -318,6 +325,16 @@ struct Typechecker<'a> {
     ctx: TypeContext,
     diagnostics: Vec<Diagnostic>,
     diagnostic_span_override: Option<Span>,
+    scope_depth: usize,
+    scope_errors: Vec<Vec<TypeInfo>>,
+    task_bindings: Vec<Vec<TaskBinding>>,
+    task_value_tail_depth: Option<usize>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TaskBinding {
+    name: String,
+    scope_depth: usize,
 }
 
 impl<'a> Typechecker<'a> {
@@ -327,6 +344,10 @@ impl<'a> Typechecker<'a> {
             ctx: TypeContext::new(module),
             diagnostics: Vec::new(),
             diagnostic_span_override: None,
+            scope_depth: 0,
+            scope_errors: Vec::new(),
+            task_bindings: Vec::new(),
+            task_value_tail_depth: None,
         }
     }
 
@@ -582,9 +603,15 @@ impl<'a> Typechecker<'a> {
                     .map(|ty| self.resolve_type(&ty).clone());
                 if let Some(expected) = annotated {
                     self.check_assignable(&value_type, &expected, value.span());
-                    self.define_value(name, expected);
+                    self.define_value(name, expected.clone());
+                    if task_inner(&expected).is_some() {
+                        self.define_task(name);
+                    }
                 } else {
-                    self.define_value(name, value_type);
+                    self.define_value(name, value_type.clone());
+                    if task_inner(&value_type).is_some() {
+                        self.define_task(name);
+                    }
                 }
                 TypeInfo::Unit
             }
@@ -595,7 +622,14 @@ impl<'a> Typechecker<'a> {
             }
             Stmt::Return { value, .. } => {
                 if let Some(value) = value {
-                    self.infer_expr(value);
+                    let value_type = self.infer_expr(value);
+                    if task_inner(&value_type).is_some() {
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0703,
+                            self.diagnostic_span(value.span()),
+                            "task handles may not escape their scope",
+                        ));
+                    }
                 }
                 TypeInfo::Unit
             }
@@ -634,6 +668,18 @@ impl<'a> Typechecker<'a> {
             Expr::Call { callee, args, .. } => self.infer_call(callee, args),
             Expr::Field { target, field, .. } => {
                 let target_type = self.infer_expr(target);
+                if field.value == "value" {
+                    if let Some(inner) = task_inner(&target_type) {
+                        if !self.task_value_allowed(target) {
+                            self.diagnostics.push(Diagnostic::error(
+                                registry::K0702,
+                                self.diagnostic_span(field.span),
+                                "task result is only readable in the scope tail after the join barrier",
+                            ));
+                        }
+                        return task_value_type(inner);
+                    }
+                }
                 self.ctx
                     .field_type(&target_type, &field.value)
                     .unwrap_or(TypeInfo::Unknown)
@@ -682,6 +728,8 @@ impl<'a> Typechecker<'a> {
                 self.check_block(body);
                 TypeInfo::Unit
             }
+            Expr::Scope { deadline, body, .. } => self.infer_scope(deadline.as_deref(), body),
+            Expr::Spawn { expr, span } => self.infer_spawn(expr, *span),
             Expr::Block(block) => self.check_block(block),
             Expr::Question { expr, span } => self.infer_question(expr, *span),
             Expr::Catch {
@@ -712,6 +760,64 @@ impl<'a> Typechecker<'a> {
                 TypeInfo::Unit
             }
         }
+    }
+
+    fn infer_scope(&mut self, deadline: Option<&Expr>, body: &Block) -> TypeInfo {
+        if let Some(deadline) = deadline {
+            self.infer_expr(deadline);
+        }
+
+        self.scope_depth += 1;
+        self.scope_errors.push(Vec::new());
+        self.push_scope();
+
+        let mut result = TypeInfo::Unit;
+        let mut statements = body.statements.iter().peekable();
+        while let Some(statement) = statements.next() {
+            let is_tail = statements.peek().is_none() && matches!(statement, Stmt::Expr(_));
+            if is_tail {
+                if let Stmt::Expr(expr) = statement {
+                    let previous = self.task_value_tail_depth.replace(self.scope_depth);
+                    result = self.infer_expr(expr);
+                    self.task_value_tail_depth = previous;
+                    if task_inner(&result).is_some() {
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0703,
+                            self.diagnostic_span(expr.span()),
+                            "task handles may not escape their scope",
+                        ));
+                    }
+                }
+            } else {
+                self.check_stmt(statement);
+            }
+        }
+
+        self.pop_scope();
+        let errors = self.scope_errors.pop().unwrap_or_default();
+        self.scope_depth = self.scope_depth.saturating_sub(1);
+
+        let Some(error_type) = scope_error_type(errors) else {
+            return result;
+        };
+        TypeInfo::generic("Result", vec![result, error_type])
+    }
+
+    fn infer_spawn(&mut self, expr: &Expr, span: Span) -> TypeInfo {
+        if self.scope_depth == 0 {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0701,
+                self.diagnostic_span(span),
+                "`spawn` is only valid inside a `scope` block",
+            ));
+        }
+        let expr_type = self.infer_expr(expr);
+        if let Some((_, error_type)) = expr_type.result_parts() {
+            if let Some(errors) = self.scope_errors.last_mut() {
+                errors.push(error_type.clone());
+            }
+        }
+        TypeInfo::generic("Task", vec![expr_type])
     }
 
     fn infer_unary(&mut self, op: keelc_ast::UnaryOp, expr: &Expr) -> TypeInfo {
@@ -1071,6 +1177,15 @@ impl<'a> Typechecker<'a> {
         self.ctx.define_value(&name.value, ty);
     }
 
+    fn define_task(&mut self, name: &Spanned<String>) {
+        if let Some(scope) = self.task_bindings.last_mut() {
+            scope.push(TaskBinding {
+                name: name.value.clone(),
+                scope_depth: self.scope_depth,
+            });
+        }
+    }
+
     fn value_type(&self, name: &str) -> Option<TypeInfo> {
         self.ctx.value_type(name)
     }
@@ -1212,10 +1327,27 @@ impl<'a> Typechecker<'a> {
 
     fn push_scope(&mut self) {
         self.ctx.push_scope();
+        self.task_bindings.push(Vec::new());
     }
 
     fn pop_scope(&mut self) {
         self.ctx.pop_scope();
+        let _ = self.task_bindings.pop();
+    }
+
+    fn task_value_allowed(&self, target: &Expr) -> bool {
+        let Expr::Name(name) = target else {
+            return false;
+        };
+        let Some(tail_depth) = self.task_value_tail_depth else {
+            return false;
+        };
+        self.task_bindings
+            .iter()
+            .rev()
+            .flat_map(|scope| scope.iter().rev())
+            .find(|binding| binding.name == name.value)
+            .is_some_and(|binding| binding.scope_depth == tail_depth)
     }
 }
 
@@ -1252,6 +1384,33 @@ fn arm_pattern_name(arm: &MatchArm) -> Option<&str> {
     match &arm.pattern {
         Pattern::Name { name, .. } => Some(name.value.as_str()),
         Pattern::Wildcard(_) => None,
+    }
+}
+
+fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
+    match ty {
+        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
+        _ => None,
+    }
+}
+
+fn task_value_type(inner: &TypeInfo) -> TypeInfo {
+    inner
+        .result_parts()
+        .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())
+}
+
+fn scope_error_type(errors: Vec<TypeInfo>) -> Option<TypeInfo> {
+    let mut unique = Vec::new();
+    for error in errors {
+        if !unique.iter().any(|seen| seen == &error) {
+            unique.push(error);
+        }
+    }
+    match unique.len() {
+        0 => None,
+        1 => unique.into_iter().next(),
+        _ => Some(TypeInfo::Union(unique)),
     }
 }
 

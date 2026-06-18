@@ -182,6 +182,8 @@ impl TypeContext {
                 }),
             Expr::Match { arms, .. } => self.infer_match_result(arms),
             Expr::While { .. } => TypeInfo::Unit,
+            Expr::Scope { deadline, body, .. } => self.infer_scope(deadline.as_deref(), body),
+            Expr::Spawn { expr, .. } => TypeInfo::generic("Task", vec![self.infer_expr(expr)]),
             Expr::Block(block) => self.infer_block_type(block),
             Expr::Question { expr, .. } => self.infer_question(expr),
             Expr::Catch { expr, .. } => self
@@ -313,6 +315,129 @@ impl TypeContext {
     }
 
     #[must_use]
+    pub fn infer_scope(&self, deadline: Option<&Expr>, block: &Block) -> TypeInfo {
+        if let Some(deadline) = deadline {
+            let _ = self.infer_expr(deadline);
+        }
+        let tail_type = self.infer_block_type(block);
+        let error_type = self.scope_error_type(block);
+        error_type.map_or(tail_type.clone(), |err| {
+            TypeInfo::generic("Result", vec![tail_type, err])
+        })
+    }
+
+    fn scope_error_type(&self, block: &Block) -> Option<TypeInfo> {
+        let mut errors = Vec::new();
+        self.collect_scope_errors(block, &mut errors);
+        match errors.len() {
+            0 => None,
+            1 => errors.into_iter().next(),
+            _ => Some(TypeInfo::Union(errors)),
+        }
+    }
+
+    fn collect_scope_errors(&self, block: &Block, errors: &mut Vec<TypeInfo>) {
+        for statement in &block.statements {
+            match statement {
+                Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
+                    self.collect_expr_scope_errors(value, errors);
+                }
+                Stmt::Return {
+                    value: Some(value), ..
+                }
+                | Stmt::Assert { value, .. } => self.collect_expr_scope_errors(value, errors),
+                Stmt::Return { value: None, .. } | Stmt::Break(_) | Stmt::Continue(_) => {}
+            }
+        }
+    }
+
+    fn collect_expr_scope_errors(&self, expr: &Expr, errors: &mut Vec<TypeInfo>) {
+        match expr {
+            Expr::Spawn { expr, .. } => {
+                if let Some((_, error)) = self.infer_expr(expr).result_parts() {
+                    if !errors.iter().any(|seen| seen == error) {
+                        errors.push(error.clone());
+                    }
+                }
+            }
+            Expr::Unary { expr, .. } | Expr::Question { expr, .. } => {
+                self.collect_expr_scope_errors(expr, errors);
+            }
+            Expr::Binary { left, right, .. } => {
+                self.collect_expr_scope_errors(left, errors);
+                self.collect_expr_scope_errors(right, errors);
+            }
+            Expr::Call { callee, args, .. } => {
+                self.collect_expr_scope_errors(callee, errors);
+                for arg in args {
+                    self.collect_expr_scope_errors(arg, errors);
+                }
+            }
+            Expr::Field { target, .. } => self.collect_expr_scope_errors(target, errors),
+            Expr::MethodCall { receiver, args, .. } => {
+                self.collect_expr_scope_errors(receiver, errors);
+                for arg in args {
+                    self.collect_expr_scope_errors(arg, errors);
+                }
+            }
+            Expr::StructLiteral { fields, .. } => {
+                for field in fields {
+                    self.collect_expr_scope_errors(&field.value, errors);
+                }
+            }
+            Expr::If {
+                condition,
+                then_block,
+                else_branch,
+                ..
+            } => {
+                self.collect_expr_scope_errors(condition, errors);
+                self.collect_scope_errors(then_block, errors);
+                if let Some(else_branch) = else_branch {
+                    self.collect_expr_scope_errors(else_branch, errors);
+                }
+            }
+            Expr::Match {
+                scrutinee, arms, ..
+            } => {
+                self.collect_expr_scope_errors(scrutinee, errors);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.collect_expr_scope_errors(guard, errors);
+                    }
+                    self.collect_expr_scope_errors(&arm.value, errors);
+                }
+            }
+            Expr::While {
+                condition, body, ..
+            } => {
+                self.collect_expr_scope_errors(condition, errors);
+                self.collect_scope_errors(body, errors);
+            }
+            Expr::Scope { .. } => {}
+            Expr::Catch { expr, arms, .. } => {
+                self.collect_expr_scope_errors(expr, errors);
+                for arm in arms {
+                    self.collect_expr_scope_errors(&arm.value, errors);
+                }
+            }
+            Expr::Return {
+                value: Some(value), ..
+            } => self.collect_expr_scope_errors(value, errors),
+            Expr::Block(block) => self.collect_scope_errors(block, errors),
+            Expr::Missing(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::String(_)
+            | Expr::Char(_)
+            | Expr::Bool(_)
+            | Expr::Name(_)
+            | Expr::Wildcard(_)
+            | Expr::Return { value: None, .. } => {}
+        }
+    }
+
+    #[must_use]
     pub fn infer_match_result(&self, arms: &[MatchArm]) -> TypeInfo {
         let mut result = TypeInfo::Unknown;
         for arm in arms {
@@ -432,6 +557,11 @@ impl TypeContext {
 
     #[must_use]
     pub fn field_type(&self, target_ty: &TypeInfo, field_name: &str) -> Option<TypeInfo> {
+        if field_name == "value" {
+            if let Some(inner) = task_inner(target_ty) {
+                return Some(task_value_type(inner));
+            }
+        }
         let TypeInfo::Named(name) = target_ty else {
             return None;
         };
@@ -780,4 +910,17 @@ pub fn question_success_type(ty: &TypeInfo) -> Option<TypeInfo> {
     ty.option_inner()
         .or_else(|| ty.result_parts().map(|(ok, _)| ok))
         .cloned()
+}
+
+fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
+    match ty {
+        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
+        _ => None,
+    }
+}
+
+fn task_value_type(inner: &TypeInfo) -> TypeInfo {
+    inner
+        .result_parts()
+        .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())
 }

@@ -1,0 +1,32 @@
+enum LoadError {
+    First,
+    Second,
+}
+
+fn first() -> Result<Int, LoadError> {
+    Err(First)
+}
+
+fn second() -> Result<Int, LoadError> {
+    Err(Second)
+}
+
+fn combined() -> Result<Int, LoadError> {
+    scope {
+        let a = spawn first()
+        let b = spawn second()
+        a.value + b.value
+    }
+}
+
+fn label() -> String {
+    let value = combined() catch err {
+        First => return "first",
+        Second => return "second",
+    }
+    "ok: {value}"
+}
+
+fn main() {
+    print(label())
+}

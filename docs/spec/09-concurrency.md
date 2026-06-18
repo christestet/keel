@@ -8,12 +8,14 @@ restate the frozen rules in [`keel-core.md`](keel-core.md); on any conflict with
 `keel-core.md`, file an issue rather than reconciling silently (the prime
 directive in the root [`AGENTS.md`](../../AGENTS.md)).
 
-Implementation status: **specified, not yet implemented.** This chapter is the
-first of the three-PR sequence (spec → tests → implementation) for the remaining
-M5 concurrency work; the conformance cases (§9.10) and the compiler
-implementation land in the following two PRs, and the `K07xx` codes (§9.9) are
-registered in the accompanying registry PR. Until then `keel-core.md` §8 still
-rejects `scope`/`spawn` with `K0903`.
+Implementation status: **partially implemented for M5.** The compiler accepts
+`scope`/`spawn`, types `Task<T>`, enforces `K0701`-`K0703`, lowers through KIR,
+and emits Go for join-barrier execution and fail-fast `Result` propagation.
+The Core reject case `903-no-scope-spawn` is milestone-gated through M4.
+`scope(deadline: ...)` parses and lowers, but Go backend emission for deadlines
+is intentionally still unsupported until the M6 time/duration stdlib surface
+exists. Cancellation checkpoint APIs such as `check_cancel()` are likewise
+specified here but not exposed by the current stdlib slice.
 
 Structured concurrency in Keel is intentionally rigid:
 
@@ -237,19 +239,19 @@ code `K0003`.
 
 ## 9.10 Conformance cases this chapter introduces
 
-These land in the following conformance PR (a new concurrency sub-band; exact
-case numbers are fixed in that PR). The reject case `903-no-scope-spawn` flips
-from reject to accept at M5 when the implementation lands — it is not deleted.
+The initial M5 conformance slice is landed in cases `710`-`715`. Deadline and
+explicit cancellation-checkpoint cases are deferred until the M6 stdlib surface
+provides the necessary time/cancellation APIs.
 
-| Proposed case | Kind | Asserts |
+| Case | Kind | Asserts |
 |---|---|---|
-| `scope-spawn-join` | accept | a single `spawn` joins at the barrier; tail reads `.value` |
-| `scope-two-spawn-fanout` | accept | two fallible spawns; tail builds a struct from both payloads |
-| `scope-fail-fast` | accept | first `Err` cancels siblings; scope yields that `Err` (lowest spawn index) |
-| `scope-cancel-catch` | accept | a `Cancelled` error is handled by `catch` |
-| `spawn-outside-scope` | reject `K0701` | `spawn` with no enclosing `scope` |
-| `task-value-before-join` | reject `K0702` | `.value` read in a non-tail statement |
-| `task-handle-escapes` | reject `K0703` | a `Task<T>` returned from its scope |
+| `710-scope-spawn-join` | accept | a single `spawn` joins at the barrier; tail reads `.value` |
+| `711-scope-two-spawn-fanout` | accept | two fallible spawns; tail builds a struct from both payloads |
+| `715-scope-fail-fast` | accept | first `Err` cancels siblings; scope yields that `Err` (lowest spawn index) |
+| `712-spawn-outside-scope` | reject `K0701` | `spawn` with no enclosing `scope` |
+| `713-task-value-before-join` | reject `K0702` | `.value` read in a non-tail statement |
+| `714-task-handle-escapes` | reject `K0703` | a `Task<T>` returned from its scope |
+| deferred `scope-cancel-catch` | accept | a `Cancelled` error is handled by `catch` once cancellation APIs exist |
 
 ## 9.11 Dependencies
 
@@ -262,6 +264,6 @@ from reject to accept at M5 when the implementation lands — it is not deleted.
 - Frozen base: [`keel-core.md`](keel-core.md) §1 (keywords `scope` and `spawn`
   are reserved for later milestones), §4 (expressions, block value), §5 (errors,
   `Result`, `catch`, union error types).
-- Code registry: `K0701`–`K0703` to be registered in
+- Code registry: `K0701`–`K0703` are registered in
   [`compiler/keelc-diag/src/registry.rs`](../../compiler/keelc-diag/src/registry.rs)
-  (append-only) in the registry PR ([`docs/spec/AGENTS.md`](AGENTS.md)).
+  (append-only) ([`docs/spec/AGENTS.md`](AGENTS.md)).

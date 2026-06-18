@@ -240,6 +240,15 @@ pub enum Expr {
         body: Block,
         span: Span,
     },
+    Scope {
+        deadline: Option<Box<Expr>>,
+        body: Block,
+        span: Span,
+    },
+    Spawn {
+        expr: Box<Expr>,
+        span: Span,
+    },
     Block(Block),
     Question {
         expr: Box<Expr>,
@@ -272,6 +281,8 @@ impl Expr {
             | Expr::If { span, .. }
             | Expr::Match { span, .. }
             | Expr::While { span, .. }
+            | Expr::Scope { span, .. }
+            | Expr::Spawn { span, .. }
             | Expr::Question { span, .. }
             | Expr::Catch { span, .. }
             | Expr::Return { span, .. } => *span,

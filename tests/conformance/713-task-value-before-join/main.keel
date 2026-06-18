@@ -1,0 +1,11 @@
+fn work() -> Int {
+    1
+}
+
+fn main() {
+    scope {
+        let task = spawn work()
+        let value = task.value
+        print("{value}")
+    }
+}

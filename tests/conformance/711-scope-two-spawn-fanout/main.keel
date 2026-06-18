@@ -1,0 +1,31 @@
+struct Pair {
+    left: Int
+    right: Int
+}
+
+enum LoadError {
+    Failed,
+}
+
+fn load_left() -> Result<Int, LoadError> {
+    Ok(20)
+}
+
+fn load_right() -> Result<Int, LoadError> {
+    Ok(22)
+}
+
+fn load_pair() -> Result<Pair, LoadError> {
+    scope {
+        let left = spawn load_left()
+        let right = spawn load_right()
+        Pair { left: left.value, right: right.value }
+    }
+}
+
+fn main() {
+    let pair = load_pair() catch err {
+        other => return,
+    }
+    print("{pair.left + pair.right}")
+}
