@@ -5,13 +5,70 @@ on:
     branches: [main]
   pull_request:
 
-# Determinism and honesty: CI is the same `cargo run` a contributor uses locally.
-# No CI-only magic.
+# Determinism and honesty: CI uses the same commands contributors run locally,
+# but scopes expensive jobs to the files that changed. scripts/preflight.sh
+# remains the full local gate.
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      compiler: ${{ steps.classify.outputs.compiler }}
+      conformance: ${{ steps.classify.outputs.conformance }}
+      harness: ${{ steps.classify.outputs.harness }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify changed files
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            changed="$(git diff --name-only "$base"...HEAD)"
+          elif [ -n "${{ github.event.before }}" ] &&
+               [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            changed="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")"
+          else
+            changed="$(git diff --name-only HEAD^ HEAD)"
+          fi
+
+          echo "changed files:"
+          echo "$changed"
+
+          has() {
+            local pattern="$1"
+            echo "$changed" | grep -Eq "$pattern"
+          }
+
+          compiler=false
+          conformance=false
+          harness=false
+
+          if has '^(compiler/|Cargo\.toml$|Cargo\.lock$)'; then
+            compiler=true
+          fi
+          if has '^tests/conformance/'; then
+            conformance=true
+          fi
+          if has '(^|/)(AGENTS|CLAUDE)\.md$|^\.agents/|^scripts/(check-harness|preflight)\.sh$|^\.github/workflows/'; then
+            harness=true
+          fi
+
+          {
+            echo "compiler=$compiler"
+            echo "conformance=$conformance"
+            echo "harness=$harness"
+          } >> "$GITHUB_OUTPUT"
+
   # The conformance suite is the executable spec — it must be structurally
-  # valid on every commit, even before a compiler exists (pre-M1).
+  # valid when conformance cases change, even before a compiler exists (pre-M1).
   conformance-structure:
+    needs: changes
+    if: needs.changes.outputs.conformance == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,8 +78,11 @@ jobs:
         run: cargo run -p conformance-runner -- --check
 
   # Once `keelc` exists (M3+), this job becomes the gate that defines
-  # "the compiler is correct". Until then it self-skips.
+  # "the compiler is correct". It runs when compiler code or conformance cases
+  # change; docs-only and governance-only PRs do not pay for a release build.
   conformance-run:
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true' || needs.changes.outputs.conformance == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,12 +103,14 @@ jobs:
       - name: Run conformance suite
         if: steps.keelc.outputs.present == 'true'
         env:
-          KEEL_MILESTONE: ${{ vars.keel_MILESTONE }}   # set in repo settings, e.g. M3
+          KEEL_MILESTONE: ${{ vars.KEEL_MILESTONE || 'M5' }}
         run: cargo run -p conformance-runner -- --keelc target/release/keelc
 
   # The agent harness (nested AGENTS.md/CLAUDE.md, preflight, .claude config)
   # is code: it must not drift as the repo grows. See AGENTS.md "The agent harness".
   harness:
+    needs: changes
+    if: needs.changes.outputs.harness == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +118,8 @@ jobs:
         run: scripts/check-harness.sh
 
   rust-quality:
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
