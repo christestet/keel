@@ -1,6 +1,6 @@
 # KDR-0022: Interface-constrained generics
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-14
 - **Scope:** language
 
