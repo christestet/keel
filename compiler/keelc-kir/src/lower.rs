@@ -15,7 +15,7 @@ use keelc_ast::{Item as AstItem, StringLiteral as AstStringLiteral};
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{LineIndex, Span, Spanned};
 use keelc_types::infer::{question_success_type, TypeContext};
-use keelc_types::TypeInfo;
+use keelc_types::{reduce_error_types, TypeInfo};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LowerOutput {
@@ -883,11 +883,7 @@ fn scope_error_type(block: &Block, has_deadline: bool) -> Option<TypeInfo> {
             errors.push(cancelled);
         }
     }
-    match errors.len() {
-        0 => None,
-        1 => errors.into_iter().next(),
-        _ => Some(TypeInfo::Union(errors)),
-    }
+    reduce_error_types(errors)
 }
 
 fn collect_scope_errors(block: &Block, errors: &mut Vec<TypeInfo>) {

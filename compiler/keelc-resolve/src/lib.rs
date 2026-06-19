@@ -4,7 +4,7 @@ use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, St
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{Span, Spanned};
 use keelc_types::infer::{is_int_float_pair, type_absorbs, types_compatible, TypeContext};
-use keelc_types::{merge_types, TypeInfo};
+use keelc_types::{merge_types, reduce_error_types, TypeInfo};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveOutput {
@@ -1603,11 +1603,7 @@ fn scope_error_type(errors: Vec<TypeInfo>) -> Option<TypeInfo> {
             unique.push(error);
         }
     }
-    match unique.len() {
-        0 => None,
-        1 => unique.into_iter().next(),
-        _ => Some(TypeInfo::Union(unique)),
-    }
+    reduce_error_types(unique)
 }
 
 #[cfg(test)]

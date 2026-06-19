@@ -6,7 +6,7 @@
 //! `keelc-kir` lowering (which needs typed KIR) can share the same inference
 //! logic.
 
-use crate::{merge_types, substitute_type_params, type_param_bounds, TypeInfo};
+use crate::{merge_types, reduce_error_types, substitute_type_params, type_param_bounds, TypeInfo};
 use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Stmt, UnaryOp};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -425,11 +425,7 @@ impl TypeContext {
     fn scope_error_type(&self, block: &Block) -> Option<TypeInfo> {
         let mut errors = Vec::new();
         self.collect_scope_errors(block, &mut errors);
-        match errors.len() {
-            0 => None,
-            1 => errors.into_iter().next(),
-            _ => Some(TypeInfo::Union(errors)),
-        }
+        reduce_error_types(errors)
     }
 
     fn collect_scope_errors(&self, block: &Block, errors: &mut Vec<TypeInfo>) {
