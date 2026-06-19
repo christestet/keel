@@ -1,0 +1,6 @@
+use std.http
+
+fn main() {
+    let resp = http.ok("hello")
+    print("{resp.status}: {resp.body}")
+}

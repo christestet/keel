@@ -1,0 +1,5 @@
+use std.time
+
+fn main() {
+    time.seconds(-1)
+}

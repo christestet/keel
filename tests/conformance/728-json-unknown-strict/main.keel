@@ -1,0 +1,15 @@
+use std.json
+
+struct User {
+    name: String
+}
+
+fn quote() -> Char { '"' }
+
+fn main() {
+    let user = json.parse[User]("{{{quote()}name{quote()}:{quote()}Ada{quote()},{quote()}extra{quote()}:1}}") catch err {
+        UnknownField(path) => return print("unknown {path}"),
+        other => return print("wrong error"),
+    }
+    print(user.name)
+}

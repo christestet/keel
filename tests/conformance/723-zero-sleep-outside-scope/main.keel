@@ -1,0 +1,12 @@
+use std.time
+
+fn label() -> String {
+    let value = time.sleep(time.milliseconds(0)) catch err {
+        Cancelled => return "cancelled",
+    }
+    "ok"
+}
+
+fn main() {
+    print(label())
+}

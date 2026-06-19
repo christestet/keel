@@ -157,7 +157,12 @@ impl TypeContext {
             Expr::Binary {
                 left, op, right, ..
             } => self.infer_binary(left, *op, right),
-            Expr::Call { callee, args, .. } => self.infer_call(callee, args),
+            Expr::Call {
+                callee,
+                type_args,
+                args,
+                ..
+            } => self.infer_call(callee, type_args, args),
             Expr::Field { target, field, .. } => self
                 .field_type(&self.infer_expr(target), &field.value)
                 .unwrap_or(TypeInfo::Unknown),
@@ -234,13 +239,22 @@ impl TypeContext {
     }
 
     #[must_use]
-    pub fn infer_call(&self, callee: &Expr, args: &[Expr]) -> TypeInfo {
+    pub fn infer_call(
+        &self,
+        callee: &Expr,
+        type_args: &[keelc_ast::Type],
+        args: &[Expr],
+    ) -> TypeInfo {
         let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
         match callee {
             Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
             Expr::Name(name) if name.value == "checked_div" || name.value == "checked_rem" => {
                 TypeInfo::generic("Option", vec![TypeInfo::Int])
             }
+            Expr::Name(name) if name.value == "check_cancel" => TypeInfo::generic(
+                "Result",
+                vec![TypeInfo::Unit, TypeInfo::Named("Cancelled".to_string())],
+            ),
             Expr::Name(name) if name.value == "Some" => TypeInfo::generic(
                 "Option",
                 vec![arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)],
@@ -269,6 +283,37 @@ impl TypeContext {
             {
                 TypeInfo::Float
             }
+            Expr::Field { target, field, .. }
+                if matches!(target.as_ref(), Expr::Name(name) if name.value == "json")
+                    && field.value == "parse" =>
+            {
+                let target = type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown);
+                TypeInfo::generic(
+                    "Result",
+                    vec![target, TypeInfo::Named("json.Error".to_string())],
+                )
+            }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "http") => {
+                match field.value.as_str() {
+                    "ok" | "created" | "bad_request" | "conflict" | "internal_error"
+                    | "no_content" | "not_found" => TypeInfo::Named("http.Response".to_string()),
+                    "serve" => TypeInfo::generic(
+                        "Result",
+                        vec![TypeInfo::Unit, TypeInfo::Named("http.Error".to_string())],
+                    ),
+                    _ => TypeInfo::Unknown,
+                }
+            }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "log") => {
+                match field.value.as_str() {
+                    "info" | "warn" | "error" => TypeInfo::Unit,
+                    _ => TypeInfo::Unknown,
+                }
+            }
             _ => TypeInfo::Unknown,
         }
     }
@@ -277,6 +322,41 @@ impl TypeContext {
     pub fn infer_method_call(&self, receiver: &Expr, method: &str, args: &[Expr]) -> TypeInfo {
         if matches!(receiver, Expr::Name(name) if name.value == "Float") && method == "from" {
             return TypeInfo::Float;
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "time") {
+            return match method {
+                "milliseconds" | "seconds" => TypeInfo::Named("time.Duration".to_string()),
+                "sleep" => TypeInfo::generic(
+                    "Result",
+                    vec![TypeInfo::Unit, TypeInfo::Named("Cancelled".to_string())],
+                ),
+                _ => TypeInfo::Unknown,
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "http") {
+            return match method {
+                "ok" | "created" | "bad_request" | "conflict" | "internal_error" => {
+                    TypeInfo::Named("http.Response".to_string())
+                }
+                "no_content" | "not_found" => TypeInfo::Named("http.Response".to_string()),
+                "serve" => TypeInfo::generic(
+                    "Result",
+                    vec![TypeInfo::Unit, TypeInfo::Named("http.Error".to_string())],
+                ),
+                _ => TypeInfo::Unknown,
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "log") {
+            return match method {
+                "info" | "warn" | "error" => TypeInfo::Unit,
+                _ => TypeInfo::Unknown,
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "json") && method == "write" {
+            return TypeInfo::generic(
+                "Result",
+                vec![TypeInfo::String, TypeInfo::Named("json.Error".to_string())],
+            );
         }
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
@@ -320,7 +400,23 @@ impl TypeContext {
             let _ = self.infer_expr(deadline);
         }
         let tail_type = self.infer_block_type(block);
-        let error_type = self.scope_error_type(block);
+        let mut error_type = self.scope_error_type(block);
+        if deadline.is_some() {
+            error_type = Some(match error_type {
+                None => TypeInfo::Named("Cancelled".to_string()),
+                Some(existing) if existing == TypeInfo::Named("Cancelled".to_string()) => existing,
+                Some(TypeInfo::Union(mut members)) => {
+                    let cancelled = TypeInfo::Named("Cancelled".to_string());
+                    if !members.contains(&cancelled) {
+                        members.push(cancelled);
+                    }
+                    TypeInfo::Union(members)
+                }
+                Some(existing) => {
+                    TypeInfo::Union(vec![existing, TypeInfo::Named("Cancelled".to_string())])
+                }
+            });
+        }
         error_type.map_or(tail_type.clone(), |err| {
             TypeInfo::generic("Result", vec![tail_type, err])
         })
@@ -505,6 +601,22 @@ impl TypeContext {
                 }];
             }
         }
+        if scrutinee_ty == &TypeInfo::Named("json.Error".to_string()) {
+            return match pattern_name {
+                "Syntax" => vec![TypeInfo::Int],
+                "TypeMismatch" => vec![TypeInfo::String, TypeInfo::String],
+                "MissingField" | "UnknownField" | "DuplicateField" | "OutOfRange" | "NonFinite" => {
+                    vec![TypeInfo::String]
+                }
+                _ => Vec::new(),
+            };
+        }
+        if scrutinee_ty == &TypeInfo::Named("http.Error".to_string()) {
+            return match pattern_name {
+                "BindFailed" => vec![TypeInfo::String],
+                _ => Vec::new(),
+            };
+        }
         if let TypeInfo::Named(name) = scrutinee_ty {
             return self
                 .enums
@@ -531,6 +643,10 @@ impl TypeContext {
     pub fn builtin_value_type(&self, name: &str) -> Option<TypeInfo> {
         match name {
             "None" => Some(TypeInfo::generic("Option", vec![TypeInfo::Unknown])),
+            "Cancelled" => Some(TypeInfo::Named("Cancelled".to_string())),
+            "Syntax" | "TypeMismatch" | "MissingField" | "UnknownField" | "DuplicateField"
+            | "OutOfRange" | "NonFinite" => Some(TypeInfo::Named("json.Error".to_string())),
+            "BindFailed" => Some(TypeInfo::Named("http.Error".to_string())),
             _ => None,
         }
     }
@@ -562,6 +678,21 @@ impl TypeContext {
                 return Some(task_value_type(inner));
             }
         }
+        if let TypeInfo::Named(name) = target_ty {
+            if name == "http.Response" {
+                return match field_name {
+                    "status" => Some(TypeInfo::Int),
+                    "body" => Some(TypeInfo::String),
+                    _ => None,
+                };
+            }
+            if name == "http.Request" {
+                return match field_name {
+                    "body" | "method" | "path" => Some(TypeInfo::String),
+                    _ => None,
+                };
+            }
+        }
         let TypeInfo::Named(name) = target_ty else {
             return None;
         };
@@ -587,6 +718,17 @@ impl TypeContext {
     #[must_use]
     pub fn exhaustive_variants(&self, ty: &TypeInfo) -> Option<Vec<String>> {
         match ty {
+            TypeInfo::Named(name) if name == "Cancelled" => Some(vec!["Cancelled".to_string()]),
+            TypeInfo::Named(name) if name == "json.Error" => Some(vec![
+                "Syntax".to_string(),
+                "TypeMismatch".to_string(),
+                "MissingField".to_string(),
+                "UnknownField".to_string(),
+                "DuplicateField".to_string(),
+                "OutOfRange".to_string(),
+                "NonFinite".to_string(),
+            ]),
+            TypeInfo::Named(name) if name == "http.Error" => Some(vec!["BindFailed".to_string()]),
             TypeInfo::Named(name) => {
                 self.enums
                     .iter()
@@ -633,6 +775,35 @@ impl TypeContext {
                 name: name.to_string(),
                 ty: resolved,
             });
+        }
+    }
+
+    #[must_use]
+    pub fn is_json_representable(&self, ty: &TypeInfo) -> bool {
+        match ty {
+            TypeInfo::Int
+            | TypeInfo::Float
+            | TypeInfo::Bool
+            | TypeInfo::String
+            | TypeInfo::Char => true,
+            TypeInfo::Generic { name, args } if name == "Option" || name == "List" => {
+                args.len() == 1 && self.is_json_representable(&args[0])
+            }
+            TypeInfo::Generic { name, args } if name == "Map" => {
+                args.len() == 2
+                    && args[0] == TypeInfo::String
+                    && self.is_json_representable(&args[1])
+            }
+            TypeInfo::Named(name) => {
+                self.structs.iter().any(|info| info.name == *name)
+                    || self.enums.iter().any(|info| info.name == *name)
+            }
+            TypeInfo::Unit
+            | TypeInfo::Interface(_)
+            | TypeInfo::TypeParam { .. }
+            | TypeInfo::Union(_)
+            | TypeInfo::Unknown
+            | TypeInfo::Generic { .. } => false,
         }
     }
 
@@ -912,14 +1083,14 @@ pub fn question_success_type(ty: &TypeInfo) -> Option<TypeInfo> {
         .cloned()
 }
 
-fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
+pub fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
     match ty {
         TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
         _ => None,
     }
 }
 
-fn task_value_type(inner: &TypeInfo) -> TypeInfo {
+pub fn task_value_type(inner: &TypeInfo) -> TypeInfo {
     inner
         .result_parts()
         .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())

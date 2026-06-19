@@ -1,0 +1,5 @@
+use std.http
+
+fn main() {
+    http.serve(8080, 42)
+}

@@ -1,0 +1,15 @@
+use std.json
+
+struct User {
+    name: String
+    active: Bool
+}
+
+fn quote() -> Char { '"' }
+
+fn main() {
+    let user = json.parse[User]("{{{quote()}name{quote()}:{quote()}Ada{quote()},{quote()}active{quote()}:true}}") catch err {
+        other => return print("error"),
+    }
+    print("{user.name}: {user.active}")
+}

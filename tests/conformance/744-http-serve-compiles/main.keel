@@ -1,0 +1,9 @@
+use std.http
+
+fn handle(req: http.Request) -> http.Response {
+    http.ok(req.body)
+}
+
+fn main() {
+    http.serve(8080, handle)
+}

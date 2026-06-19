@@ -227,7 +227,6 @@ fn run_module(module: &Module, source: &str) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-
     let temp_dir = env::temp_dir().join(format!("keelc-go-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
         eprintln!(

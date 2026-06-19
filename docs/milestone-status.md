@@ -107,6 +107,20 @@ all generic syntax.
 
 **Known limitations:** interfaces are limited to ≤5 methods (KDR-0003); no default methods, inheritance, or structural subtyping.
 
+## M6 — Stdlib slice (in progress)
+
+| Area | State |
+|---|---|
+| `std.time` / deadline / `check_cancel` | Done. `time.Duration`, `time.milliseconds`, `time.seconds`, `time.sleep`, `check_cancel()`, `scope(deadline: …)`. Conformance cases `716`–`723` pass. See [`docs/spec/15-stdlib-core.md §15.1–15.4`](spec/15-stdlib-core.md). |
+| `std.json` | Done. `json.parse[T]`, `json.write(value)`, strict and tolerant modes, struct/enum/Option/primitive codecs, formatter round-trip, `K1503` compile-time guard. Cases `724`–`735` pass. See [`docs/m6-json-implementation.md`](m6-json-implementation.md). |
+| `std.http` | **Not started.** Requires KDR → spec → conformance → implementation. |
+| `std.sql` | Not started. |
+| `std.log` | Not started. |
+| `std.config` | Not started. |
+| `examples/users-service/main.keel` | Not compilable yet (requires `std.http`). M6 exit criterion. |
+
+**Conformance score:** 139 / 139 passed at M6, 2 skipped (M4-only cases).
+
 ## Future: LSP server (M7+)
 
 | Area | State |
@@ -154,6 +168,14 @@ validate with:
 ```sh
 KEEL_MILESTONE=M5 scripts/preflight.sh
 # → 119 passed, 0 failed, 2 skipped
+```
+
+M6 adds `std.time`, `std.json`, and structured concurrency time/deadline APIs;
+validate with:
+
+```sh
+KEEL_MILESTONE=M6 scripts/preflight.sh
+# → 139 passed, 0 failed, 2 skipped
 ```
 
 ## Dependency chain

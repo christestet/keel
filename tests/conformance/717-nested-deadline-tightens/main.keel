@@ -1,0 +1,22 @@
+use std.time
+
+fn inner() -> Result<Unit, Cancelled> {
+    scope(deadline: time.milliseconds(1)) {
+        let task = spawn time.sleep(time.seconds(60))
+        task.value
+    }
+}
+
+fn label() -> String {
+    let value = scope(deadline: time.seconds(60)) {
+        let task = spawn inner()
+        task.value
+    } catch err {
+        Cancelled => return "inner cancelled",
+    }
+    "completed"
+}
+
+fn main() {
+    print(label())
+}

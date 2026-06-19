@@ -1,0 +1,20 @@
+use std.time
+
+fn slow() -> Result<Int, Cancelled> {
+    time.sleep(time.seconds(60))?
+    Ok(1)
+}
+
+fn label() -> String {
+    let value = scope(deadline: time.milliseconds(1)) {
+        let task = spawn slow()
+        task.value
+    } catch err {
+        Cancelled => return "cancelled",
+    }
+    "completed: {value}"
+}
+
+fn main() {
+    print(label())
+}

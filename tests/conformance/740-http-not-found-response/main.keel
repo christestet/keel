@@ -1,0 +1,6 @@
+use std.http
+
+fn main() {
+    let resp = http.not_found()
+    print("{resp.status}: {resp.body}")
+}

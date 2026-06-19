@@ -1,0 +1,15 @@
+use std.json
+
+struct Patch {
+    name: Option<String>
+}
+
+fn main() {
+    let patch = json.parse[Patch]("{{}}") catch err {
+        other => return print("error"),
+    }
+    match patch.name {
+        Some(name) => print(name),
+        None => print("none"),
+    }
+}

@@ -133,7 +133,7 @@ for compute-bound loops that would otherwise never block:
 scope {
     spawn {
         while true {
-            check_cancel()       // cooperative checkpoint
+            check_cancel()?      // cooperative checkpoint
             step()
         }
     }
@@ -143,7 +143,8 @@ scope {
 A cancelled operation returns the built-in error `Cancelled` through the ordinary
 `Result` channel, so cleanup runs through the normal scope-exit and `catch`
 (`keel-core.md` §5) paths. `Cancelled` is a built-in error type introduced by
-this chapter.
+this chapter. The concrete `check_cancel()` and cancellation-aware sleep
+signatures are specified in [`15-stdlib-core.md`](15-stdlib-core.md) §15.3.
 
 Cancellation is **never a panic**. Panics (KDR-0005) remain uncatchable and
 orthogonal: a panicking task aborts the process; it does not become a recoverable

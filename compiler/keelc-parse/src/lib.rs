@@ -602,7 +602,13 @@ impl Parser {
     }
 
     fn parse_named_type(&mut self) -> Type {
-        let name = self.expect_identifier("expected type name");
+        let mut name = self.expect_identifier("expected type name");
+        while self.eat_kind(&TokenKind::Dot).is_some() {
+            let segment = self.expect_identifier("expected type name after `.`");
+            name.value.push('.');
+            name.value.push_str(&segment.value);
+            name.span = name.span.join(segment.span);
+        }
         let mut args = Vec::new();
         if self.eat_kind(&TokenKind::Less).is_some() {
             self.skip_separators();
@@ -764,7 +770,7 @@ impl Parser {
                 let mut args = Vec::new();
                 self.skip_separators();
                 while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
-                    args.push(self.parse_expr());
+                    args.push(self.parse_call_arg());
                     if self.eat_kind(&TokenKind::Comma).is_none() {
                         break;
                     }
@@ -781,7 +787,7 @@ impl Parser {
                 };
             } else if self.milestone >= 5
                 && self.at_kind(&TokenKind::LeftBracket)
-                && matches!(expr, Expr::Name(_))
+                && matches!(expr, Expr::Name(_) | Expr::Field { .. })
             {
                 let type_args = self.parse_type_args_in_brackets();
                 // After type args, check for call `(args)` or struct literal `{...}`
@@ -789,7 +795,7 @@ impl Parser {
                     let mut args = Vec::new();
                     self.skip_separators();
                     while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
-                        args.push(self.parse_expr());
+                        args.push(self.parse_call_arg());
                         if self.eat_kind(&TokenKind::Comma).is_none() {
                             break;
                         }
@@ -820,7 +826,7 @@ impl Parser {
                     self.advance();
                     self.skip_separators();
                     while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
-                        args.push(self.parse_expr());
+                        args.push(self.parse_call_arg());
                         if self.eat_kind(&TokenKind::Comma).is_none() {
                             break;
                         }
@@ -861,6 +867,35 @@ impl Parser {
             }
         }
         expr
+    }
+
+    fn parse_call_arg(&mut self) -> Expr {
+        let is_tolerant = matches!(
+            self.tokens.get(self.pos..self.pos + 4),
+            Some([
+                Token { kind: TokenKind::Identifier(mode), .. },
+                Token { kind: TokenKind::Colon, .. },
+                Token { kind: TokenKind::Dot, .. },
+                Token { kind: TokenKind::Identifier(tolerant), .. },
+            ]) if mode == "mode" && tolerant == "tolerant"
+        );
+        if !is_tolerant {
+            return self.parse_expr();
+        }
+
+        let start = self
+            .advance()
+            .map_or_else(|| self.empty_span(), |token| token.span);
+        self.advance();
+        self.advance();
+        let end = self.advance().map_or(start, |token| token.span);
+        Expr::String(Spanned::new(
+            AstStringLiteral {
+                text: "__keel_json_tolerant".to_string(),
+                interpolations: Vec::new(),
+            },
+            start.join(end),
+        ))
     }
 
     fn parse_unary(&mut self) -> Expr {

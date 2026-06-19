@@ -315,6 +315,12 @@ impl Printer {
                 args,
                 ..
             } => {
+                let is_json_parse = matches!(
+                    callee.as_ref(),
+                    Expr::Field { target, field, .. }
+                        if field.value == "parse"
+                            && matches!(target.as_ref(), Expr::Name(name) if name.value == "json")
+                );
                 let callee = self.expr(callee, 100, base_indent);
                 let type_args = if type_args.is_empty() {
                     String::new()
@@ -328,7 +334,21 @@ impl Printer {
                 };
                 let args = args
                     .iter()
-                    .map(|arg| self.expr(arg, 0, base_indent))
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        if is_json_parse
+                            && index == 1
+                            && matches!(
+                                arg,
+                                Expr::String(literal)
+                                    if literal.value.text == "__keel_json_tolerant"
+                            )
+                        {
+                            "mode: .tolerant".to_string()
+                        } else {
+                            self.expr(arg, 0, base_indent)
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 (format!("{callee}{type_args}({args})"), 100)

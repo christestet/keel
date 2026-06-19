@@ -145,6 +145,7 @@ pub enum Expr {
     },
     Call {
         callee: Box<Expr>,
+        type_args: Vec<TypeInfo>,
         args: Vec<Expr>,
         ty: TypeInfo,
     },

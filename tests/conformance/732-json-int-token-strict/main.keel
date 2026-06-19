@@ -1,0 +1,9 @@
+use std.json
+
+fn main() {
+    let value = json.parse[Int]("1e0") catch err {
+        TypeMismatch(path, expected) => return print("{path}: {expected}"),
+        other => return print("wrong error"),
+    }
+    print(value)
+}

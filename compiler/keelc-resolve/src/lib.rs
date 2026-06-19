@@ -665,7 +665,12 @@ impl<'a> Typechecker<'a> {
                 right,
                 span,
             } => self.infer_binary(left, *op, right, *span),
-            Expr::Call { callee, args, .. } => self.infer_call(callee, args),
+            Expr::Call {
+                callee,
+                type_args,
+                args,
+                ..
+            } => self.infer_call(callee, type_args, args),
             Expr::Field { target, field, .. } => {
                 let target_type = self.infer_expr(target);
                 if field.value == "value" {
@@ -764,11 +769,24 @@ impl<'a> Typechecker<'a> {
 
     fn infer_scope(&mut self, deadline: Option<&Expr>, body: &Block) -> TypeInfo {
         if let Some(deadline) = deadline {
-            self.infer_expr(deadline);
+            let deadline_type = self.infer_expr(deadline);
+            if deadline_type != TypeInfo::Named("time.Duration".to_string())
+                && deadline_type != TypeInfo::Unknown
+            {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K1502,
+                    self.diagnostic_span(deadline.span()),
+                    format!("scope deadline must be `time.Duration`, found `{deadline_type}`"),
+                ));
+            }
         }
 
         self.scope_depth += 1;
-        self.scope_errors.push(Vec::new());
+        self.scope_errors.push(if deadline.is_some() {
+            vec![TypeInfo::Named("Cancelled".to_string())]
+        } else {
+            Vec::new()
+        });
         self.push_scope();
 
         let mut result = TypeInfo::Unit;
@@ -866,7 +884,12 @@ impl<'a> Typechecker<'a> {
         }
     }
 
-    fn infer_call(&mut self, callee: &Expr, args: &[Expr]) -> TypeInfo {
+    fn infer_call(
+        &mut self,
+        callee: &Expr,
+        type_args: &[keelc_ast::Type],
+        args: &[Expr],
+    ) -> TypeInfo {
         let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
 
         match callee {
@@ -877,6 +900,10 @@ impl<'a> Typechecker<'a> {
                     args: vec![TypeInfo::Int],
                 }
             }
+            Expr::Name(name) if name.value == "check_cancel" => TypeInfo::generic(
+                "Result",
+                vec![TypeInfo::Unit, TypeInfo::Named("Cancelled".to_string())],
+            ),
             Expr::Name(name) if name.value == "Some" => TypeInfo::Generic {
                 name: "Option".to_string(),
                 args: vec![arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)],
@@ -912,6 +939,48 @@ impl<'a> Typechecker<'a> {
                 self.check_call_args(&[TypeInfo::Int], args, field.span);
                 TypeInfo::Float
             }
+            Expr::Field { target, field, .. }
+                if matches!(target.as_ref(), Expr::Name(name) if name.value == "json")
+                    && field.value == "parse" =>
+            {
+                self.check_call_args(&[TypeInfo::String], &args[..args.len().min(1)], field.span);
+                let target_type = type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown);
+                if type_args.len() != 1 || !self.ctx.is_json_representable(&target_type) {
+                    let span = type_args.first().map_or(field.span, keelc_ast::Type::span);
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1503,
+                        self.diagnostic_span(span),
+                        format!("type `{target_type}` is not JSON-representable"),
+                    ));
+                }
+                TypeInfo::generic(
+                    "Result",
+                    vec![target_type, TypeInfo::Named("json.Error".to_string())],
+                )
+            }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "http") => {
+                self.infer_http_call(field, args)
+            }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "log") => {
+                match field.value.as_str() {
+                    "info" | "warn" | "error" => {
+                        self.check_call_args(&[TypeInfo::String], args, field.span);
+                        TypeInfo::Unit
+                    }
+                    _ => {
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0606,
+                            self.diagnostic_span(field.span),
+                            format!("method `{}` not found on `std.log`", field.value),
+                        ));
+                        TypeInfo::Unknown
+                    }
+                }
+            }
             Expr::Field { .. } => {
                 self.infer_expr(callee);
                 TypeInfo::Unknown
@@ -942,6 +1011,69 @@ impl<'a> Typechecker<'a> {
         if matches!(receiver, Expr::Name(name) if name.value == "Float") && method.value == "from" {
             self.check_call_args(&[TypeInfo::Int], args, method.span);
             return TypeInfo::Float;
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "time") {
+            return match method.value.as_str() {
+                "milliseconds" | "seconds" => {
+                    self.check_call_args(&[TypeInfo::Int], args, method.span);
+                    TypeInfo::Named("time.Duration".to_string())
+                }
+                "sleep" => {
+                    self.check_call_args(
+                        &[TypeInfo::Named("time.Duration".to_string())],
+                        args,
+                        method.span,
+                    );
+                    TypeInfo::generic(
+                        "Result",
+                        vec![TypeInfo::Unit, TypeInfo::Named("Cancelled".to_string())],
+                    )
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0606,
+                        self.diagnostic_span(span),
+                        format!("method `{}` not found on `std.time`", method.value),
+                    ));
+                    TypeInfo::Unknown
+                }
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "http") {
+            return self.infer_http_call(method, args);
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "log") {
+            return match method.value.as_str() {
+                "info" | "warn" | "error" => {
+                    self.check_call_args(&[TypeInfo::String], args, method.span);
+                    TypeInfo::Unit
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0606,
+                        self.diagnostic_span(method.span),
+                        format!("method `{}` not found on `std.log`", method.value),
+                    ));
+                    TypeInfo::Unknown
+                }
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "json") && method.value == "write" {
+            let value_type = args
+                .first()
+                .map(|arg| self.infer_expr(arg))
+                .unwrap_or(TypeInfo::Unknown);
+            if !self.ctx.is_json_representable(&value_type) {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K1503,
+                    self.diagnostic_span(args.first().map_or(method.span, Expr::span)),
+                    format!("type `{value_type}` is not JSON-representable"),
+                ));
+            }
+            return TypeInfo::generic(
+                "Result",
+                vec![TypeInfo::String, TypeInfo::Named("json.Error".to_string())],
+            );
         }
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
@@ -1018,6 +1150,70 @@ impl<'a> Typechecker<'a> {
             TypeInfo::Unknown
         } else {
             merge_types(&then_type, &else_type)
+        }
+    }
+
+    fn infer_http_call(&mut self, field: &Spanned<String>, args: &[Expr]) -> TypeInfo {
+        match field.value.as_str() {
+            "ok" | "created" | "bad_request" | "conflict" | "internal_error" => {
+                self.check_call_args(&[TypeInfo::String], args, field.span);
+                TypeInfo::Named("http.Response".to_string())
+            }
+            "no_content" | "not_found" => TypeInfo::Named("http.Response".to_string()),
+            "serve" => {
+                if let Some(port) = args.first() {
+                    let port_type = self.infer_expr(port);
+                    self.check_assignable(&port_type, &TypeInfo::Int, port.span());
+                }
+                if let Some(handler) = args.get(1) {
+                    self.check_http_handler(handler);
+                }
+                TypeInfo::generic(
+                    "Result",
+                    vec![TypeInfo::Unit, TypeInfo::Named("http.Error".to_string())],
+                )
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0606,
+                    self.diagnostic_span(field.span),
+                    format!("method `{}` not found on `std.http`", field.value),
+                ));
+                TypeInfo::Unknown
+            }
+        }
+    }
+
+    fn check_http_handler(&mut self, handler: &Expr) {
+        let Expr::Name(name) = handler else {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K1504,
+                handler.span(),
+                "HTTP handler must be a function name with signature `fn(http.Request) -> http.Response`",
+            ));
+            return;
+        };
+        let Some(info) = self.function_info(&name.value) else {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K1504,
+                name.span,
+                format!("`{}` is not a function", name.value),
+            ));
+            return;
+        };
+        let expected_params = vec![TypeInfo::Named("http.Request".to_string())];
+        let expected_return = TypeInfo::Named("http.Response".to_string());
+        if info.params != expected_params || info.return_type != expected_return {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K1504,
+                name.span,
+                format!(
+                    "`{}` has signature `fn({}) -> {}`, expected `fn(http.Request) -> http.Response`",
+                    name.value,
+                    info.params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
+                    info.return_type,
+                ),
+            ));
         }
     }
 

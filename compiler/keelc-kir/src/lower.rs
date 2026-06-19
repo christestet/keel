@@ -347,8 +347,18 @@ impl<'a> Lowerer<'a> {
                 right: Box::new(self.lower_expr(right)),
                 ty,
             },
-            keelc_ast::Expr::Call { callee, args, .. } => Expr::Call {
+            keelc_ast::Expr::Call {
+                callee,
+                type_args,
+                args,
+                ..
+            } => Expr::Call {
                 callee: Box::new(self.lower_expr(callee)),
+                type_args: type_args
+                    .iter()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.ctx.resolve_type(&ty))
+                    .collect(),
                 args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
                 ty,
             },
@@ -432,7 +442,7 @@ impl<'a> Lowerer<'a> {
                     .as_ref()
                     .map(|deadline| Box::new(self.lower_expr(deadline)));
                 let body = self.lower_block(body);
-                let error_ty = scope_error_type(&body);
+                let error_ty = scope_error_type(&body, deadline.is_some());
                 let scope_ty = error_ty.as_ref().map_or_else(
                     || body.ty.clone(),
                     |error| TypeInfo::generic("Result", vec![body.ty.clone(), error.clone()]),
@@ -605,6 +615,7 @@ impl<'a> Lowerer<'a> {
                     statements: vec![Stmt::Return {
                         value: Some(Expr::Call {
                             callee: Box::new(Expr::Name("Err".to_string())),
+                            type_args: Vec::new(),
                             args: vec![Expr::Payload {
                                 value: Box::new(Expr::Name(temp.clone())),
                                 index: 0,
@@ -863,9 +874,15 @@ fn expr_ty(expr: &Expr) -> TypeInfo {
     }
 }
 
-fn scope_error_type(block: &Block) -> Option<TypeInfo> {
+fn scope_error_type(block: &Block, has_deadline: bool) -> Option<TypeInfo> {
     let mut errors = Vec::new();
     collect_scope_errors(block, &mut errors);
+    if has_deadline {
+        let cancelled = TypeInfo::Named("Cancelled".to_string());
+        if !errors.contains(&cancelled) {
+            errors.push(cancelled);
+        }
+    }
     match errors.len() {
         0 => None,
         1 => errors.into_iter().next(),
