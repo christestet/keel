@@ -1,0 +1,6 @@
+use std.sql
+
+fn main() {
+    let db = sql.connect("postgres://localhost/mydb")?
+    let affected = db.exec("delete from users where id = 1")
+}

@@ -65,4 +65,6 @@ codes! {
     K1503 => "unsupported JSON target",
     K1504 => "invalid HTTP handler",
     K1505 => "invalid HTTP port",
+    K1506 => "invalid FromRow function",
+    K1507 => "unparseable config target",
 }

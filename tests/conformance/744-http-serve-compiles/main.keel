@@ -5,5 +5,7 @@ fn handle(req: http.Request) -> http.Response {
 }
 
 fn main() {
-    http.serve(8080, handle)
+    http.serve(8080, http.Router{
+        "GET /": handle,
+    })
 }

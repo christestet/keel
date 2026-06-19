@@ -1,0 +1,6 @@
+use std.sql
+
+fn main() {
+    let db = sql.connect("postgres://localhost/mydb")?
+    let row = db.query_one("select id, name from users where id = $1")
+}

@@ -33,7 +33,10 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0025](0025-structured-generation.md) | Type-driven structured generation | proposed |
 | [0026](0026-structured-concurrency-mechanism.md) | Structured concurrency mechanism (spawn results, fail-fast, deadlines) | proposed |
 | [0027](0027-json-boundary-mapping.md) | Typed JSON boundary mapping | accepted |
-| [0028](0028-http-server-surface.md) | Typed HTTP server surface (`std.http`) | accepted |
+| [0028](0028-http-server-surface.md) | Typed HTTP server surface (`std.http`) | superseded-by-0031 |
+| [0029](0029-sql-database-access.md) | Database access surface (`std.sql`) | proposed |
+| [0030](0030-config-loading-surface.md) | Configuration loading surface (`std.config`) | proposed |
+| [0031](0031-http-router-and-params.md) | HTTP Router and parameter extraction (`std.http`) | proposed |
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
 | [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | proposed |

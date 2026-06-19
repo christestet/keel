@@ -1,0 +1,19 @@
+use std.sql
+
+struct User {
+    id: Int
+    name: String
+}
+
+fn user_from_row(row: sql.Row) -> User {
+    User{
+        id: row.get<Int>(0),
+        name: row.get<String>(1),
+    }
+}
+
+fn main() {
+    let db = sql.connect("postgres://localhost/mydb")?
+    let rows = db.query("select id, name from users")
+    let users = rows.map(user_from_row).collect()
+}

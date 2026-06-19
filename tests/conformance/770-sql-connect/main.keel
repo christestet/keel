@@ -1,0 +1,5 @@
+use std.sql
+
+fn main() {
+    let db = sql.connect("postgres://localhost/mydb")
+}

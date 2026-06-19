@@ -1,0 +1,10 @@
+use std.config
+
+struct AppConfig {
+    api_key: Secret
+}
+
+fn main() {
+    let cfg = config.load<AppConfig>()?
+    let key = cfg.api_key.unwrap()
+}

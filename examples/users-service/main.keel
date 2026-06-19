@@ -13,6 +13,11 @@ struct User {
     created_at: Timestamp
 }
 
+struct AppConfig {
+    database_url: Secret
+    port: Int = 8080
+}
+
 struct CreateUser {
     name: String
     email: Email
@@ -140,12 +145,9 @@ fn handle_delete(db: sql.Pool, req: http.Request) -> http.Response {
 }
 
 fn main() -> Result<Unit, Error> {
-    let cfg = config.load<struct {
-        database_url: Secret<String>
-        port: Int = 8080
-    }>()?
+    let cfg = config.load<AppConfig>()?
 
-    let db = sql.connect(cfg.database_url)?
+    let db = sql.connect(cfg.database_url.unwrap())?
 
     db.migrate("
         create table if not exists users (

@@ -1,0 +1,10 @@
+use std.config
+
+struct AppConfig {
+    database_url: Secret
+    port: Int = 8080
+}
+
+fn main() {
+    let cfg = config.load<AppConfig>()
+}
