@@ -1284,23 +1284,24 @@ impl Parser {
     }
 
     fn current_binary_op(&self) -> Option<(BinaryOp, u8)> {
-        let (op, prec) = match self.current_kind()? {
-            TokenKind::PipePipe => (BinaryOp::Or, 1),
-            TokenKind::AmpAmp => (BinaryOp::And, 2),
-            TokenKind::EqualEqual => (BinaryOp::Equal, 3),
-            TokenKind::BangEqual => (BinaryOp::NotEqual, 3),
-            TokenKind::Less => (BinaryOp::Less, 4),
-            TokenKind::LessEqual => (BinaryOp::LessEqual, 4),
-            TokenKind::Greater => (BinaryOp::Greater, 4),
-            TokenKind::GreaterEqual => (BinaryOp::GreaterEqual, 4),
-            TokenKind::Plus => (BinaryOp::Add, 5),
-            TokenKind::Minus => (BinaryOp::Subtract, 5),
-            TokenKind::Star => (BinaryOp::Multiply, 6),
-            TokenKind::Slash => (BinaryOp::Divide, 6),
-            TokenKind::Percent => (BinaryOp::Remainder, 6),
-            _ => return None,
-        };
-        Some((op, prec))
+        const TABLE: &[(TokenKind, BinaryOp, u8)] = &[
+            (TokenKind::PipePipe, BinaryOp::Or, 1),
+            (TokenKind::AmpAmp, BinaryOp::And, 2),
+            (TokenKind::EqualEqual, BinaryOp::Equal, 3),
+            (TokenKind::BangEqual, BinaryOp::NotEqual, 3),
+            (TokenKind::Less, BinaryOp::Less, 4),
+            (TokenKind::LessEqual, BinaryOp::LessEqual, 4),
+            (TokenKind::Greater, BinaryOp::Greater, 4),
+            (TokenKind::GreaterEqual, BinaryOp::GreaterEqual, 4),
+            (TokenKind::Plus, BinaryOp::Add, 5),
+            (TokenKind::Minus, BinaryOp::Subtract, 5),
+            (TokenKind::Star, BinaryOp::Multiply, 6),
+            (TokenKind::Slash, BinaryOp::Divide, 6),
+            (TokenKind::Percent, BinaryOp::Remainder, 6),
+        ];
+        let kind = self.current_kind()?;
+        let entry = TABLE.iter().find(|(k, _, _)| *k == *kind)?;
+        Some((entry.1, entry.2))
     }
 
     fn skip_balanced_angle_list(&mut self) {
