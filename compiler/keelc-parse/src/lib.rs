@@ -969,23 +969,11 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Scope),
                 span,
-            }) => {
-                if self.milestone >= 5 {
-                    self.finish_scope(span)
-                } else {
-                    self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
-                }
-            }
+            }) => self.finish_primary_scope(span),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Spawn),
                 span,
-            }) => {
-                if self.milestone >= 5 {
-                    self.finish_spawn(span)
-                } else {
-                    self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
-                }
-            }
+            }) => self.finish_primary_spawn(span),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Return),
                 span,
@@ -1001,18 +989,11 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::LeftParen,
                 span: _,
-            }) => {
-                let expr = self.parse_expr();
-                self.expect_kind(&TokenKind::RightParen, "expected `)` after expression");
-                expr
-            }
+            }) => self.finish_primary_paren(),
             Some(Token {
                 kind: TokenKind::LeftBrace,
                 span,
-            }) => {
-                self.pos = self.pos.saturating_sub(1);
-                Expr::Block(self.parse_block_from_start(span))
-            }
+            }) => self.finish_primary_block(span),
             Some(token) => {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K0003,
@@ -1056,6 +1037,33 @@ impl Parser {
             ));
         }
         Expr::Name(Spanned::new(value, span))
+    }
+
+    fn finish_primary_scope(&mut self, span: Span) -> Expr {
+        if self.milestone >= 5 {
+            self.finish_scope(span)
+        } else {
+            self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
+        }
+    }
+
+    fn finish_primary_spawn(&mut self, span: Span) -> Expr {
+        if self.milestone >= 5 {
+            self.finish_spawn(span)
+        } else {
+            self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
+        }
+    }
+
+    fn finish_primary_paren(&mut self) -> Expr {
+        let expr = self.parse_expr();
+        self.expect_kind(&TokenKind::RightParen, "expected `)` after expression");
+        expr
+    }
+
+    fn finish_primary_block(&mut self, span: Span) -> Expr {
+        self.pos = self.pos.saturating_sub(1);
+        Expr::Block(self.parse_block_from_start(span))
     }
 
     fn finish_struct_literal(&mut self, name: Spanned<String>, type_args: Vec<Type>) -> Expr {
