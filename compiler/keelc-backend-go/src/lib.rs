@@ -8,11 +8,14 @@ mod analysis;
 mod types;
 
 use crate::analysis::{
-    collect_enum_variant_names, collect_impls, collect_interfaces, collect_structs,
-    expr_ty, module_uses_concurrency, module_uses_http, module_uses_http_serve,
-    module_uses_json, module_uses_log, ImplInfo, InterfaceInfo, StructInfo,
+    collect_enum_variant_names, collect_impls, collect_interfaces, collect_structs, expr_ty,
+    module_uses_concurrency, module_uses_http, module_uses_http_serve, module_uses_json,
+    module_uses_log, ImplInfo, InterfaceInfo, StructInfo,
 };
-use crate::types::{go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name, primitive_underlying, zero_value};
+use crate::types::{
+    go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name,
+    primitive_underlying, zero_value,
+};
 use keelc_kir::{
     BinaryOp, Block, EnumDecl, Expr, FunctionDecl, Item, MatchArm, Module, Pattern, Stmt,
     StringLiteral, StringPart, StructDecl, UnaryOp, Variant,
@@ -2257,7 +2260,6 @@ fn box_for_slot(slot_ty: &TypeInfo, value: &Expr, emitted: String) -> String {
     }
     emitted
 }
-
 
 impl From<fmt::Error> for BackendError {
     fn from(_: fmt::Error) -> Self {
