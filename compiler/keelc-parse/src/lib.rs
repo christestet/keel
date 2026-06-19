@@ -925,38 +925,23 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::Int(value),
                 span,
-            }) => Expr::Int(Spanned::new(value, span)),
+            }) => self.finish_primary_int(value, span),
             Some(Token {
                 kind: TokenKind::Float(value),
                 span,
-            }) => Expr::Float(Spanned::new(value, span)),
+            }) => self.finish_primary_float(value, span),
             Some(Token {
                 kind: TokenKind::String(value),
                 span,
-            }) => Expr::String(Spanned::new(
-                AstStringLiteral {
-                    text: value.text,
-                    interpolations: value.interpolations,
-                },
-                span,
-            )),
+            }) => self.finish_primary_string(value, span),
             Some(Token {
                 kind: TokenKind::Char(value),
                 span,
-            }) => Expr::Char(Spanned::new(value, span)),
+            }) => self.finish_primary_char(value, span),
             Some(Token {
                 kind: TokenKind::Identifier(value),
                 span,
-            }) => {
-                if value == "nil" || value == "null" {
-                    self.diagnostics.push(Diagnostic::error(
-                        registry::K0201,
-                        span,
-                        "Option<T> is the only absence value in Keel Core",
-                    ));
-                }
-                Expr::Name(Spanned::new(value, span))
-            }
+            }) => self.finish_primary_identifier(value, span),
             Some(Token {
                 kind: TokenKind::Underscore,
                 span,
@@ -1038,6 +1023,39 @@ impl Parser {
             }
             None => Expr::Missing(self.empty_span()),
         }
+    }
+
+    fn finish_primary_int(&mut self, value: String, span: Span) -> Expr {
+        Expr::Int(Spanned::new(value, span))
+    }
+
+    fn finish_primary_float(&mut self, value: String, span: Span) -> Expr {
+        Expr::Float(Spanned::new(value, span))
+    }
+
+    fn finish_primary_string(&mut self, value: keelc_lex::StringLiteral, span: Span) -> Expr {
+        Expr::String(Spanned::new(
+            AstStringLiteral {
+                text: value.text,
+                interpolations: value.interpolations,
+            },
+            span,
+        ))
+    }
+
+    fn finish_primary_char(&mut self, value: String, span: Span) -> Expr {
+        Expr::Char(Spanned::new(value, span))
+    }
+
+    fn finish_primary_identifier(&mut self, value: String, span: Span) -> Expr {
+        if value == "nil" || value == "null" {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0201,
+                span,
+                "Option<T> is the only absence value in Keel Core",
+            ));
+        }
+        Expr::Name(Spanned::new(value, span))
     }
 
     fn finish_struct_literal(&mut self, name: Spanned<String>, type_args: Vec<Type>) -> Expr {
