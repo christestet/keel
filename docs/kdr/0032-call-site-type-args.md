@@ -1,4 +1,4 @@
-# KDR-0032: Call-site type arguments use `<T>`
+# KDR-0032: Type parameters and arguments use `<T>`
 
 - **Status:** proposed
 - **Date:** 2026-06-20
@@ -6,16 +6,23 @@
 
 ## Decision
 
-Explicit type arguments at a call site are written with angle brackets:
-`json.parse<User>(body)`, `config.load<AppConfig>()`, `req.path_param<Uuid>("id")`.
-This is the **only** call-site type-argument syntax. The bracket form `[T]`
-(`json.parse[User]`) is removed from the language and the compiler; no alias or
-deprecation period is kept.
+Type parameters and type arguments are written with angle brackets, `<T>`,
+in **every** position — there is no other syntax:
 
-A call-site type-argument list is recognized when a name or field access is
-immediately followed by `<`, the contents parse as a comma-separated type list,
-and the closing `>` is immediately followed by `(`. In any other position `<`
-remains the less-than operator.
+- **Declaration sites** — `fn greet<T: Stringer>(value: T)`, `struct Box<T>`,
+  `enum Tree<T>`, `impl Stringer for List<T>`.
+- **Call sites** — `json.parse<User>(body)`, `config.load<AppConfig>()`,
+  `req.path_param<Uuid>("id")`, `greet<Int>(42)`.
+- **Type positions** — already `<T>` (`Option<T>`, `Result<T, E>`, `Map<K, V>`).
+
+The bracket form `[T]` (`fn greet[T]`, `json.parse[User]`) is removed from the
+language and the compiler. No alias or deprecation period is kept.
+
+Declaration sites are unambiguous: `<` following a declared name always opens a
+type-parameter list. A **call-site** type-argument list is recognized when a name
+or field access is immediately followed by `<`, the contents parse as a
+comma-separated type list, and the closing `>` is immediately followed by `(`. In
+any other expression position `<` remains the less-than operator.
 
 ## Context
 
@@ -26,11 +33,14 @@ design vision writes boundary parse points the same way — `json.parse<T>`,
 (`examples/users-service/main.keel`) uses `<T>` at every call site.
 
 The implemented compiler had drifted to a second bracket style, `[T]`, for
-call-site type arguments only. That left two different brackets for one
-concept — a type argument — which is exactly the cognitive-overload cost that
-the "one way to do things" principle (KDR-0001) exists to prevent. A reader
-seeing `Option<T>` in a signature and `json.parse[T]` at the call had to hold
-two spellings of the same idea.
+type *parameters* (`fn greet[T: Stringer]`) and type *arguments*
+(`json.parse[User]`, `greet[Int](42)`). That left two different brackets for one
+concept — a type — which is exactly the cognitive-overload cost that the "one way
+to do things" principle (KDR-0001) exists to prevent. A reader seeing `Option<T>`
+in a signature and `json.parse[T]` at the call had to hold two spellings of the
+same idea. Fixing only the call site would not remove the overload — it would move
+it, leaving `fn greet[T]` declaring what `greet<Int>()` then supplies. The bracket
+must go everywhere or nowhere; the example and vision say everywhere.
 
 The historical reason languages avoid `<T>` at call sites is the ambiguity with
 the comparison operator (`a < b > c`). That ambiguity does not exist in Keel:
@@ -42,9 +52,11 @@ reason — it costs no new grammar machinery and no new error.
 
 ## Alternatives considered
 
-- **Keep `[T]` at call sites.** Rejected: two bracket styles for type arguments,
-  contradicting KDR-0001 and diverging from the vision and the example. The only
-  thing `[T]` bought was dodging an ambiguity that Keel does not have.
+- **Keep `[T]` anywhere (call sites, or declaration sites only).** Rejected: two
+  bracket styles for one concept, contradicting KDR-0001 and diverging from the
+  vision and the example. The only thing `[T]` bought was dodging an ambiguity
+  that Keel does not have — and it only ever applied to the call site, not the
+  unambiguous declaration site.
 
 - **Support both `[T]` and `<T>` as aliases during a transition.** Rejected:
   an alias *is* the two-spellings problem the decision exists to remove; it

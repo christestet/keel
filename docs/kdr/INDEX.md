@@ -37,7 +37,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0029](0029-sql-database-access.md) | Database access surface (`std.sql`) | proposed |
 | [0030](0030-config-loading-surface.md) | Configuration loading surface (`std.config`) | proposed |
 | [0031](0031-http-router-and-params.md) | HTTP Router and parameter extraction (`std.http`) | proposed |
-| [0032](0032-call-site-type-args.md) | Call-site type arguments use `<T>` | proposed |
+| [0032](0032-call-site-type-args.md) | Type parameters and arguments use `<T>` | proposed |
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
 | [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | proposed |
