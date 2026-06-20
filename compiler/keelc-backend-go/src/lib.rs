@@ -12,8 +12,8 @@ mod types;
 use crate::analysis::{
     collect_config_types, collect_enum_variant_names, collect_impls, collect_interfaces,
     collect_structs, expr_ty, module_uses_concurrency, module_uses_config, module_uses_http,
-    module_uses_http_serve, module_uses_json, module_uses_log, module_uses_sql, ImplInfo,
-    InterfaceInfo, StructInfo,
+    module_uses_http_serve, module_uses_json, module_uses_log, module_uses_sql,
+    module_uses_uuid_new, ImplInfo, InterfaceInfo, StructInfo,
 };
 use crate::types::{
     go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name,
@@ -66,6 +66,7 @@ fn request_param_suffix(ty: &TypeInfo) -> Result<&'static str, BackendError> {
         TypeInfo::Int => Ok("Int"),
         TypeInfo::Bool => Ok("Bool"),
         TypeInfo::Float => Ok("Float"),
+        TypeInfo::Named(name) if name == "Uuid" => Ok("Uuid"),
         other => Err(BackendError::unsupported(format!(
             "request parameter of type `{other}`"
         ))),
@@ -103,6 +104,7 @@ struct Emitter<'a> {
     uses_log: bool,
     uses_sql: bool,
     uses_config: bool,
+    uses_uuid_new: bool,
     config_needs_strconv: bool,
     json_types: Vec<TypeInfo>,
     config_types: Vec<TypeInfo>,
@@ -126,6 +128,7 @@ impl<'a> Emitter<'a> {
         let uses_log = module_uses_log(module);
         let uses_sql = module_uses_sql(module);
         let uses_config = module_uses_config(module);
+        let uses_uuid_new = module_uses_uuid_new(module);
         let config_types = collect_config_types(module);
         // `strconv` is only used by Int/Float field parsing; Secret/String/Bool
         // fields never touch it, so importing it unconditionally would break the
@@ -154,6 +157,7 @@ impl<'a> Emitter<'a> {
             uses_log,
             uses_sql,
             uses_config,
+            uses_uuid_new,
             config_needs_strconv,
             json_types: Vec::new(),
             config_types,
@@ -279,6 +283,9 @@ impl<'a> Emitter<'a> {
             imports.push("math");
             imports.push("strconv");
             imports.push("strings");
+        }
+        if self.uses_uuid_new {
+            imports.push("crypto/rand");
         }
         if self.uses_http_serve {
             imports.push("net/http");
@@ -892,6 +899,9 @@ impl<'a> Emitter<'a> {
                 .ok_or_else(|| BackendError::unsupported("Float.from without argument"))?;
             let arg_expr = self.emit_expr(arg)?;
             return Ok(format!("float64({arg_expr})"));
+        }
+        if matches!(receiver, Expr::Name(name) if name == "Uuid") && method == "new" {
+            return Ok("keelUUIDNew()".to_string());
         }
         if matches!(receiver, Expr::Name(name) if name == "sql") && method == "connect" {
             let arg = args

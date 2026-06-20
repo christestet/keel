@@ -1204,6 +1204,10 @@ impl<'a> Typechecker<'a> {
             self.check_call_args(&[TypeInfo::Int], args, method.span);
             return TypeInfo::Float;
         }
+        if matches!(receiver, Expr::Name(name) if name.value == "Uuid") && method.value == "new" {
+            self.check_call_args(&[], args, method.span);
+            return TypeInfo::Named("Uuid".to_string());
+        }
         if matches!(receiver, Expr::Name(name) if name.value == "time") {
             return match method.value.as_str() {
                 "milliseconds" | "seconds" => {

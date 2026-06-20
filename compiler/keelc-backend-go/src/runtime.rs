@@ -282,6 +282,17 @@ func keelPathParamFloat(req keelHTTPRequest, name string) KeelEnum {
 	return Ok(f)
 }
 
+func keelPathParamUuid(req keelHTTPRequest, name string) KeelEnum {
+	v, ok := req.params[name]
+	if !ok {
+		return Err("missing path parameter: " + name)
+	}
+	if !keelUUIDValid(v) {
+		return Err("invalid UUID for " + name + ": " + v)
+	}
+	return Ok(v)
+}
+
 func keelQueryValues(req keelHTTPRequest) url.Values {
 	values, err := url.ParseQuery(req.rawQuery)
 	if err != nil {
@@ -332,6 +343,18 @@ func keelQueryParamFloat(req keelHTTPRequest, name string) KeelEnum {
 		return None
 	}
 	return Some(f)
+}
+
+func keelQueryParamUuid(req keelHTTPRequest, name string) KeelEnum {
+	values := keelQueryValues(req)
+	if !values.Has(name) {
+		return None
+	}
+	v := values.Get(name)
+	if !keelUUIDValid(v) {
+		return None
+	}
+	return Some(v)
 }
 
 "#;
@@ -441,6 +464,9 @@ impl<'a> Emitter<'a> {
             self.line("")?;
             self.emit_time_runtime()?;
         }
+        if self.uses_json || self.uses_http || self.uses_uuid_new {
+            self.emit_uuid_runtime()?;
+        }
         if self.uses_json {
             self.emit_json_runtime()?;
         }
@@ -456,6 +482,34 @@ impl<'a> Emitter<'a> {
         if self.uses_config {
             self.output.push_str(CONFIG_RUNTIME);
         }
+        Ok(())
+    }
+
+    fn emit_uuid_runtime(&mut self) -> Result<(), BackendError> {
+        self.line("func keelUUIDValid(value string) bool {")?;
+        self.indent += 1;
+        self.line("if len(value) != 36 { return false }")?;
+        self.line("for i := 0; i < len(value); i++ {")?;
+        self.indent += 1;
+        self.line("if i == 8 || i == 13 || i == 18 || i == 23 { if value[i] != '-' { return false }; continue }")?;
+        self.line("if !((value[i] >= '0' && value[i] <= '9') || (value[i] >= 'a' && value[i] <= 'f')) { return false }")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("return value[14] == '4' && (value[19] == '8' || value[19] == '9' || value[19] == 'a' || value[19] == 'b')")?;
+        self.indent -= 1;
+        self.line("}")?;
+        if self.uses_uuid_new {
+            self.line("func keelUUIDNew() string {")?;
+            self.indent += 1;
+            self.line("var value [16]byte")?;
+            self.line("if _, err := rand.Read(value[:]); err != nil { panic(\"uuid random source unavailable: \" + err.Error()) }")?;
+            self.line("value[6] = (value[6] & 0x0f) | 0x40")?;
+            self.line("value[8] = (value[8] & 0x3f) | 0x80")?;
+            self.line("return fmt.Sprintf(\"%x-%x-%x-%x-%x\", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16])")?;
+            self.indent -= 1;
+            self.line("}")?;
+        }
+        self.line("")?;
         Ok(())
     }
 

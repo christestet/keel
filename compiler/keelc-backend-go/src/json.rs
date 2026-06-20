@@ -117,6 +117,10 @@ impl<'a> Emitter<'a> {
                 self.line("if len(runes) != 1 { return Err(keelJSONType(path, \"Char\")) }")?;
                 self.line("return Ok(runes[0])")?;
             }
+            TypeInfo::Named(name) if name == "Uuid" => {
+                self.line("if value.kind != \"string\" || !keelUUIDValid(value.text) { return Err(keelJSONType(path, \"Uuid\")) }")?;
+                self.line("return Ok(value.text)")?;
+            }
             TypeInfo::Generic { name, args } if name == "Option" && args.len() == 1 => {
                 let inner = &args[0];
                 let inner_suffix = json_type_name(inner);
@@ -333,6 +337,9 @@ impl<'a> Emitter<'a> {
             TypeInfo::Bool => self.line("return Ok(strconv.FormatBool(value))")?,
             TypeInfo::String => self.line("return Ok(strconv.Quote(value))")?,
             TypeInfo::Char => self.line("return Ok(strconv.Quote(string(value)))")?,
+            TypeInfo::Named(name) if name == "Uuid" => {
+                self.line("return Ok(strconv.Quote(value))")?;
+            }
             TypeInfo::Generic { name, args } if name == "Option" && args.len() == 1 => {
                 let inner = &args[0];
                 let inner_suffix = json_type_name(inner);
