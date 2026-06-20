@@ -881,11 +881,12 @@ letters, digits, or `-`, is at most 63 bytes, and neither starts nor ends with
 `-`. The complete domain is at most 253 bytes. The local part and domain are
 separated by exactly one `@`, and the whole address is at most 254 bytes.
 
-The canonical text is the accepted input unchanged. Equality is therefore
-case-sensitive. Display names, comments, quoted local parts, consecutive dots,
-internationalized addresses, and address literals are rejected. `Email` proves
-only that the string has this syntax; it does not prove mailbox ownership or
-deliverability.
+The canonical text preserves the local part byte-for-byte and converts ASCII
+letters in the domain to lower case. Equality compares this canonical form:
+local-part case remains significant and domain case does not. Display names,
+comments, quoted local parts, consecutive dots, internationalized addresses,
+and address literals are rejected. `Email` proves only that the string has this
+syntax; it does not prove mailbox ownership or deliverability.
 
 ### 15.34.4 Boundary mappings
 
@@ -922,6 +923,7 @@ without an explicit target type.
 | `789-timestamp-offset-normalizes` | accept | a numeric offset parses and writes as the equivalent UTC instant |
 | `790-timestamp-full-range` | accept | an instant beyond the signed-64-bit-nanosecond range round-trips |
 | `791-timestamp-leap-second-invalid` | accept | a leap-second spelling returns `json.TypeMismatch` |
+| `792-email-domain-normalizes` | accept | domain ASCII case normalizes while local-part case is preserved |
 
 ### 15.36 Scalar dependencies
 
