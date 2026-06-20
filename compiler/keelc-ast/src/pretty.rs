@@ -477,6 +477,7 @@ impl Printer {
                 value: Some(value), ..
             } => (format!("return {}", self.expr(value, 0, base_indent)), 10),
             Expr::Return { value: None, .. } => ("return".to_string(), 10),
+            Expr::Unit(_) => ("()".to_string(), 100),
             Expr::Router { routes, .. } => {
                 let entries = routes
                     .iter()

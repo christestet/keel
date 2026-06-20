@@ -199,6 +199,7 @@ impl TypeContext {
                 .unwrap_or(TypeInfo::Unknown),
             Expr::Return { .. } => TypeInfo::Unit,
             Expr::Router { .. } => TypeInfo::Named("http.Router".to_string()),
+            Expr::Unit(_) => TypeInfo::Unit,
         }
     }
 
@@ -641,6 +642,7 @@ impl TypeContext {
             | Expr::Bool(_)
             | Expr::Name(_)
             | Expr::Wildcard(_)
+            | Expr::Unit(_)
             | Expr::Return { value: None, .. } => {}
         }
     }

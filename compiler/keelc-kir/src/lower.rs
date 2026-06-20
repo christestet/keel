@@ -331,6 +331,7 @@ impl<'a> Lowerer<'a> {
             }
             keelc_ast::Expr::Char(value) => Expr::Char(value.value.chars().next().unwrap_or('\0')),
             keelc_ast::Expr::Bool(value) => Expr::Bool(value.value),
+            keelc_ast::Expr::Unit(_) => Expr::Unit,
             keelc_ast::Expr::Name(name) => Expr::Name(name.value.clone()),
             keelc_ast::Expr::Wildcard(_) | keelc_ast::Expr::Missing(_) => {
                 Expr::Name("__keel_missing".to_string())
@@ -892,6 +893,7 @@ fn expr_ty(expr: &Expr) -> TypeInfo {
         Expr::String(_) => TypeInfo::String,
         Expr::Char(_) => TypeInfo::Char,
         Expr::Bool(_) => TypeInfo::Bool,
+        Expr::Unit => TypeInfo::Unit,
         Expr::Name(_) => TypeInfo::Unknown,
         Expr::Unary { ty, .. }
         | Expr::Binary { ty, .. }
@@ -1010,6 +1012,7 @@ fn collect_expr_scope_errors(expr: &Expr, errors: &mut Vec<TypeInfo>) {
         | Expr::String(_)
         | Expr::Char(_)
         | Expr::Bool(_)
+        | Expr::Unit
         | Expr::Name(_)
         | Expr::Return { value: None } => {}
     }

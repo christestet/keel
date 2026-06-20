@@ -103,6 +103,7 @@ pub fn any_in_expr(expr: &Expr, pred: &impl Fn(&Expr) -> bool) -> bool {
         | Expr::String(_)
         | Expr::Char(_)
         | Expr::Bool(_)
+        | Expr::Unit
         | Expr::Name(_)
         | Expr::Return { value: None } => false,
         Expr::Unary { expr, .. }
@@ -245,6 +246,7 @@ pub fn expr_ty(expr: &Expr) -> TypeInfo {
         Expr::String(_) => TypeInfo::String,
         Expr::Char(_) => TypeInfo::Char,
         Expr::Bool(_) => TypeInfo::Bool,
+        Expr::Unit => TypeInfo::Unit,
         Expr::Name(_) => TypeInfo::Unknown,
         Expr::Unary { ty, .. }
         | Expr::Binary { ty, .. }

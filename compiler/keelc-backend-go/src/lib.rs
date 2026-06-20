@@ -42,6 +42,10 @@ impl BackendError {
 /// Map a `path_param<T>` / `query_param<T>` type argument to its runtime helper
 /// suffix (`keelPathParamString`, `keelQueryParamInt`, …). M6 supports the
 /// scalar wire types; richer types arrive with their own KDR.
+fn is_result_type(ty: &TypeInfo) -> bool {
+    matches!(ty, TypeInfo::Generic { name, .. } if name == "Result")
+}
+
 fn request_param_suffix(ty: &TypeInfo) -> Result<&'static str, BackendError> {
     match ty {
         TypeInfo::String => Ok("String"),
@@ -135,9 +139,12 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit(mut self) -> Result<String, BackendError> {
+        let main_result = self.module.items.iter().any(|item| {
+            matches!(item, Item::Function(f) if f.name == "main" && is_result_type(&f.return_type))
+        });
         self.line("package main")?;
         self.line("")?;
-        self.emit_imports(false)?;
+        self.emit_imports(main_result)?;
         self.line("")?;
         self.emit_runtime()?;
 
@@ -508,6 +515,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_function(&mut self, function: &FunctionDecl) -> Result<(), BackendError> {
+        if function.name == "main" && is_result_type(&function.return_type) {
+            return self.emit_main_with_result(function);
+        }
         write!(self.output, "func {}", function.name)?;
         self.output.push('(');
         let accepts_context = self.uses_concurrency && function.name != "main";
@@ -538,6 +548,33 @@ impl<'a> Emitter<'a> {
         self.emit_block_statements(&function.body, function.return_type != TypeInfo::Unit)?;
         self.indent -= 1;
 
+        self.line("}")?;
+        Ok(())
+    }
+
+    /// `fn main() -> Result<Unit, E>` (keel-core §7): emit the body as
+    /// `keelMain() KeelEnum`, then a Go `main` that prints the error to stderr
+    /// and exits non-zero on `Err`.
+    fn emit_main_with_result(&mut self, function: &FunctionDecl) -> Result<(), BackendError> {
+        self.output.push_str("func keelMain() KeelEnum {\n");
+        self.indent += 1;
+        if self.uses_concurrency {
+            self.line("__keel_ctx := context.Background()")?;
+            self.line("_ = __keel_ctx")?;
+        }
+        self.emit_block_statements(&function.body, true)?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
+        self.line("func main() {")?;
+        self.indent += 1;
+        self.line("if __keel_r := keelMain(); __keel_r.tag == \"Err\" {")?;
+        self.indent += 1;
+        self.line("fmt.Fprintln(os.Stderr, __keel_r.values[0])")?;
+        self.line("os.Exit(1)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.indent -= 1;
         self.line("}")?;
         Ok(())
     }
@@ -637,6 +674,7 @@ impl<'a> Emitter<'a> {
             Expr::String(literal) => self.emit_string(literal),
             Expr::Char(value) => Ok(format!("{:?}", value)),
             Expr::Bool(value) => Ok(value.to_string()),
+            Expr::Unit => Ok("struct{}{}".to_string()),
             Expr::Name(name) => Ok(name.clone()),
             Expr::Unary { op, expr, .. } => {
                 let expr = self.emit_expr(expr)?;

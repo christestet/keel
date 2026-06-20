@@ -148,6 +148,7 @@ impl<'a> Resolver<'a> {
             | Expr::Char(_)
             | Expr::Bool(_)
             | Expr::Name(_)
+            | Expr::Unit(_)
             | Expr::Wildcard(_) => {}
             Expr::Unary { expr, .. } | Expr::Question { expr, .. } => self.resolve_expr(expr),
             Expr::Binary { left, right, .. } => {
@@ -668,6 +669,7 @@ impl<'a> Typechecker<'a> {
             }
             Expr::Char(_) => TypeInfo::Char,
             Expr::Bool(_) => TypeInfo::Bool,
+            Expr::Unit(_) => TypeInfo::Unit,
             Expr::Name(name) => self
                 .value_type(&name.value)
                 .or_else(|| self.builtin_value_type(&name.value))

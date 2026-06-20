@@ -271,6 +271,8 @@ pub enum Expr {
         routes: Vec<Route>,
         span: Span,
     },
+    /// `()` — the unit value (e.g. `Ok(())`).
+    Unit(Span),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -325,7 +327,8 @@ impl Expr {
             | Expr::Question { span, .. }
             | Expr::Catch { span, .. }
             | Expr::Return { span, .. }
-            | Expr::Router { span, .. } => *span,
+            | Expr::Router { span, .. }
+            | Expr::Unit(span) => *span,
             Expr::Int(value) | Expr::Float(value) | Expr::Char(value) | Expr::Name(value) => {
                 value.span
             }

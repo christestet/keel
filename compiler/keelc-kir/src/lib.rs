@@ -131,6 +131,7 @@ pub enum Expr {
     String(StringLiteral),
     Char(char),
     Bool(bool),
+    Unit,
     Name(String),
     Unary {
         op: UnaryOp,

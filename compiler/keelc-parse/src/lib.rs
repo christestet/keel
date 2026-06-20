@@ -1056,8 +1056,8 @@ impl Parser {
             }) => self.banned_expr(span, registry::K0908, "async/await are not in Keel Core"),
             Some(Token {
                 kind: TokenKind::LeftParen,
-                span: _,
-            }) => self.finish_primary_paren(),
+                span,
+            }) => self.finish_primary_paren(span),
             Some(Token {
                 kind: TokenKind::LeftBrace,
                 span,
@@ -1123,7 +1123,10 @@ impl Parser {
         }
     }
 
-    fn finish_primary_paren(&mut self) -> Expr {
+    fn finish_primary_paren(&mut self, open: Span) -> Expr {
+        if let Some(close) = self.eat_kind(&TokenKind::RightParen) {
+            return Expr::Unit(open.join(close));
+        }
         let expr = self.parse_expr();
         self.expect_kind(&TokenKind::RightParen, "expected `)` after expression");
         expr
