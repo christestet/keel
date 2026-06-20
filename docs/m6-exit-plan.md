@@ -119,10 +119,17 @@ The final gate (Step 6) additionally runs the example end-to-end on SQLite.
 
 ## Next work
 
-Steps 1, 2, and 4 are **done** (conformance green, 181/0/3). Remaining for the
-exit criterion: **Step 0** (multi-line string literals — the lexing blocker,
-do first), **Step 3** (call-site named arguments + structured `log.info`),
-**Step 5** (`sql.UniqueViolation`), and **Step 6** (test harness + SQLite run,
-the gate). The example `main.keel` does not yet compile. See
+Steps 1, 2, 4 done. **Step 0** (multi-line strings, KDR-0035, case 018) and
+**default function parameters** (KDR-0036, case 234) are now done too; call-site
+named arguments and router closures already parsed, so **Step 3 is effectively
+complete** at the parse layer. Conformance green, **183/0/3**.
+
+Remaining blockers in `main.keel` (parser halts at the first, line 43):
+**qualified patterns** `sql.NoRows`/`sql.UniqueViolation` in match/catch arms;
+**typed/union patterns** `Err(err: sql.Error)` (needs union narrowing in the
+typechecker); **Step 5** the `sql.Error` catchable-variant surface + runtime
+driver-error classification; and **Step 6** the test harness + SQLite run (the
+gate). The qualified/typed patterns and Step 5 are one coherent KDR-0029
+amendment. See
 [`docs/M6-implementation-handoff.md`](M6-implementation-handoff.md) §4 for the
 original aspirational-feature list this plan expands.
