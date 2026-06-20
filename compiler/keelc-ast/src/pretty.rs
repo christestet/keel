@@ -154,7 +154,7 @@ impl Printer {
                 .map(|arg| self.type_(arg))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("[{inner}]")
+            format!("<{inner}>")
         };
         self.line(&format!(
             "impl {} for {type_args}{} {{",
@@ -188,7 +188,7 @@ impl Printer {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        format!("[{inner}]")
+        format!("<{inner}>")
     }
 
     fn param(&self, param: &Param) -> String {
@@ -330,7 +330,7 @@ impl Printer {
                         .map(|arg| self.type_(arg))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    format!("[{inner}]")
+                    format!("<{inner}>")
                 };
                 let args = args
                     .iter()
@@ -385,7 +385,7 @@ impl Printer {
                         .map(|arg| self.type_(arg))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    format!("[{inner}]")
+                    format!("<{inner}>")
                 };
                 let fields = fields
                     .iter()

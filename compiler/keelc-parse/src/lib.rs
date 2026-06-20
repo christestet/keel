@@ -204,7 +204,7 @@ impl Parser {
                 "type names must be UpperCamelCase",
             ));
         }
-        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
             self.parse_type_params()
         } else {
             Vec::new()
@@ -232,7 +232,7 @@ impl Parser {
             ));
         }
 
-        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
             self.parse_type_params()
         } else {
             Vec::new()
@@ -294,7 +294,7 @@ impl Parser {
             name
         };
 
-        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
             self.parse_type_params()
         } else if self.at_kind(&TokenKind::Less) {
             self.diagnostic_current(
@@ -386,8 +386,8 @@ impl Parser {
                 "type names must be UpperCamelCase",
             ));
         }
-        let type_args = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
-            self.parse_type_args_in_brackets()
+        let type_args = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
+            self.parse_type_args_in_angles()
         } else {
             Vec::new()
         };
@@ -508,14 +508,11 @@ impl Parser {
     fn parse_type_params(&mut self) -> Vec<TypeParam> {
         let mut params = Vec::new();
         let bracket_span = self
-            .expect_kind(
-                &TokenKind::LeftBracket,
-                "expected `[` before type parameters",
-            )
+            .expect_kind(&TokenKind::Less, "expected `<` before type parameters")
             .unwrap_or_else(|| self.empty_span());
         self.skip_separators();
         let mut seen_names: Vec<String> = Vec::new();
-        while !self.at_eof() && !self.at_kind(&TokenKind::RightBracket) {
+        while !self.at_eof() && !self.at_kind(&TokenKind::Greater) {
             let start = self.current_span();
             let name = self.expect_identifier("expected type parameter name");
             let bound = if self.eat_kind(&TokenKind::Colon).is_some() {
@@ -574,10 +571,7 @@ impl Parser {
                 "too many type parameters; at most 256 are allowed",
             ));
         }
-        self.expect_kind(
-            &TokenKind::RightBracket,
-            "expected `]` after type parameters",
-        );
+        self.expect_kind(&TokenKind::Greater, "expected `>` after type parameters");
         params
     }
 
@@ -786,10 +780,11 @@ impl Parser {
                     args,
                 };
             } else if self.milestone >= 5
-                && self.at_kind(&TokenKind::LeftBracket)
+                && self.at_kind(&TokenKind::Less)
                 && matches!(expr, Expr::Name(_) | Expr::Field { .. })
+                && self.looks_like_type_args()
             {
-                let type_args = self.parse_type_args_in_brackets();
+                let type_args = self.parse_type_args_in_angles();
                 // After type args, check for call `(args)` or struct literal `{...}`
                 if self.eat_kind(&TokenKind::LeftParen).is_some() {
                     let mut args = Vec::new();
@@ -1095,25 +1090,51 @@ impl Parser {
         }
     }
 
-    fn parse_type_args_in_brackets(&mut self) -> Vec<Type> {
-        self.expect_kind(
-            &TokenKind::LeftBracket,
-            "expected `[` before type arguments",
-        );
+    fn parse_type_args_in_angles(&mut self) -> Vec<Type> {
+        self.expect_kind(&TokenKind::Less, "expected `<` before type arguments");
         let mut args = Vec::new();
         self.skip_separators();
-        while !self.at_eof() && !self.at_kind(&TokenKind::RightBracket) {
+        while !self.at_eof() && !self.at_kind(&TokenKind::Greater) {
             args.push(self.parse_type());
             if self.eat_kind(&TokenKind::Comma).is_none() {
                 break;
             }
             self.skip_separators();
         }
-        self.expect_kind(
-            &TokenKind::RightBracket,
-            "expected `]` after type arguments",
-        );
+        self.expect_kind(&TokenKind::Greater, "expected `>` after type arguments");
         args
+    }
+
+    /// Pure lookahead: with the current token at `<`, decide whether this opens a
+    /// call-site type-argument list (`name<T, U>(` or `name<T>{`) rather than a
+    /// comparison. Scans a balanced `<…>` over the limited token set a type list
+    /// admits; returns true only if the matching `>` is followed by `(` or `{`.
+    /// Chained comparison is already a parse error (`K0003`), so this shape has
+    /// no competing legal parse (KDR-0032).
+    fn looks_like_type_args(&self) -> bool {
+        let mut depth = 0_u32;
+        let mut i = self.pos;
+        while let Some(token) = self.tokens.get(i) {
+            match token.kind {
+                TokenKind::Less => depth += 1,
+                TokenKind::Greater => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Peek the token after the closing `>`.
+                        return matches!(
+                            self.tokens.get(i + 1).map(|t| &t.kind),
+                            Some(TokenKind::LeftParen | TokenKind::LeftBrace)
+                        );
+                    }
+                }
+                // Tokens that may legally appear inside a type-argument list.
+                TokenKind::Identifier(_) | TokenKind::Dot | TokenKind::Comma | TokenKind::Pipe => {}
+                // Anything else means this `<` is the comparison operator.
+                _ => return false,
+            }
+            i += 1;
+        }
+        false
     }
 
     fn finish_if(&mut self, start: Span) -> Expr {
