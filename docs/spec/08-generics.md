@@ -32,7 +32,7 @@ A generic function declares type parameters in angle brackets before its
 parameter list:
 
 ```keel
-fn identity[T: Stringer](value: T) -> T {
+fn identity<T: Stringer>(value: T) -> T {
     value
 }
 ```
@@ -44,7 +44,7 @@ method is a compile error (`K0802`).
 Multiple type parameters are separated by commas:
 
 ```keel
-fn transform[A: Stringer, B: Stringer](input: A, func: fn(A) -> B) -> B {
+fn transform<A: Stringer, B: Stringer>(input: A, func: fn(A) -> B) -> B {
     func(input)
 }
 ```
@@ -58,12 +58,12 @@ A generic struct or enum declares type parameters in angle brackets after the
 type name:
 
 ```keel
-struct Pair[A: Stringer, B: Stringer] {
+struct Pair<A: Stringer, B: Stringer> {
     first: A
     second: B
 }
 
-enum Result[T: Stringer, E: Stringer] {
+enum Result<T: Stringer, E: Stringer> {
     Ok(value: T)
     Err(reason: E)
 }
@@ -74,7 +74,7 @@ an `impl` block for the type. Methods on a generic type may use the type's
 type parameters without redeclaring them:
 
 ```keel
-impl Stringer for Pair[A, B] {
+impl Stringer for Pair<A, B> {
     fn to_string(self) -> String {
         "{self.first}, {self.second}"
     }
@@ -115,7 +115,7 @@ impl HasPerimeter for Circle {
 // HasPerimeter.impl provides `perimeter(self) -> Float` for Circle.
 // The structural check for HasArea looks for `area(self) -> Float`.
 // Circle does NOT satisfy HasArea — no impl provides `area`.
-// fn print_area[T: HasArea](shape: T) { ... }  // K0803 if called with Circle
+// fn print_area<T: HasArea>(shape: T) { ... }  // K0803 if called with Circle
 
 impl HasArea for Circle {
     fn area(self) -> Float {
@@ -124,7 +124,7 @@ impl HasArea for Circle {
 }
 
 // Now Circle satisfies HasArea structurally.
-fn print_area[T: HasArea](shape: T) {
+fn print_area<T: HasArea>(shape: T) {
     print(shape.area())
 }
 ```
@@ -157,9 +157,9 @@ in angle brackets:
 
 ```keel
 let c = Circle { radius: 2.5 }
-print_area[Circle](c)
+print_area<Circle>(c)
 
-let p = Pair[Circle, Circle] {
+let p = Pair<Circle, Circle> {
     first: c,
     second: c,
 }
@@ -204,7 +204,7 @@ impl HasArea for Rectangle {
     }
 }
 
-fn print_area[T: HasArea](shape: T) {
+fn print_area<T: HasArea>(shape: T) {
     print(shape.area())
 }
 
@@ -221,7 +221,7 @@ fn main() -> Unit {
 The following are errors with stable `K####` codes:
 
 - **`K0801` — type parameter without interface bound.** Every type parameter
-  must have an explicit interface constraint. Unconstrained `[T]` is rejected.
+  must have an explicit interface constraint. Unconstrained `<T>` is rejected.
 
 - **`K0802` — method not in interface bound.** A generic function body calls a
   method on a value of type parameter type, but that method is not declared in
@@ -262,11 +262,11 @@ These cases land in the following conformance PR (band `2xx` declarations, see
 | `224-generic-struct` | accept | generic struct with two type parameters |
 | `225-constraint-satisfaction-structural` | accept | type satisfies interface bound without `impl` block |
 | `226-generic-method-call` | accept | method call on generic type parameter through bound |
-| `227-type-parameter-without-bound` | reject `K0801` | `[T]` without interface bound |
+| `227-type-parameter-without-bound` | reject `K0801` | `<T>` without interface bound |
 | `228-method-not-in-bound` | reject `K0802` | body calls method not in the bound |
 | `229-type-argument-not-satisfying-bound` | reject `K0803` | concrete type missing a required method |
-| `230-duplicate-type-parameter` | reject `K0804` | `[A: Foo, A: Foo]` with same name |
-| `231-type-parameter-shadows-type` | reject `K0805` | `[Int: Foo]` where `Int` is a built-in |
+| `230-duplicate-type-parameter` | reject `K0804` | `<A: Foo, A: Foo>` with same name |
+| `231-type-parameter-shadows-type` | reject `K0805` | `<Int: Foo>` where `Int` is a built-in |
 | `232-too-many-type-parameters` | reject `K0806` | 257 type parameters |
 | `233-constraint-interface-too-many-methods` | reject `K0601` | interface with six methods used as a bound (subsumed by K0601) |
 
