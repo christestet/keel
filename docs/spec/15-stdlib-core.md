@@ -924,6 +924,7 @@ without an explicit target type.
 | `790-timestamp-full-range` | accept | an instant beyond the signed-64-bit-nanosecond range round-trips |
 | `791-timestamp-leap-second-invalid` | accept | a leap-second spelling returns `json.TypeMismatch` |
 | `792-email-domain-normalizes` | accept | domain ASCII case normalizes while local-part case is preserved |
+| `793-timestamp-interpolation` | accept | a named timestamp interpolates using canonical text |
 
 ### 15.36 Scalar dependencies
 
