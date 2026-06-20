@@ -1,0 +1,13 @@
+use std.http
+
+fn handle_get(req: http.Request) -> http.Response {
+    let id = req.path_param<Uuid>("id")
+        catch err => return http.bad_request(err)
+    http.ok("{id}")
+}
+
+fn main() {
+    http.serve(8080, http.Router{
+        "GET /users/{id}": handle_get,
+    })
+}
