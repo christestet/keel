@@ -65,12 +65,12 @@ The gap is five language features plus a test harness:
 absorbs any propagated error at `?`/return and is opaque (no destructure;
 `catch`/`match` on it is `K0504`). M1–M6 preflight green.
 
-**Step 2 — Core scalars `Uuid`/`Timestamp`/`Email`.** Compiler-known scalars
-backed by `string`/`int64`: constructors, JSON-as-string, `path_param<Uuid>`,
-interpolation. Today `request_param_suffix` and `go_type`/json codecs are
-closed over primitives — this opens them. Split the **compiler** work into
-three PRs (one scalar each) behind one KDR/spec. DoD: struct with all three
-fields + json round-trip + `path_param<Uuid>`.
+**Step 2 — Core scalars `Uuid`/`Timestamp`/`Email`. ✅ DONE** (KDR-0034;
+spec §15.34; cases 779–793). `Uuid` and canonicalized `Email` use string-backed
+Go values; `Timestamp` uses separate epoch-seconds and nanosecond fields across
+the RFC 3339 year range. JSON/HTTP parsing, constructors, canonical
+interpolation, offset normalization, named-value JSON writing, and the
+three-scalar struct round-trip are implemented. M6 conformance is green.
 
 **Step 3 — Call-site named arguments + structured `log.info`.** General
 `name: value` at call sites, plus the structured-log output format. DoD:
@@ -106,7 +106,7 @@ Core scalar *types*, not the M7 structured-generation work.
 Current state, before any step:
 
 ```
-KEEL_MILESTONE=M6 scripts/preflight.sh   # green: 163 passed, 0 failed, 3 skipped
+KEEL_MILESTONE=M6 scripts/preflight.sh   # green: 180 passed, 0 failed, 3 skipped
 for m in M1 M2 M3 M4 M5; do KEEL_MILESTONE=$m scripts/preflight.sh; done  # all green
 ```
 
@@ -115,8 +115,7 @@ The final gate (Step 6) additionally runs the example end-to-end on SQLite.
 
 ## Next work
 
-Step 1 (universal `Error`) is **done**. Next is **Step 2** (Core scalars
-`Uuid`/`Timestamp`/`Email`) — the biggest step; split its compiler work into
-one PR per scalar behind a single KDR/spec. See
+Steps 1 and 2 are **done**. Next is **Step 3** (call-site named arguments and
+structured `log.info`). See
 [`docs/M6-implementation-handoff.md`](M6-implementation-handoff.md) §4 for the
 original aspirational-feature list this plan expands.
