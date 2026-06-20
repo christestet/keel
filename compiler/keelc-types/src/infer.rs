@@ -316,6 +316,28 @@ impl TypeContext {
                 }
             }
             Expr::Field { target, field, .. }
+                if matches!(target.as_ref(), Expr::Name(name) if name.value == "sql")
+                    && field.value == "connect" =>
+            {
+                TypeInfo::generic(
+                    "Result",
+                    vec![
+                        TypeInfo::Named("sql.Pool".to_string()),
+                        TypeInfo::Named("sql.Error".to_string()),
+                    ],
+                )
+            }
+            Expr::Field { target, field, .. }
+                if field.value == "get"
+                    && self.infer_expr(target) == TypeInfo::Named("sql.Row".to_string()) =>
+            {
+                type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown)
+            }
+            Expr::Field { target, field, .. }
                 if matches!(field.value.as_str(), "path_param" | "query_param")
                     && self.infer_expr(target) == TypeInfo::Named("http.Request".to_string()) =>
             {
@@ -368,6 +390,18 @@ impl TypeContext {
                 _ => TypeInfo::Unknown,
             };
         }
+        if matches!(receiver, Expr::Name(name) if name.value == "sql") {
+            return match method {
+                "connect" => TypeInfo::generic(
+                    "Result",
+                    vec![
+                        TypeInfo::Named("sql.Pool".to_string()),
+                        TypeInfo::Named("sql.Error".to_string()),
+                    ],
+                ),
+                _ => TypeInfo::Unknown,
+            };
+        }
         if matches!(receiver, Expr::Name(name) if name.value == "json") && method == "write" {
             return TypeInfo::generic(
                 "Result",
@@ -377,6 +411,9 @@ impl TypeContext {
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
             let _ = self.infer_expr(arg);
+        }
+        if let Some(result) = self.infer_sql_method(&receiver_type, method, args) {
+            return result;
         }
         let method_info = match &receiver_type {
             TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => self
@@ -394,6 +431,62 @@ impl TypeContext {
         method_info
             .map(|info| info.return_type)
             .unwrap_or(TypeInfo::Unknown)
+    }
+
+    /// Diagnostic-free mirror of the resolver's `std.sql` value-method typing
+    /// (KDR-0029), so KIR lowering sees the same types.
+    fn infer_sql_method(
+        &self,
+        receiver: &TypeInfo,
+        method: &str,
+        args: &[Expr],
+    ) -> Option<TypeInfo> {
+        let sql_error = TypeInfo::Named("sql.Error".to_string());
+        match receiver {
+            TypeInfo::Named(name) if name == "sql.Pool" => {
+                let result =
+                    |ok: TypeInfo| TypeInfo::generic("Result", vec![ok, sql_error.clone()]);
+                Some(match method {
+                    "query" => result(TypeInfo::Named("sql.QueryResult".to_string())),
+                    "query_one" => result(TypeInfo::Named("sql.Row".to_string())),
+                    "exec" => result(TypeInfo::Int),
+                    "migrate" => result(TypeInfo::Unit),
+                    _ => return None,
+                })
+            }
+            TypeInfo::Named(name) if name == "sql.QueryResult" => match method {
+                "map" => {
+                    let item = match args.first() {
+                        Some(Expr::Name(name)) => self
+                            .functions
+                            .iter()
+                            .find(|f| f.name == name.value)
+                            .map_or(TypeInfo::Unknown, |f| f.return_type.clone()),
+                        _ => TypeInfo::Unknown,
+                    };
+                    Some(TypeInfo::Generic {
+                        name: "sql.RowMapper".to_string(),
+                        args: vec![item],
+                    })
+                }
+                "next" => Some(TypeInfo::generic(
+                    "Option",
+                    vec![TypeInfo::Named("sql.Row".to_string())],
+                )),
+                _ => None,
+            },
+            TypeInfo::Generic { name, args: targs } if name == "sql.RowMapper" => match method {
+                "collect" => {
+                    let item = targs.first().cloned().unwrap_or(TypeInfo::Unknown);
+                    Some(TypeInfo::generic(
+                        "Result",
+                        vec![TypeInfo::generic("List", vec![item]), sql_error],
+                    ))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     #[must_use]

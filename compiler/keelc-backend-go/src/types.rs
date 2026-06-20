@@ -7,6 +7,10 @@ pub fn go_type(ty: &TypeInfo, struct_names: &[String], interface_names: &[String
         TypeInfo::Named(name) if interface_names.iter().any(|n| n == name) => name.clone(),
         TypeInfo::Named(name) if name == "http.Response" => "keelHTTPResponse".to_string(),
         TypeInfo::Named(name) if name == "http.Request" => "keelHTTPRequest".to_string(),
+        TypeInfo::Named(name) if name == "sql.Pool" => "keelSQLPool".to_string(),
+        TypeInfo::Named(name) if name == "sql.QueryResult" => "keelSQLQueryResult".to_string(),
+        TypeInfo::Named(name) if name == "sql.Row" => "keelSQLRow".to_string(),
+        TypeInfo::Generic { name, .. } if name == "sql.RowMapper" => "keelSQLRowMapper".to_string(),
         TypeInfo::Int => "int64".to_string(),
         TypeInfo::Float => "float64".to_string(),
         TypeInfo::Bool => "bool".to_string(),
@@ -27,6 +31,10 @@ pub fn zero_value(ty: &TypeInfo) -> &'static str {
         TypeInfo::Named(name) if name == "http.Response" || name == "http.Request" => {
             "keelHTTPResponse{}"
         }
+        TypeInfo::Named(name) if name == "sql.Pool" => "keelSQLPool{}",
+        TypeInfo::Named(name) if name == "sql.QueryResult" => "keelSQLQueryResult{}",
+        TypeInfo::Named(name) if name == "sql.Row" => "keelSQLRow{}",
+        TypeInfo::Generic { name, .. } if name == "sql.RowMapper" => "keelSQLRowMapper{}",
         TypeInfo::Int | TypeInfo::Float | TypeInfo::Char => "0",
         TypeInfo::Bool => "false",
         TypeInfo::String => "\"\"",

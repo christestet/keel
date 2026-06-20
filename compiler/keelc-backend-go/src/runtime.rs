@@ -1,5 +1,177 @@
 use crate::{BackendError, Emitter};
 
+/// `std.sql` runtime (KDR-0029). Handles flow through Keel as `any` (catch/`?`
+/// results), so every wrapper takes `any` and asserts internally. Backed by the
+/// stdlib `database/sql` pool; the driver is selected at runtime by the
+/// connection string (no compile-time driver dependency).
+const SQL_RUNTIME: &str = r#"type keelSQLPool struct {
+	db *sql.DB
+}
+
+type keelSQLQueryResult struct {
+	cols []string
+	rows [][]any
+}
+
+type keelSQLRow struct {
+	cols   []string
+	values []any
+}
+
+type keelSQLRowMapper struct {
+	result keelSQLQueryResult
+	mapper func(keelSQLRow) any
+}
+
+func keelSQLErr(tag string, message string) KeelEnum {
+	return KeelEnum{tag: tag, values: []any{message}}
+}
+
+func keelSQLConnect(conn string) KeelEnum {
+	db, err := sql.Open(keelSQLDriver(conn), conn)
+	if err != nil {
+		return Err(keelSQLErr("ConnectionFailed", err.Error()))
+	}
+	return Ok(keelSQLPool{db: db})
+}
+
+func keelSQLDriver(conn string) string {
+	if strings.HasPrefix(conn, "postgres://") || strings.HasPrefix(conn, "postgresql://") {
+		return "postgres"
+	}
+	if strings.HasPrefix(conn, "mysql://") {
+		return "mysql"
+	}
+	return "sqlite"
+}
+
+func keelSQLMigrate(pool any, statements string) KeelEnum {
+	p := pool.(keelSQLPool)
+	for _, raw := range strings.Split(statements, ";") {
+		stmt := strings.TrimSpace(raw)
+		if stmt == "" {
+			continue
+		}
+		if _, err := p.db.Exec(stmt); err != nil {
+			return Err(keelSQLErr("MigrationFailed", err.Error()))
+		}
+	}
+	return Ok(struct{}{})
+}
+
+func keelSQLQuery(pool any, query string) KeelEnum {
+	p := pool.(keelSQLPool)
+	rows, err := p.db.Query(query)
+	if err != nil {
+		return Err(keelSQLErr("QueryFailed", err.Error()))
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return Err(keelSQLErr("QueryFailed", err.Error()))
+	}
+	var data [][]any
+	for rows.Next() {
+		cells := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range cells {
+			ptrs[i] = &cells[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return Err(keelSQLErr("QueryFailed", err.Error()))
+		}
+		data = append(data, cells)
+	}
+	return Ok(keelSQLQueryResult{cols: cols, rows: data})
+}
+
+func keelSQLQueryOne(pool any, query string) KeelEnum {
+	res := keelSQLQuery(pool, query)
+	if res.tag == "Err" {
+		return res
+	}
+	qr := res.values[0].(keelSQLQueryResult)
+	if len(qr.rows) == 0 {
+		return Err(KeelEnum{tag: "NoRows"})
+	}
+	if len(qr.rows) > 1 {
+		return Err(keelSQLErr("QueryFailed", "query_one matched multiple rows"))
+	}
+	return Ok(keelSQLRow{cols: qr.cols, values: qr.rows[0]})
+}
+
+func keelSQLExec(pool any, query string) KeelEnum {
+	p := pool.(keelSQLPool)
+	res, err := p.db.Exec(query)
+	if err != nil {
+		return Err(keelSQLErr("QueryFailed", err.Error()))
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Err(keelSQLErr("QueryFailed", err.Error()))
+	}
+	return Ok(n)
+}
+
+func keelSQLMap(result any, mapper func(keelSQLRow) any) keelSQLRowMapper {
+	return keelSQLRowMapper{result: result.(keelSQLQueryResult), mapper: mapper}
+}
+
+func keelSQLCollect(mapper any) KeelEnum {
+	m := mapper.(keelSQLRowMapper)
+	out := []any{}
+	for _, values := range m.result.rows {
+		out = append(out, m.mapper(keelSQLRow{cols: m.result.cols, values: values}))
+	}
+	return Ok(out)
+}
+
+func keelSQLRowGet(row any, index int64) any {
+	r := row.(keelSQLRow)
+	if index < 0 || int(index) >= len(r.values) {
+		return nil
+	}
+	return r.values[index]
+}
+
+func keelSQLRowGetInt(row any, index int64) int64 {
+	switch v := keelSQLRowGet(row, index).(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
+func keelSQLRowGetString(row any, index int64) string {
+	switch v := keelSQLRowGet(row, index).(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return ""
+	}
+}
+
+func keelSQLRowGetBool(row any, index int64) bool {
+	if v, ok := keelSQLRowGet(row, index).(bool); ok {
+		return v
+	}
+	return false
+}
+
+func keelSQLRowGetFloat(row any, index int64) float64 {
+	if v, ok := keelSQLRowGet(row, index).(float64); ok {
+		return v
+	}
+	return 0
+}
+
+"#;
+
 /// Router runtime for `http.serve(port, http.Router{...})` (KDR-0031). Emitted
 /// once when a module calls `http.serve`. Splits each route pattern into method
 /// and path, matches `{name}` path segments, and exposes typed path/query
@@ -240,6 +412,9 @@ impl<'a> Emitter<'a> {
         }
         if self.uses_log {
             self.emit_log_runtime()?;
+        }
+        if self.uses_sql {
+            self.output.push_str(SQL_RUNTIME);
         }
         Ok(())
     }

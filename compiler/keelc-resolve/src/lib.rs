@@ -790,6 +790,86 @@ impl<'a> Typechecker<'a> {
         TypeInfo::Named("http.Router".to_string())
     }
 
+    /// Methods on the compiler-known `std.sql` value types (KDR-0029): pool
+    /// query/exec/migrate, `QueryResult.map`/`next`, `RowMapper.collect`.
+    fn infer_sql_method(
+        &mut self,
+        receiver: &TypeInfo,
+        method: &Spanned<String>,
+        args: &[Expr],
+    ) -> Option<TypeInfo> {
+        let sql_error = TypeInfo::Named("sql.Error".to_string());
+        match receiver {
+            TypeInfo::Named(name) if name == "sql.Pool" => {
+                let result =
+                    |ok: TypeInfo| TypeInfo::generic("Result", vec![ok, sql_error.clone()]);
+                Some(match method.value.as_str() {
+                    "query" => result(TypeInfo::Named("sql.QueryResult".to_string())),
+                    "query_one" => result(TypeInfo::Named("sql.Row".to_string())),
+                    "exec" => result(TypeInfo::Int),
+                    "migrate" => result(TypeInfo::Unit),
+                    _ => return None,
+                })
+            }
+            TypeInfo::Named(name) if name == "sql.QueryResult" => match method.value.as_str() {
+                "map" => Some(self.infer_sql_map(args, method.span)),
+                "next" => Some(TypeInfo::generic(
+                    "Option",
+                    vec![TypeInfo::Named("sql.Row".to_string())],
+                )),
+                _ => None,
+            },
+            TypeInfo::Generic { name, args: targs } if name == "sql.RowMapper" => {
+                match method.value.as_str() {
+                    "collect" => {
+                        let item = targs.first().cloned().unwrap_or(TypeInfo::Unknown);
+                        Some(TypeInfo::generic(
+                            "Result",
+                            vec![TypeInfo::generic("List", vec![item]), sql_error],
+                        ))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// `QueryResult.map(f)` — `f` must be a bare function name resolving to
+    /// `fn(sql.Row) -> Struct`; `K1506` otherwise. Returns `RowMapper<Struct>`.
+    fn infer_sql_map(&mut self, args: &[Expr], span: Span) -> TypeInfo {
+        let row = TypeInfo::Named("sql.Row".to_string());
+        let item = match args.first() {
+            Some(Expr::Name(name)) => match self.function_info(&name.value) {
+                Some(info) if info.params == vec![row] => info.return_type.clone(),
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1506,
+                        self.diagnostic_span(name.span),
+                        format!(
+                            "`{}` must be a function `fn(sql.Row) -> Struct`",
+                            name.value
+                        ),
+                    ));
+                    TypeInfo::Unknown
+                }
+            },
+            other => {
+                let arg_span = other.map_or(span, Expr::span);
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K1506,
+                    self.diagnostic_span(arg_span),
+                    "`map` expects a row-mapping function name `fn(sql.Row) -> Struct`",
+                ));
+                TypeInfo::Unknown
+            }
+        };
+        TypeInfo::Generic {
+            name: "sql.RowMapper".to_string(),
+            args: vec![item],
+        }
+    }
+
     fn infer_scope(&mut self, deadline: Option<&Expr>, body: &Block) -> TypeInfo {
         if let Some(deadline) = deadline {
             let deadline_type = self.infer_expr(deadline);
@@ -1004,6 +1084,39 @@ impl<'a> Typechecker<'a> {
                     }
                 }
             }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "sql") => {
+                match field.value.as_str() {
+                    "connect" => {
+                        self.check_call_args(&[TypeInfo::String], args, field.span);
+                        TypeInfo::generic(
+                            "Result",
+                            vec![
+                                TypeInfo::Named("sql.Pool".to_string()),
+                                TypeInfo::Named("sql.Error".to_string()),
+                            ],
+                        )
+                    }
+                    _ => {
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0606,
+                            self.diagnostic_span(field.span),
+                            format!("method `{}` not found on `std.sql`", field.value),
+                        ));
+                        TypeInfo::Unknown
+                    }
+                }
+            }
+            Expr::Field { target, field, .. }
+                if field.value == "get"
+                    && self.infer_expr(target) == TypeInfo::Named("sql.Row".to_string()) =>
+            {
+                self.check_call_args(&[TypeInfo::Int], args, field.span);
+                type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown)
+            }
             Expr::Field { target, field, .. }
                 if matches!(field.value.as_str(), "path_param" | "query_param") =>
             {
@@ -1084,6 +1197,28 @@ impl<'a> Typechecker<'a> {
         if matches!(receiver, Expr::Name(name) if name.value == "http") {
             return self.infer_http_call(method, args);
         }
+        if matches!(receiver, Expr::Name(name) if name.value == "sql") {
+            return match method.value.as_str() {
+                "connect" => {
+                    self.check_call_args(&[TypeInfo::String], args, method.span);
+                    TypeInfo::generic(
+                        "Result",
+                        vec![
+                            TypeInfo::Named("sql.Pool".to_string()),
+                            TypeInfo::Named("sql.Error".to_string()),
+                        ],
+                    )
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0606,
+                        self.diagnostic_span(method.span),
+                        format!("method `{}` not found on `std.sql`", method.value),
+                    ));
+                    TypeInfo::Unknown
+                }
+            };
+        }
         if matches!(receiver, Expr::Name(name) if name.value == "log") {
             return match method.value.as_str() {
                 "info" | "warn" | "error" => {
@@ -1120,6 +1255,9 @@ impl<'a> Typechecker<'a> {
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
             self.infer_expr(arg);
+        }
+        if let Some(result) = self.infer_sql_method(&receiver_type, method, args) {
+            return result;
         }
         let method_info = match &receiver_type {
             TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => {

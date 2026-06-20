@@ -216,6 +216,16 @@ pub fn module_uses_http(module: &Module) -> bool {
     })
 }
 
+pub fn module_uses_sql(module: &Module) -> bool {
+    // Every `std.sql` program connects first; that single call is the trigger.
+    any_in_module(module, false, &|expr| {
+        matches!(expr,
+            Expr::MethodCall { receiver, method, .. }
+                if method == "connect"
+                    && matches!(receiver.as_ref(), Expr::Name(name) if name == "sql"))
+    })
+}
+
 pub fn module_uses_log(module: &Module) -> bool {
     any_in_module(module, false, &|expr| match expr {
         Expr::Call { callee, .. } => matches!(callee.as_ref(),

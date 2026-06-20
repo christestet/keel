@@ -12,7 +12,7 @@ mod types;
 use crate::analysis::{
     collect_enum_variant_names, collect_impls, collect_interfaces, collect_structs, expr_ty,
     module_uses_concurrency, module_uses_http, module_uses_http_serve, module_uses_json,
-    module_uses_log, ImplInfo, InterfaceInfo, StructInfo,
+    module_uses_log, module_uses_sql, ImplInfo, InterfaceInfo, StructInfo,
 };
 use crate::types::{
     go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name,
@@ -83,6 +83,7 @@ struct Emitter<'a> {
     uses_http: bool,
     uses_http_serve: bool,
     uses_log: bool,
+    uses_sql: bool,
     json_types: Vec<TypeInfo>,
     task_values: Vec<Vec<(String, TypeInfo)>>,
     output: String,
@@ -102,6 +103,7 @@ impl<'a> Emitter<'a> {
         let uses_http = module_uses_http(module);
         let uses_http_serve = module_uses_http_serve(module);
         let uses_log = module_uses_log(module);
+        let uses_sql = module_uses_sql(module);
         Self {
             module,
             structs,
@@ -115,6 +117,7 @@ impl<'a> Emitter<'a> {
             uses_http,
             uses_http_serve,
             uses_log,
+            uses_sql,
             json_types: Vec::new(),
             task_values: Vec::new(),
             output: String::new(),
@@ -239,6 +242,10 @@ impl<'a> Emitter<'a> {
             imports.push("net/http");
             imports.push("net/url");
             imports.push("strconv");
+            imports.push("strings");
+        }
+        if self.uses_sql {
+            imports.push("database/sql");
             imports.push("strings");
         }
         if self.uses_json || self.uses_http_serve {
@@ -751,6 +758,49 @@ impl<'a> Emitter<'a> {
         Ok(format!("[]keelRoute{{{}}}", entries.join(", ")))
     }
 
+    /// Codegen for `std.sql` value methods (KDR-0029). Dispatched by method name,
+    /// gated on `uses_sql` since the backend cannot re-derive a `Name`'s type.
+    // ponytail: name-based dispatch, scoped to sql modules; upgrade to a typed
+    // receiver check if a sql module ever shadows these names on a user type.
+    fn emit_sql_method(
+        &mut self,
+        receiver: &Expr,
+        method: &str,
+        args: &[Expr],
+    ) -> Result<Option<String>, BackendError> {
+        if !self.uses_sql {
+            return Ok(None);
+        }
+        let func = match method {
+            "query" => "keelSQLQuery",
+            "query_one" => "keelSQLQueryOne",
+            "exec" => "keelSQLExec",
+            "migrate" => "keelSQLMigrate",
+            "collect" => "keelSQLCollect",
+            "map" => {
+                let recv = self.emit_expr(receiver)?;
+                let mapper = args
+                    .first()
+                    .ok_or_else(|| BackendError::unsupported("sql map without a function"))?;
+                let mapper = self.emit_expr(mapper)?;
+                return Ok(Some(format!(
+                    "keelSQLMap({recv}, func(__keel_row keelSQLRow) any {{ return {mapper}(__keel_row) }})"
+                )));
+            }
+            _ => return Ok(None),
+        };
+        let recv = self.emit_expr(receiver)?;
+        if method == "collect" {
+            return Ok(Some(format!("{func}({recv})")));
+        }
+        let arg = args
+            .first()
+            .map(|a| self.emit_expr(a))
+            .transpose()?
+            .unwrap_or_default();
+        Ok(Some(format!("{func}({recv}, {arg})")))
+    }
+
     fn emit_method_call(
         &mut self,
         receiver: &Expr,
@@ -763,6 +813,16 @@ impl<'a> Emitter<'a> {
                 .ok_or_else(|| BackendError::unsupported("Float.from without argument"))?;
             let arg_expr = self.emit_expr(arg)?;
             return Ok(format!("float64({arg_expr})"));
+        }
+        if matches!(receiver, Expr::Name(name) if name == "sql") && method == "connect" {
+            let arg = args
+                .first()
+                .ok_or_else(|| BackendError::unsupported("sql.connect without argument"))?;
+            let arg = self.emit_expr(arg)?;
+            return Ok(format!("keelSQLConnect({arg})"));
+        }
+        if let Some(call) = self.emit_sql_method(receiver, method, args)? {
+            return Ok(call);
         }
         if matches!(receiver, Expr::Name(name) if name == "time") {
             let arg = args.first().ok_or_else(|| {
@@ -845,6 +905,15 @@ impl<'a> Emitter<'a> {
             }
             if matches!(target.as_ref(), Expr::Name(name) if name == "log") {
                 return self.emit_log_call(field, args);
+            }
+            if field == "get" && self.uses_sql && !type_args.is_empty() {
+                let receiver = self.emit_expr(target)?;
+                let index = args
+                    .first()
+                    .ok_or_else(|| BackendError::unsupported("row.get without an index"))?;
+                let index = self.emit_expr(index)?;
+                let suffix = request_param_suffix(&type_args[0])?;
+                return Ok(format!("keelSQLRowGet{suffix}({receiver}, {index})"));
             }
             if matches!(field.as_str(), "path_param" | "query_param") && !type_args.is_empty() {
                 let receiver = self.emit_expr(target)?;
