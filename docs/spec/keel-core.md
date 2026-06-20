@@ -55,7 +55,10 @@ fn full_name(first: String, last: String) -> String {
   defaults: `port: Int = 8080` in the struct declaration are permitted and count
   as provided.
 - Function signatures are fully explicit: parameter and return types required
-  (`K0302`). `-> Unit` may be omitted.
+  (`K0302`). `-> Unit` may be omitted. Parameters may declare a default value
+  (`limit: Int = 50`) of the parameter's declared type; a call omitting a
+  trailing argument receives the default (KDR-0036). Arguments are positional,
+  so an omitted argument is always a trailing one.
 - `let` is immutable; `mut` declares mutable bindings (`K0303` on assignment to `let`).
 - Local type inference only: `let x = expr` infers; signatures never infer.
 
