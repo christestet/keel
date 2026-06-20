@@ -247,7 +247,8 @@ impl<'a> Lexer<'a> {
                     terminated = true;
                     break;
                 }
-                '\n' => break,
+                // KDR-0035: a literal newline is part of the string value; a
+                // string ends only at a closing `"` or end of input (K0002).
                 '{' => {
                     self.advance_char();
                     if self.peek_char() == Some('{') {
