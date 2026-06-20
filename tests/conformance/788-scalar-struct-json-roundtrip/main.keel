@@ -10,10 +10,11 @@ fn quote() -> Char { '"' }
 
 fn main() {
     let input = "{{{quote()}id{quote()}:{quote()}550e8400-e29b-41d4-a716-446655440000{quote()},{quote()}created_at{quote()}:{quote()}2026-06-20T12:34:56Z{quote()},{quote()}email{quote()}:{quote()}ada@example.com{quote()}}}"
-    let record = json.parse<Record>(input) catch err {
-        other => return print("parse error"),
-    }
-    let encoded = json.write(record) catch err {
+    let encoded = json.write(
+        json.parse<Record>(input) catch err {
+            other => return print("parse error"),
+        },
+    ) catch err {
         other => return print("write error"),
     }
     print(encoded)

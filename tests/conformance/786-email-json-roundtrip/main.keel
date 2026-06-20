@@ -3,10 +3,11 @@ use std.json
 fn quote() -> Char { '"' }
 
 fn main() {
-    let email = json.parse<Email>("{quote()}ada.lovelace+keel@example.com{quote()}") catch err {
-        other => return print("parse error"),
-    }
-    let encoded = json.write(email) catch err {
+    let encoded = json.write(
+        json.parse<Email>("{quote()}ada.lovelace+keel@example.com{quote()}") catch err {
+            other => return print("parse error"),
+        },
+    ) catch err {
         other => return print("write error"),
     }
     print(encoded)

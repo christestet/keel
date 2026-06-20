@@ -3,10 +3,11 @@ use std.json
 fn quote() -> Char { '"' }
 
 fn main() {
-    let timestamp = json.parse<Timestamp>("{quote()}2026-06-20T12:34:56.123Z{quote()}") catch err {
-        other => return print("parse error"),
-    }
-    let encoded = json.write(timestamp) catch err {
+    let encoded = json.write(
+        json.parse<Timestamp>("{quote()}2026-06-20T12:34:56.123Z{quote()}") catch err {
+            other => return print("parse error"),
+        },
+    ) catch err {
         other => return print("write error"),
     }
     print(encoded)
