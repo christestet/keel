@@ -2,7 +2,7 @@ interface Stringer {
     fn to_string(self) -> String
 }
 
-fn greet[T: Stringer](value: T) -> String {
+fn greet<T: Stringer>(value: T) -> String {
     "hello, {value.to_string()}"
 }
 
@@ -19,6 +19,6 @@ impl Stringer for String {
 }
 
 fn main() {
-    print(greet[Int](42))
+    print(greet<Int>(42))
     print(greet("world"))
 }

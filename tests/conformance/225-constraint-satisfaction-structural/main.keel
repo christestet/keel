@@ -23,7 +23,7 @@ impl HasArea for Square {
     }
 }
 
-fn print_area[T: HasArea](shape: T) {
+fn print_area<T: HasArea>(shape: T) {
     print(shape.area())
 }
 

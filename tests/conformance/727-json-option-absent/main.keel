@@ -5,7 +5,7 @@ struct Patch {
 }
 
 fn main() {
-    let patch = json.parse[Patch]("{{}}") catch err {
+    let patch = json.parse<Patch>("{{}}") catch err {
         other => return print("error"),
     }
     match patch.name {

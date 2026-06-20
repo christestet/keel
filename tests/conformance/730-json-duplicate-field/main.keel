@@ -7,7 +7,7 @@ struct User {
 fn quote() -> Char { '"' }
 
 fn main() {
-    let user = json.parse[User]("{{{quote()}name{quote()}:{quote()}Ada{quote()},{quote()}name{quote()}:{quote()}Grace{quote()}}}") catch err {
+    let user = json.parse<User>("{{{quote()}name{quote()}:{quote()}Ada{quote()},{quote()}name{quote()}:{quote()}Grace{quote()}}}") catch err {
         DuplicateField(path) => return print("duplicate {path}"),
         other => return print("wrong error"),
     }

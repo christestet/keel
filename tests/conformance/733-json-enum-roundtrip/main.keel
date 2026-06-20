@@ -9,7 +9,7 @@ fn main() {
     let encoded = json.write(Suspended("maintenance")) catch err {
         other => return print("write error"),
     }
-    let decoded = json.parse[Status](encoded) catch err {
+    let decoded = json.parse<Status>(encoded) catch err {
         other => return print("parse error"),
     }
     match decoded {

@@ -7,7 +7,7 @@ struct User {
 fn quote() -> Char { '"' }
 
 fn main() {
-    let user = json.parse[User]("{{{quote()}name{quote()}:{quote()}Ada{quote()},{quote()}extra{quote()}:1}}", mode: .tolerant) catch err {
+    let user = json.parse<User>("{{{quote()}name{quote()}:{quote()}Ada{quote()},{quote()}extra{quote()}:1}}", mode: .tolerant) catch err {
         other => return print("error"),
     }
     print(user.name)

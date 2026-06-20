@@ -1,7 +1,7 @@
 use std.json
 
 fn main() {
-    let value = json.parse[Bool]("true false") catch err {
+    let value = json.parse<Bool>("true false") catch err {
         Syntax(offset) => return print("syntax {offset}"),
         other => return print("wrong error"),
     }
