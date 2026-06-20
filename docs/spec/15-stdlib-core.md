@@ -142,9 +142,9 @@ add or alter executable cases.
 operations:
 
 ```text
-fn json.parse[T](input: String) -> Result<T, json.Error>
-fn json.parse[T](input: String, mode: .tolerant) -> Result<T, json.Error>
-fn json.write[T](value: T) -> Result<String, json.Error>
+fn json.parse<T>(input: String) -> Result<T, json.Error>
+fn json.parse<T>(input: String, mode: .tolerant) -> Result<T, json.Error>
+fn json.write<T>(value: T) -> Result<String, json.Error>
 ```
 
 `json.parse` requires exactly one explicit concrete type argument. `json.write`
@@ -271,7 +271,7 @@ reported. Message text is not part of the contract.
 
 ## 15.14 JSON error conditions
 
-- **`K1503` — unsupported JSON target.** `json.parse[T]` or `json.write(value)`
+- **`K1503` — unsupported JSON target.** `json.parse<T>` or `json.write(value)`
   uses a type not included in §15.8. This is a compile-time error.
 
 `json.Error` variants are runtime values, not compiler diagnostics. `K1503` is
@@ -679,7 +679,7 @@ typed, environment-variable-based configuration loader.
 ### 15.31.1 Loading configuration
 
 ```text
-fn config.load[T]() -> Result<T, config.Error>
+fn config.load<T>() -> Result<T, config.Error>
 ```
 
 `config.load<T>` reads all fields of the struct type `T` from environment
@@ -768,12 +768,12 @@ enum config.Error {
 `MissingEnvVar` is returned when a non-option, non-default field's env var is
 not set. `MissingSecret` is the same for `Secret` fields. `ParseError` is
 returned when an env var value cannot be parsed into the target type.
-`InvalidStructType` is returned when `load[T]` is called with a non-loadable
+`InvalidStructType` is returned when `load<T>` is called with a non-loadable
 type.
 
 ### 15.31.7 Config error conditions
 
-- **`K1507` — unparseable config target.** `config.load[T]` is called with a
+- **`K1507` — unparseable config target.** `config.load<T>` is called with a
   type `T` that is not a named struct, or `T` contains a field type that cannot be
   loaded from an environment variable. This is a compile-time error; the primary
   span is the type argument or target expression.
