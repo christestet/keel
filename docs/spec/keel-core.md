@@ -92,6 +92,13 @@ let row = db.get(id) catch err {
 
 - Union error types in signatures: `-> Result<User, DbError | ParseError>`.
   Matching on a union must cover every member type (`K0503`).
+- `Error` is the universal, opaque boundary error type (KDR-0033). Any error
+  type coerces into `Error` at `?` and at tail/`return` position in a function
+  declaring `-> Result<T, Error>`; `Error` is the only type that absorbs all
+  others. `Error` is renderable (string interpolation) but cannot be
+  destructured: matching on or `catch`-ing a value of type `Error` is `K0504`.
+  Code that must branch on which error occurred declares an explicit union
+  instead. `Error` is for boundaries that only propagate (e.g. `main`).
 - `panic("msg")` exists for unrecoverable bugs. There is no catch for panics in Core.
 
 ## 6. Modules
@@ -104,7 +111,8 @@ is M6).
 ## 7. Entry point and tests
 
 `fn main() -> Unit` or `fn main() -> Result<Unit, E>` (nonzero exit + error to
-stderr on `Err`). `test "name" { }` blocks with bare `assert expr` (Core: no
+stderr on `Err`), where `E` is commonly the universal `Error` (§5) so that any
+propagated error coerces in. `test "name" { }` blocks with bare `assert expr` (Core: no
 structural diff requirements yet, just pass/fail and the source line).
 
 ## 8. Explicitly NOT in Core (compiler must reject, not ignore)
