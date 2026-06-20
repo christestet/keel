@@ -77,17 +77,21 @@ three-scalar struct round-trip are implemented. M6 conformance is green.
 `log.info("m", k: v)` output case + a named arg satisfying a `limit: Int = 50`
 default.
 
-**Step 4 — Derived `Struct.from_row`.** Auto-derive
-`Type.from_row(row) -> Result<Type, sql.Error>` for column-mappable structs,
-and allow `Type.from_row` as a first-class value in `rows.map(...)`. Reuses the
-existing `Type.method` call path (`Uuid.new`, `Float.from`). **The one novel
-piece** — the KDR must pin field→column mapping (by position vs. name), type
-coercion, and which `sql.Error` a mismatch raises. DoD: derive a struct from a
-row, used both directly and as a mapper.
+**Step 4 — Derived `Struct.from_row`. ✅ DONE** (case 794-derived-from-row).
+Auto-derive `Type.from_row(row) -> Result<Type, sql.Error>` for column-mappable
+structs, usable both directly and as a first-class value in `rows.map(...)`,
+reusing the existing `Type.method` call path.
 
 **Step 5 — `sql.UniqueViolation` classification.** Map driver constraint errors
 to a catchable `UniqueViolation` variant (`NoRows` already emitted). DoD:
 `catch sql.UniqueViolation` / `sql.NoRows`.
+
+**Step 0 (newly surfaced) — Multi-line string literals.** The example's SQL
+queries span multiple physical lines inside one `"..."`. The lexer currently
+terminates a string at the first newline (`K0002` unterminated), so the example
+does not even lex. Core must accept literal newlines inside string literals.
+Own KDR → spec note (§1 string literals) → conformance case → lexer + formatter
+round-trip. Blocks every other step (nothing past it parses).
 
 **Step 6 — Example test harness + SQLite validation.** Write the users-service
 test file and a runner that builds + runs it on SQLite. Likely **zero dialect
@@ -115,7 +119,10 @@ The final gate (Step 6) additionally runs the example end-to-end on SQLite.
 
 ## Next work
 
-Steps 1 and 2 are **done**. Next is **Step 3** (call-site named arguments and
-structured `log.info`). See
+Steps 1, 2, and 4 are **done** (conformance green, 181/0/3). Remaining for the
+exit criterion: **Step 0** (multi-line string literals — the lexing blocker,
+do first), **Step 3** (call-site named arguments + structured `log.info`),
+**Step 5** (`sql.UniqueViolation`), and **Step 6** (test harness + SQLite run,
+the gate). The example `main.keel` does not yet compile. See
 [`docs/M6-implementation-handoff.md`](M6-implementation-handoff.md) §4 for the
 original aspirational-feature list this plan expands.

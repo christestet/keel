@@ -15,7 +15,10 @@ on conflict, file an issue — do not guess.
   Reserved for later milestones (cannot be identifiers): `interface scope spawn
   arena extern impl`
 - Literals: `Int` (`42`, `1_000`), `Float` (`3.14`), `Bool`, `String` (`"..."`,
-  with interpolation `"{expr}"`), `Char` (`'a'`).
+  with interpolation `"{expr}"`), `Char` (`'a'`). A `String` literal may span
+  multiple lines: literal newlines inside the quotes are part of the value. A
+  string ends only at an unescaped closing `"`; reaching end of input first is
+  `K0002`. An interpolation hole (`{expr}`) may not span a newline (`K0004`).
 - Statement termination: newline-based, like Go. No semicolons (`K0102` if present).
 
 ## 2. Types
