@@ -1,0 +1,21 @@
+enum ParseError {
+    BadDigit,
+}
+
+fn parse_one(s: String) -> Result<Int, ParseError> {
+    if s == "1" { Ok(1) } else { Err(BadDigit) }
+}
+
+fn boundary(s: String) -> Result<Int, Error> {
+    let n = parse_one(s)?
+    Ok(n)
+}
+
+fn main() {
+    // `Error` is opaque (KDR-0033): catching/destructuring it is K0504.
+    // To branch on the underlying error, declare a union instead.
+    let v = boundary("x") catch err {
+        BadDigit => 0,
+    }
+    print("{v}")
+}

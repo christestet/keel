@@ -1,0 +1,31 @@
+enum ParseError {
+    BadDigit,
+}
+
+enum RangeError {
+    TooBig,
+}
+
+fn parse_one(s: String) -> Result<Int, ParseError> {
+    if s == "1" { Ok(1) } else { Err(BadDigit) }
+}
+
+fn bounded(n: Int) -> Result<Int, RangeError> {
+    if n < 10 { Ok(n) } else { Err(TooBig) }
+}
+
+// `Error` is the universal boundary sink (KDR-0033): it absorbs any propagated
+// error type, so this function `?`-chains heterogeneous errors (ParseError,
+// RangeError) without declaring a union it never inspects.
+fn run(s: String) -> Result<Int, Error> {
+    let n = parse_one(s)?
+    let b = bounded(n)?
+    Ok(b + 100)
+}
+
+fn main() {
+    match run("1") {
+        Ok(v)  => print("ok: {v}"),
+        Err(_) => print("failed"),
+    }
+}
