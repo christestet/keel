@@ -227,6 +227,42 @@ pub fn module_uses_sql(module: &Module) -> bool {
     })
 }
 
+pub fn module_uses_config(module: &Module) -> bool {
+    any_in_module(module, false, &|expr| match expr {
+        Expr::Call { callee, .. } => matches!(callee.as_ref(),
+            Expr::Field { target, field, .. }
+                if field == "load" && matches!(target.as_ref(), Expr::Name(name) if name == "config")),
+        _ => false,
+    })
+}
+
+/// The distinct struct types passed to `config.load<T>()` across the module, in
+/// first-seen order. Drives loader generation and the `strconv` import.
+pub fn collect_config_types(module: &Module) -> Vec<TypeInfo> {
+    let found = std::cell::RefCell::new(Vec::new());
+    any_in_module(module, false, &|expr| {
+        if let Expr::Call {
+            callee, type_args, ..
+        } = expr
+        {
+            if let Expr::Field { target, field, .. } = callee.as_ref() {
+                if field == "load"
+                    && matches!(target.as_ref(), Expr::Name(name) if name == "config")
+                {
+                    if let Some(ty) = type_args.first() {
+                        let mut found = found.borrow_mut();
+                        if !found.contains(ty) {
+                            found.push(ty.clone());
+                        }
+                    }
+                }
+            }
+        }
+        false
+    });
+    found.into_inner()
+}
+
 pub fn module_uses_log(module: &Module) -> bool {
     any_in_module(module, false, &|expr| match expr {
         Expr::Call { callee, .. } => matches!(callee.as_ref(),

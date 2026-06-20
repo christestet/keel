@@ -336,6 +336,43 @@ func keelQueryParamFloat(req keelHTTPRequest, name string) KeelEnum {
 
 "#;
 
+/// `std.config` runtime (KDR-0030). The `Secret` marker type and the
+/// `config.Error` constructors; per-struct loaders are generated separately
+/// (they read the specific env vars). `keelConfigBool` follows the spec's
+/// truthy/falsy table rather than `strconv.ParseBool`.
+const CONFIG_RUNTIME: &str = r#"type keelConfigSecret struct {
+	value string
+}
+
+func (s keelConfigSecret) unwrap() string {
+	return s.value
+}
+
+func keelConfigMissingEnvVar(field string) KeelEnum {
+	return KeelEnum{tag: "MissingEnvVar", values: []any{field}}
+}
+
+func keelConfigMissingSecret(field string) KeelEnum {
+	return KeelEnum{tag: "MissingSecret", values: []any{field}}
+}
+
+func keelConfigParseError(field string, typ string, message string) KeelEnum {
+	return KeelEnum{tag: "ParseError", values: []any{field, typ, message}}
+}
+
+func keelConfigBool(value string) (bool, bool) {
+	switch value {
+	case "true", "1", "yes", "on":
+		return true, true
+	case "false", "0", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+"#;
+
 impl<'a> Emitter<'a> {
     pub(super) fn emit_runtime(&mut self) -> Result<(), BackendError> {
         self.line("type KeelEnum struct {")?;
@@ -415,6 +452,9 @@ impl<'a> Emitter<'a> {
         }
         if self.uses_sql {
             self.output.push_str(SQL_RUNTIME);
+        }
+        if self.uses_config {
+            self.output.push_str(CONFIG_RUNTIME);
         }
         Ok(())
     }

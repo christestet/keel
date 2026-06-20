@@ -299,6 +299,20 @@ impl TypeContext {
                     vec![target, TypeInfo::Named("json.Error".to_string())],
                 )
             }
+            Expr::Field { target, field, .. }
+                if matches!(target.as_ref(), Expr::Name(name) if name.value == "config")
+                    && field.value == "load" =>
+            {
+                let target = type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown);
+                TypeInfo::generic(
+                    "Result",
+                    vec![target, TypeInfo::Named("config.Error".to_string())],
+                )
+            }
             Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "http") => {
                 match field.value.as_str() {
                     "ok" | "created" | "bad_request" | "conflict" | "internal_error"
@@ -412,6 +426,9 @@ impl TypeContext {
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
             let _ = self.infer_expr(arg);
+        }
+        if receiver_type == TypeInfo::Named("Secret".to_string()) && method == "unwrap" {
+            return TypeInfo::String;
         }
         if let Some(result) = self.infer_sql_method(&receiver_type, method, args) {
             return result;
@@ -817,6 +834,11 @@ impl TypeContext {
             .iter()
             .find(|field| field.name == field_name)
             .map(|field| field.ty.clone())
+    }
+
+    #[must_use]
+    pub fn is_struct(&self, name: &str) -> bool {
+        self.structs.iter().any(|info| info.name == name)
     }
 
     #[must_use]

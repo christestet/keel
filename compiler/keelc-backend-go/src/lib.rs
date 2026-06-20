@@ -10,21 +10,35 @@ mod runtime;
 mod types;
 
 use crate::analysis::{
-    collect_enum_variant_names, collect_impls, collect_interfaces, collect_structs, expr_ty,
-    module_uses_concurrency, module_uses_http, module_uses_http_serve, module_uses_json,
-    module_uses_log, module_uses_sql, ImplInfo, InterfaceInfo, StructInfo,
+    collect_config_types, collect_enum_variant_names, collect_impls, collect_interfaces,
+    collect_structs, expr_ty, module_uses_concurrency, module_uses_config, module_uses_http,
+    module_uses_http_serve, module_uses_json, module_uses_log, module_uses_sql, ImplInfo,
+    InterfaceInfo, StructInfo,
 };
 use crate::types::{
     go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name,
     primitive_underlying, zero_value,
 };
 use keelc_kir::{
-    BinaryOp, Block, EnumDecl, Expr, FunctionDecl, Item, MatchArm, Module, Pattern, Route,
+    BinaryOp, Block, EnumDecl, Expr, Field, FunctionDecl, Item, MatchArm, Module, Pattern, Route,
     RouteHandler, Stmt, StringLiteral, StringPart, StructDecl, UnaryOp, Variant,
 };
 use keelc_types::infer::{task_inner, task_value_type};
 use keelc_types::TypeInfo;
 use std::fmt::{self, Write as _};
+
+/// A config field type whose env parsing calls `strconv` (`Int`/`Float`, bare
+/// or wrapped in `Option`). `Bool` uses `keelConfigBool`; `String`/`Secret`
+/// need no parsing.
+fn config_field_needs_strconv(ty: &TypeInfo) -> bool {
+    match ty {
+        TypeInfo::Int | TypeInfo::Float => true,
+        TypeInfo::Generic { name, args } if name == "Option" => {
+            args.first().is_some_and(config_field_needs_strconv)
+        }
+        _ => false,
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackendError {
@@ -88,7 +102,10 @@ struct Emitter<'a> {
     uses_http_serve: bool,
     uses_log: bool,
     uses_sql: bool,
+    uses_config: bool,
+    config_needs_strconv: bool,
     json_types: Vec<TypeInfo>,
+    config_types: Vec<TypeInfo>,
     task_values: Vec<Vec<(String, TypeInfo)>>,
     output: String,
     indent: usize,
@@ -108,6 +125,20 @@ impl<'a> Emitter<'a> {
         let uses_http_serve = module_uses_http_serve(module);
         let uses_log = module_uses_log(module);
         let uses_sql = module_uses_sql(module);
+        let uses_config = module_uses_config(module);
+        let config_types = collect_config_types(module);
+        // `strconv` is only used by Int/Float field parsing; Secret/String/Bool
+        // fields never touch it, so importing it unconditionally would break the
+        // Go build with an unused import.
+        let config_needs_strconv = config_types.iter().any(|ty| {
+            let TypeInfo::Named(name) = ty else {
+                return false;
+            };
+            structs
+                .iter()
+                .find(|s| s.name == *name)
+                .is_some_and(|s| s.fields.iter().any(|f| config_field_needs_strconv(&f.ty)))
+        });
         Self {
             module,
             structs,
@@ -122,7 +153,10 @@ impl<'a> Emitter<'a> {
             uses_http_serve,
             uses_log,
             uses_sql,
+            uses_config,
+            config_needs_strconv,
             json_types: Vec::new(),
+            config_types,
             task_values: Vec::new(),
             output: String::new(),
             indent: 0,
@@ -171,6 +205,7 @@ impl<'a> Emitter<'a> {
         }
 
         self.emit_json_codecs()?;
+        self.emit_config_loaders()?;
 
         Ok(self.output)
     }
@@ -254,6 +289,12 @@ impl<'a> Emitter<'a> {
         if self.uses_sql {
             imports.push("database/sql");
             imports.push("strings");
+        }
+        if self.uses_config {
+            imports.push("os");
+        }
+        if self.config_needs_strconv {
+            imports.push("strconv");
         }
         if self.uses_json || self.uses_http_serve {
             imports.push("io");
@@ -938,6 +979,13 @@ impl<'a> Emitter<'a> {
                     tolerant
                 ));
             }
+            if matches!(target.as_ref(), Expr::Name(name) if name == "config") && field == "load" {
+                let target_type = type_args.first().ok_or_else(|| {
+                    BackendError::unsupported("config.load without a type argument")
+                })?;
+                self.register_config_type(target_type);
+                return Ok(format!("keelConfigLoad_{}()", json_type_name(target_type)));
+            }
             if matches!(target.as_ref(), Expr::Name(name) if name == "http") {
                 return self.emit_http_call(field, args);
             }
@@ -1067,6 +1115,132 @@ impl<'a> Emitter<'a> {
     fn register_json_type(&mut self, ty: &TypeInfo) {
         if !self.json_types.contains(ty) {
             self.json_types.push(ty.clone());
+        }
+    }
+
+    fn register_config_type(&mut self, ty: &TypeInfo) {
+        if !self.config_types.contains(ty) {
+            self.config_types.push(ty.clone());
+        }
+    }
+
+    /// Generate one `keelConfigLoad_<Struct>()` per config struct that
+    /// `config.load<T>()` was called with (KDR-0030). Each reads its fields
+    /// from the environment, keyed by `FIELD.uppercase()`, applying defaults,
+    /// `Option` semantics, and the spec §15.31 parse table.
+    fn emit_config_loaders(&mut self) -> Result<(), BackendError> {
+        let types = self.config_types.clone();
+        for ty in &types {
+            self.emit_config_loader(ty)?;
+            self.line("")?;
+        }
+        Ok(())
+    }
+
+    fn emit_config_loader(&mut self, ty: &TypeInfo) -> Result<(), BackendError> {
+        let TypeInfo::Named(name) = ty else {
+            return Err(BackendError::unsupported(
+                "config.load on a non-struct type",
+            ));
+        };
+        let Some(info) = self.structs.iter().find(|s| s.name == *name).cloned() else {
+            return Err(BackendError::unsupported(format!(
+                "config.load on unknown struct `{name}`"
+            )));
+        };
+        self.line_fmt(format_args!(
+            "func keelConfigLoad_{}() KeelEnum {{",
+            json_type_name(ty)
+        ))?;
+        self.indent += 1;
+        self.line_fmt(format_args!("var result {name}"))?;
+        for field in &info.fields {
+            self.emit_config_field(name, field)?;
+        }
+        self.line("return Ok(result)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        Ok(())
+    }
+
+    fn emit_config_field(&mut self, struct_name: &str, field: &Field) -> Result<(), BackendError> {
+        let env = field.name.to_uppercase();
+        let slot = format!("result.{}", field.name);
+        // The else-branch when the env var is absent: a declared default, else
+        // the type-appropriate "missing" error.
+        let missing = if let Some(default) = &field.default {
+            let value = self.emit_expr(default)?;
+            format!("{slot} = {value}")
+        } else if matches!(&field.ty, TypeInfo::Named(n) if n == "Secret") {
+            format!("return Err(keelConfigMissingSecret({:?}))", field.name)
+        } else {
+            format!("return Err(keelConfigMissingEnvVar({:?}))", field.name)
+        };
+
+        if let TypeInfo::Generic { name, args } = &field.ty {
+            if name == "Option" {
+                let inner = args.first().cloned().unwrap_or(TypeInfo::Unknown);
+                self.line_fmt(format_args!(
+                    "if v, ok := os.LookupEnv({env:?}); !ok || v == \"\" {{"
+                ))?;
+                self.indent += 1;
+                self.line_fmt(format_args!("{slot} = None"))?;
+                self.indent -= 1;
+                self.line("} else {")?;
+                self.indent += 1;
+                let parsed = self.emit_config_parse(&inner, &field.name)?;
+                self.line_fmt(format_args!("{slot} = Some({parsed})"))?;
+                self.indent -= 1;
+                self.line("}")?;
+                return Ok(());
+            }
+        }
+
+        self.line_fmt(format_args!("if v, ok := os.LookupEnv({env:?}); ok {{"))?;
+        self.indent += 1;
+        let parsed = self.emit_config_parse(&field.ty, &field.name)?;
+        self.line_fmt(format_args!("{slot} = {parsed}"))?;
+        self.indent -= 1;
+        self.line("} else {")?;
+        self.indent += 1;
+        self.line(&missing)?;
+        self.indent -= 1;
+        self.line("}")?;
+        let _ = struct_name;
+        Ok(())
+    }
+
+    /// Emit code that parses the in-scope Go string `v` into `ty`, returning a
+    /// `ParseError` on failure. Leaves the parsed value as the final expression
+    /// assigned by the caller. Assumes `v` is bound in the current Go scope.
+    fn emit_config_parse(&mut self, ty: &TypeInfo, field: &str) -> Result<String, BackendError> {
+        match ty {
+            TypeInfo::String => Ok("v".to_string()),
+            TypeInfo::Named(n) if n == "Secret" => Ok("keelConfigSecret{value: v}".to_string()),
+            TypeInfo::Int => {
+                self.line("n, err := strconv.ParseInt(v, 10, 64)")?;
+                self.line_fmt(format_args!(
+                    "if err != nil {{ return Err(keelConfigParseError({field:?}, \"Int\", err.Error())) }}"
+                ))?;
+                Ok("n".to_string())
+            }
+            TypeInfo::Float => {
+                self.line("f, err := strconv.ParseFloat(v, 64)")?;
+                self.line_fmt(format_args!(
+                    "if err != nil {{ return Err(keelConfigParseError({field:?}, \"Float\", err.Error())) }}"
+                ))?;
+                Ok("f".to_string())
+            }
+            TypeInfo::Bool => {
+                self.line("b, ok := keelConfigBool(v)")?;
+                self.line_fmt(format_args!(
+                    "if !ok {{ return Err(keelConfigParseError({field:?}, \"Bool\", \"not a boolean: \"+v)) }}"
+                ))?;
+                Ok("b".to_string())
+            }
+            other => Err(BackendError::unsupported(format!(
+                "config field type `{other}`"
+            ))),
         }
     }
 

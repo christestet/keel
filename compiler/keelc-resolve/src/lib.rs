@@ -1067,6 +1067,32 @@ impl<'a> Typechecker<'a> {
                     vec![target_type, TypeInfo::Named("json.Error".to_string())],
                 )
             }
+            Expr::Field { target, field, .. }
+                if matches!(target.as_ref(), Expr::Name(name) if name.value == "config")
+                    && field.value == "load" =>
+            {
+                let target_type = type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown);
+                let is_struct =
+                    matches!(&target_type, TypeInfo::Named(name) if self.ctx.is_struct(name));
+                if type_args.len() != 1 || !is_struct {
+                    let span = type_args.first().map_or(field.span, keelc_ast::Type::span);
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1507,
+                        self.diagnostic_span(span),
+                        format!(
+                            "`config.load` type argument must be a named struct, found `{target_type}`"
+                        ),
+                    ));
+                }
+                TypeInfo::generic(
+                    "Result",
+                    vec![target_type, TypeInfo::Named("config.Error".to_string())],
+                )
+            }
             Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "http") => {
                 self.infer_http_call(field, args)
             }
@@ -1257,6 +1283,10 @@ impl<'a> Typechecker<'a> {
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
             self.infer_expr(arg);
+        }
+        if receiver_type == TypeInfo::Named("Secret".to_string()) && method.value == "unwrap" {
+            self.check_call_args(&[], args, method.span);
+            return TypeInfo::String;
         }
         if let Some(result) = self.infer_sql_method(&receiver_type, method, args) {
             return result;
