@@ -1128,12 +1128,39 @@ impl<'a> Emitter<'a> {
             emitted_args
         };
         let is_user_function = self.callee_param_types(callee).is_some();
-        let callee = self.emit_expr(callee)?;
         let mut final_args = final_args;
+        // KDR-0036: fill omitted trailing arguments with the callee's declared
+        // defaults. ponytail: defaults bypass box_for_slot — add when a default
+        // ever flows into an erased generic slot (the M6 surface has none).
+        if let Some(defaults) = self.callee_param_defaults(callee) {
+            for default in defaults.into_iter().skip(args.len()).flatten() {
+                let emitted = self.emit_expr(&default)?;
+                final_args.push(emitted);
+            }
+        }
+        let callee = self.emit_expr(callee)?;
         if self.uses_concurrency && is_user_function {
             final_args.insert(0, "__keel_ctx".to_string());
         }
         Ok(format!("{callee}({})", final_args.join(", ")))
+    }
+
+    /// Declared parameter defaults for a directly-named user function, in
+    /// declaration order, used to fill omitted trailing arguments (KDR-0036).
+    fn callee_param_defaults(&self, callee: &Expr) -> Option<Vec<Option<Expr>>> {
+        let Expr::Name(name) = callee else {
+            return None;
+        };
+        self.module.items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == *name => Some(
+                function
+                    .params
+                    .iter()
+                    .map(|param| param.default.clone())
+                    .collect(),
+            ),
+            _ => None,
+        })
     }
 
     /// Declared parameter types for a directly-named user function, used to box

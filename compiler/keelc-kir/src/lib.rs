@@ -63,6 +63,7 @@ pub struct FunctionDecl {
 pub struct Param {
     pub name: String,
     pub ty: TypeInfo,
+    pub default: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

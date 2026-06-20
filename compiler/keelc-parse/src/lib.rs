@@ -491,10 +491,20 @@ impl Parser {
                 ));
                 None
             };
-            let end = ty.as_ref().map_or(name.span, Type::span);
+            let default = if self.eat_kind(&TokenKind::Equal).is_some() {
+                Some(self.parse_expr())
+            } else {
+                None
+            };
+            let end = default
+                .as_ref()
+                .map(Expr::span)
+                .or_else(|| ty.as_ref().map(Type::span))
+                .unwrap_or(name.span);
             params.push(Param {
                 name,
                 ty,
+                default,
                 span: start.join(end),
             });
             if self.eat_kind(&TokenKind::Comma).is_none() {

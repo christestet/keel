@@ -157,9 +157,11 @@ impl<'a> Lowerer<'a> {
                     "function parameters require explicit types",
                 ));
             }
+            let default = param.default.as_ref().map(|expr| self.lower_expr(expr));
             params.push(Param {
                 name: param.name.value.clone(),
                 ty: ty.clone(),
+                default,
             });
             self.ctx.define_value(&param.name.value, ty);
         }
@@ -199,6 +201,7 @@ impl<'a> Lowerer<'a> {
                                 .ty
                                 .as_ref()
                                 .map_or(TypeInfo::Unknown, TypeInfo::from_ast),
+                            default: None,
                         })
                         .collect(),
                     return_type: method

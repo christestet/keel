@@ -193,10 +193,14 @@ impl Printer {
 
     fn param(&self, param: &Param) -> String {
         let name = param.name.value.as_str();
-        match &param.ty {
+        let mut result = match &param.ty {
             Some(ty) => format!("{name}: {}", self.type_(ty)),
             None => name.to_string(),
+        };
+        if let Some(default) = &param.default {
+            result.push_str(&format!(" = {}", self.expr(default, 0, 0)));
         }
+        result
     }
 
     fn type_(&self, ty: &Type) -> String {

@@ -95,6 +95,7 @@ pub struct ImplDecl {
 pub struct Param {
     pub name: Spanned<String>,
     pub ty: Option<Type>,
+    pub default: Option<Expr>,
     pub span: Span,
 }
 
