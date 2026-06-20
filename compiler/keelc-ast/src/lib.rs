@@ -181,6 +181,20 @@ pub struct StringLiteral {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallArg {
+    pub name: Option<Spanned<String>>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+impl CallArg {
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     Missing(Span),
     Int(Spanned<String>),
@@ -204,7 +218,7 @@ pub enum Expr {
     Call {
         callee: Box<Expr>,
         type_args: Vec<Type>,
-        args: Vec<Expr>,
+        args: Vec<CallArg>,
         span: Span,
     },
     Field {
@@ -215,7 +229,7 @@ pub enum Expr {
     MethodCall {
         receiver: Box<Expr>,
         method: Spanned<String>,
-        args: Vec<Expr>,
+        args: Vec<CallArg>,
         span: Span,
     },
     StructLiteral {

@@ -7,7 +7,7 @@
 //! logic.
 
 use crate::{merge_types, reduce_error_types, substitute_type_params, type_param_bounds, TypeInfo};
-use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Stmt, UnaryOp};
+use keelc_ast::{BinaryOp, Block, CallArg, Expr, Item, MatchArm, Module, Stmt, UnaryOp};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StructInfo {
@@ -245,9 +245,9 @@ impl TypeContext {
         &self,
         callee: &Expr,
         type_args: &[keelc_ast::Type],
-        args: &[Expr],
+        args: &[CallArg],
     ) -> TypeInfo {
-        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
+        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(&arg.value)).collect();
         match callee {
             Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
             Expr::Name(name) if name.value == "checked_div" || name.value == "checked_rem" => {
@@ -372,7 +372,7 @@ impl TypeContext {
     }
 
     #[must_use]
-    pub fn infer_method_call(&self, receiver: &Expr, method: &str, args: &[Expr]) -> TypeInfo {
+    pub fn infer_method_call(&self, receiver: &Expr, method: &str, args: &[CallArg]) -> TypeInfo {
         if matches!(receiver, Expr::Name(name) if name.value == "Float") && method == "from" {
             return TypeInfo::Float;
         }
@@ -381,6 +381,20 @@ impl TypeContext {
         }
         if matches!(receiver, Expr::Name(name) if name.value == "Timestamp") && method == "now" {
             return TypeInfo::Named("Timestamp".to_string());
+        }
+        // Derive Struct.from_row(row) -> Result<Struct, sql.Error> for any named struct.
+        if method == "from_row" {
+            if let Expr::Name(name) = receiver {
+                if self.is_struct(&name.value) {
+                    return TypeInfo::generic(
+                        "Result",
+                        vec![
+                            TypeInfo::Named(name.value.clone()),
+                            TypeInfo::Named("sql.Error".to_string()),
+                        ],
+                    );
+                }
+            }
         }
         if matches!(receiver, Expr::Name(name) if name.value == "time") {
             return match method {
@@ -431,7 +445,7 @@ impl TypeContext {
         }
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
-            let _ = self.infer_expr(arg);
+            let _ = self.infer_expr(&arg.value);
         }
         if receiver_type == TypeInfo::Named("Secret".to_string()) && method == "unwrap" {
             return TypeInfo::String;
@@ -463,7 +477,7 @@ impl TypeContext {
         &self,
         receiver: &TypeInfo,
         method: &str,
-        args: &[Expr],
+        args: &[CallArg],
     ) -> Option<TypeInfo> {
         let sql_error = TypeInfo::Named("sql.Error".to_string());
         match receiver {
@@ -480,12 +494,22 @@ impl TypeContext {
             }
             TypeInfo::Named(name) if name == "sql.QueryResult" => match method {
                 "map" => {
-                    let item = match args.first() {
+                    let item = match args.first().map(|a| &a.value) {
                         Some(Expr::Name(name)) => self
                             .functions
                             .iter()
                             .find(|f| f.name == name.value)
                             .map_or(TypeInfo::Unknown, |f| f.return_type.clone()),
+                        // User.from_row — derived method returning the struct type
+                        Some(Expr::Field { target, field, .. })
+                            if field.value == "from_row"
+                                && matches!(target.as_ref(), Expr::Name(name) if self.is_struct(&name.value)) =>
+                        {
+                            match target.as_ref() {
+                                Expr::Name(name) => TypeInfo::Named(name.value.clone()),
+                                _ => TypeInfo::Unknown,
+                            }
+                        }
                         _ => TypeInfo::Unknown,
                     };
                     Some(TypeInfo::Generic {
@@ -595,14 +619,14 @@ impl TypeContext {
             Expr::Call { callee, args, .. } => {
                 self.collect_expr_scope_errors(callee, errors);
                 for arg in args {
-                    self.collect_expr_scope_errors(arg, errors);
+                    self.collect_expr_scope_errors(&arg.value, errors);
                 }
             }
             Expr::Field { target, .. } => self.collect_expr_scope_errors(target, errors),
             Expr::MethodCall { receiver, args, .. } => {
                 self.collect_expr_scope_errors(receiver, errors);
                 for arg in args {
-                    self.collect_expr_scope_errors(arg, errors);
+                    self.collect_expr_scope_errors(&arg.value, errors);
                 }
             }
             Expr::StructLiteral { fields, .. } => {

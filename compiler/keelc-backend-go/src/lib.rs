@@ -215,6 +215,7 @@ impl<'a> Emitter<'a> {
 
         self.emit_json_codecs()?;
         self.emit_config_loaders()?;
+        self.emit_struct_from_rows()?;
 
         Ok(self.output)
     }
@@ -252,6 +253,7 @@ impl<'a> Emitter<'a> {
         }
 
         self.emit_json_codecs()?;
+        self.emit_struct_from_rows()?;
 
         self.line("func main() {")?;
         self.indent += 1;
@@ -282,7 +284,12 @@ impl<'a> Emitter<'a> {
             imports.push("context");
             imports.push("sync");
         }
-        if self.uses_concurrency || self.uses_json || self.uses_http || self.uses_timestamp_now {
+        if self.uses_concurrency
+            || self.uses_json
+            || self.uses_http
+            || self.uses_timestamp_now
+            || self.uses_sql
+        {
             imports.push("time");
         }
         if self.uses_json {
@@ -302,6 +309,9 @@ impl<'a> Emitter<'a> {
         }
         if self.uses_sql {
             imports.push("database/sql");
+            imports.push("strings");
+        }
+        if self.uses_log {
             imports.push("strings");
         }
         if self.uses_config {
@@ -770,6 +780,13 @@ impl<'a> Emitter<'a> {
                         }
                     }
                 }
+                if field == "from_row" {
+                    if let Expr::Name(name) = target.as_ref() {
+                        if self.struct_names.contains(name) {
+                            return Ok(format!("keelFromRow_{name}"));
+                        }
+                    }
+                }
                 let target = self.emit_expr(target)?;
                 Ok(format!("{target}.{field}"))
             }
@@ -955,6 +972,18 @@ impl<'a> Emitter<'a> {
                 json_type_name(&value_type),
                 value
             ));
+        }
+        // Derive Struct.from_row(row) -> Result<Struct, sql.Error> for any struct.
+        if method == "from_row" {
+            if let Expr::Name(name) = receiver {
+                if self.struct_names.contains(name) {
+                    let arg = args
+                        .first()
+                        .ok_or_else(|| BackendError::unsupported("from_row without argument"))?;
+                    let arg_expr = self.emit_expr(arg)?;
+                    return Ok(format!("keelFromRow_{name}({arg_expr})"));
+                }
+            }
         }
         let receiver_expr = self.emit_expr(receiver)?;
         let mut args = args
@@ -1263,6 +1292,50 @@ impl<'a> Emitter<'a> {
             other => Err(BackendError::unsupported(format!(
                 "config field type `{other}`"
             ))),
+        }
+    }
+
+    fn emit_struct_from_rows(&mut self) -> Result<(), BackendError> {
+        if !self.uses_sql {
+            return Ok(());
+        }
+        for info in self.structs.clone() {
+            self.emit_struct_from_row(&info)?;
+            self.line("")?;
+        }
+        Ok(())
+    }
+
+    fn emit_struct_from_row(&mut self, info: &StructInfo) -> Result<(), BackendError> {
+        self.line_fmt(format_args!(
+            "func keelFromRow_{}(row keelSQLRow) KeelEnum {{",
+            info.name
+        ))?;
+        self.indent += 1;
+        self.line_fmt(format_args!("var result {}", info.name))?;
+        for (index, field) in info.fields.iter().enumerate() {
+            let getter = self.row_field_getter(&field.ty);
+            self.line_fmt(format_args!(
+                "result.{} = {}(row, int64({}))",
+                field.name, getter, index
+            ))?;
+        }
+        self.line("return Ok(result)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        Ok(())
+    }
+
+    fn row_field_getter(&self, ty: &TypeInfo) -> &'static str {
+        match ty {
+            TypeInfo::String => "keelSQLRowGetString",
+            TypeInfo::Int => "keelSQLRowGetInt",
+            TypeInfo::Bool => "keelSQLRowGetBool",
+            TypeInfo::Float => "keelSQLRowGetFloat",
+            TypeInfo::Named(n) if n == "Uuid" => "keelSQLRowGetString",
+            TypeInfo::Named(n) if n == "Email" => "keelSQLRowGetString",
+            TypeInfo::Named(n) if n == "Timestamp" => "keelSQLRowGetTimestamp",
+            _ => "keelSQLRowGetString",
         }
     }
 
@@ -1735,17 +1808,17 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_log_call(&mut self, method: &str, args: &[Expr]) -> Result<String, BackendError> {
-        let msg = args
-            .first()
-            .map(|a| self.emit_expr(a))
-            .unwrap_or(Ok("\"\"".to_string()))?;
+        let mut emitted = Vec::new();
+        for arg in args {
+            emitted.push(self.emit_expr(arg)?);
+        }
         let go_func = match method {
             "info" => "keelLogInfo",
             "warn" => "keelLogWarn",
             "error" => "keelLogError",
             _ => return Err(BackendError::unsupported(format!("log.{method}"))),
         };
-        Ok(format!("{go_func}({msg})"))
+        Ok(format!("{go_func}({})", emitted.join(", ")))
     }
 
     fn emit_returning_block(&mut self, block: &Block) -> Result<String, BackendError> {

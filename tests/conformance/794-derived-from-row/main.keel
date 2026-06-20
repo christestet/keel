@@ -1,0 +1,13 @@
+use std.sql
+
+struct User {
+    id: Int
+    name: String
+}
+
+fn main() -> Result<Unit, sql.Error> {
+    let db = sql.connect("postgres://localhost/mydb")?
+    let row = db.query_one("select id, name from users")?
+    let user = User.from_row(row)?
+    Ok(())
+}

@@ -1,9 +1,10 @@
 //! Recursive-descent parser for Keel Core source files.
 
 use keelc_ast::{
-    BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item,
-    MatchArm, Module, Param, Pattern, Route, RouteHandler, Stmt, StringLiteral as AstStringLiteral,
-    StructDecl, StructLiteralField, TestDecl, Type, TypeParam, UnaryOp, UseDecl, VariantDecl,
+    BinaryOp, Block, CallArg, EnumDecl, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl,
+    Item, MatchArm, Module, Param, Pattern, Route, RouteHandler, Stmt,
+    StringLiteral as AstStringLiteral, StructDecl, StructLiteralField, TestDecl, Type, TypeParam,
+    UnaryOp, UseDecl, VariantDecl,
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_lex::{lex, Keyword, LexOutput, Token, TokenKind};
@@ -823,7 +824,10 @@ impl Parser {
                 }
                 let end = self
                     .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
-                    .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                    .unwrap_or_else(|| {
+                        args.last()
+                            .map_or_else(|| expr.span(), |arg| arg.value.span())
+                    });
                 expr = Expr::Call {
                     span: expr.span().join(end),
                     callee: Box::new(expr),
@@ -849,7 +853,10 @@ impl Parser {
                     }
                     let end = self
                         .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
-                        .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                        .unwrap_or_else(|| {
+                            args.last()
+                                .map_or_else(|| expr.span(), |arg| arg.value.span())
+                        });
                     expr = Expr::Call {
                         span: expr.span().join(end),
                         callee: Box::new(expr),
@@ -880,7 +887,10 @@ impl Parser {
                     }
                     let end = self
                         .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
-                        .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                        .unwrap_or_else(|| {
+                            args.last()
+                                .map_or_else(|| expr.span(), |arg| arg.value.span())
+                        });
                     expr = Expr::MethodCall {
                         span: expr.span().join(end),
                         receiver: Box::new(expr),
@@ -937,7 +947,8 @@ impl Parser {
         )
     }
 
-    fn parse_call_arg(&mut self) -> Expr {
+    fn parse_call_arg(&mut self) -> CallArg {
+        // Handle the special `mode: .tolerant` syntax for json.parse
         let is_tolerant = matches!(
             self.tokens.get(self.pos..self.pos + 4),
             Some([
@@ -947,23 +958,62 @@ impl Parser {
                 Token { kind: TokenKind::Identifier(tolerant), .. },
             ]) if mode == "mode" && tolerant == "tolerant"
         );
-        if !is_tolerant {
-            return self.parse_expr();
+        if is_tolerant {
+            let start = self
+                .advance()
+                .map_or_else(|| self.empty_span(), |token| token.span);
+            self.advance();
+            self.advance();
+            let end = self.advance().map_or(start, |token| token.span);
+            return CallArg {
+                name: None,
+                value: Expr::String(Spanned::new(
+                    AstStringLiteral {
+                        text: "__keel_json_tolerant".to_string(),
+                        interpolations: Vec::new(),
+                    },
+                    start.join(end),
+                )),
+                span: start.join(end),
+            };
         }
 
-        let start = self
-            .advance()
-            .map_or_else(|| self.empty_span(), |token| token.span);
-        self.advance();
-        self.advance();
-        let end = self.advance().map_or(start, |token| token.span);
-        Expr::String(Spanned::new(
-            AstStringLiteral {
-                text: "__keel_json_tolerant".to_string(),
-                interpolations: Vec::new(),
-            },
-            start.join(end),
-        ))
+        // Named argument: `name: value` inside call parens
+        // In call position, `identifier : expr` is always a named argument.
+        let next_name = self.tokens.get(self.pos).and_then(|tok| match &tok.kind {
+            TokenKind::Identifier(name) => Some((name.clone(), tok.span)),
+            _ => None,
+        });
+        let has_colon = matches!(
+            self.tokens.get(self.pos + 1),
+            Some(Token {
+                kind: TokenKind::Colon,
+                ..
+            })
+        );
+        if let Some((name, name_span)) = next_name {
+            if has_colon {
+                // mode: .tolerant is handled above.
+                // Consume identifier and colon, then parse the value expression.
+                self.advance();
+                self.advance();
+                let value = self.parse_expr();
+                let span = name_span.join(value.span());
+                return CallArg {
+                    name: Some(Spanned::new(name, name_span)),
+                    value,
+                    span,
+                };
+            }
+        }
+
+        let value = self.parse_expr();
+        let span = value.span();
+        CallArg {
+            name: None,
+            value,
+            span,
+        }
     }
 
     fn parse_unary(&mut self) -> Expr {

@@ -1,7 +1,8 @@
 //! Name resolution and early semantic diagnostics for Keel Core.
 
 use keelc_ast::{
-    BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, RouteHandler, Stmt, StringLiteral,
+    BinaryOp, Block, CallArg, Expr, Item, MatchArm, Module, Pattern, RouteHandler, Stmt,
+    StringLiteral,
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{Span, Spanned};
@@ -158,14 +159,14 @@ impl<'a> Resolver<'a> {
             Expr::Call { callee, args, .. } => {
                 self.resolve_expr(callee);
                 for arg in args {
-                    self.resolve_expr(arg);
+                    self.resolve_expr(&arg.value);
                 }
             }
             Expr::Field { target, .. } => self.resolve_expr(target),
             Expr::MethodCall { receiver, args, .. } => {
                 self.resolve_expr(receiver);
                 for arg in args {
-                    self.resolve_expr(arg);
+                    self.resolve_expr(&arg.value);
                 }
             }
             Expr::StructLiteral { name, fields, .. } => {
@@ -807,7 +808,7 @@ impl<'a> Typechecker<'a> {
         &mut self,
         receiver: &TypeInfo,
         method: &Spanned<String>,
-        args: &[Expr],
+        args: &[CallArg],
     ) -> Option<TypeInfo> {
         let sql_error = TypeInfo::Named("sql.Error".to_string());
         match receiver {
@@ -846,11 +847,13 @@ impl<'a> Typechecker<'a> {
         }
     }
 
-    /// `QueryResult.map(f)` — `f` must be a bare function name resolving to
-    /// `fn(sql.Row) -> Struct`; `K1506` otherwise. Returns `RowMapper<Struct>`.
-    fn infer_sql_map(&mut self, args: &[Expr], span: Span) -> TypeInfo {
+    /// `QueryResult.map(f)` — `f` must be a bare function name or
+    /// `Type.from_row` resolving to `fn(sql.Row) -> Struct`; `K1506` otherwise.
+    /// Returns `RowMapper<Struct>`.
+    fn infer_sql_map(&mut self, args: &[CallArg], span: Span) -> TypeInfo {
         let row = TypeInfo::Named("sql.Row".to_string());
-        let item = match args.first() {
+        let first_arg = args.first().map(|a| &a.value);
+        let item = match first_arg {
             Some(Expr::Name(name)) => match self.function_info(&name.value) {
                 Some(info) if info.params == vec![row] => info.return_type.clone(),
                 _ => {
@@ -865,6 +868,17 @@ impl<'a> Typechecker<'a> {
                     TypeInfo::Unknown
                 }
             },
+            // User.from_row — derived struct method returning Result<Struct, sql.Error>
+            Some(Expr::Field { target, field, .. })
+                if field.value == "from_row"
+                    && matches!(target.as_ref(), Expr::Name(name) if self.ctx.is_struct(&name.value)) =>
+            {
+                let struct_name = match target.as_ref() {
+                    Expr::Name(name) => name.value.clone(),
+                    _ => unreachable!(),
+                };
+                TypeInfo::Named(struct_name)
+            }
             other => {
                 let arg_span = other.map_or(span, Expr::span);
                 self.diagnostics.push(Diagnostic::error(
@@ -1002,9 +1016,9 @@ impl<'a> Typechecker<'a> {
         &mut self,
         callee: &Expr,
         type_args: &[keelc_ast::Type],
-        args: &[Expr],
+        args: &[CallArg],
     ) -> TypeInfo {
-        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
+        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(&arg.value)).collect();
 
         match callee {
             Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
@@ -1184,11 +1198,10 @@ impl<'a> Typechecker<'a> {
         }
     }
 
-    fn check_call_args(&mut self, params: &[TypeInfo], args: &[Expr], span: Span) {
-        for (index, (param, arg)) in params.iter().zip(args.iter()).enumerate() {
-            let arg_type = self.infer_expr(arg);
-            self.check_assignable(&arg_type, param, arg.span());
-            let _ = index;
+    fn check_call_args(&mut self, params: &[TypeInfo], args: &[CallArg], span: Span) {
+        for (param, arg) in params.iter().zip(args.iter()) {
+            let arg_type = self.infer_expr(&arg.value);
+            self.check_assignable(&arg_type, param, arg.value.span());
         }
         let _ = (params, args, span);
     }
@@ -1197,7 +1210,7 @@ impl<'a> Typechecker<'a> {
         &mut self,
         receiver: &Expr,
         method: &Spanned<String>,
-        args: &[Expr],
+        args: &[CallArg],
         span: Span,
     ) -> TypeInfo {
         if matches!(receiver, Expr::Name(name) if name.value == "Float") && method.value == "from" {
@@ -1213,6 +1226,26 @@ impl<'a> Typechecker<'a> {
         {
             self.check_call_args(&[], args, method.span);
             return TypeInfo::Named("Timestamp".to_string());
+        }
+        // Derive Struct.from_row(row) -> Result<Struct, sql.Error> for any named struct.
+        if method.value == "from_row" {
+            if let Expr::Name(name) = receiver {
+                let struct_name = &name.value;
+                if self.ctx.is_struct(struct_name) {
+                    self.check_call_args(
+                        &[TypeInfo::Named("sql.Row".to_string())],
+                        args,
+                        method.span,
+                    );
+                    return TypeInfo::generic(
+                        "Result",
+                        vec![
+                            TypeInfo::Named(struct_name.clone()),
+                            TypeInfo::Named("sql.Error".to_string()),
+                        ],
+                    );
+                }
+            }
         }
         if matches!(receiver, Expr::Name(name) if name.value == "time") {
             return match method.value.as_str() {
@@ -1285,12 +1318,12 @@ impl<'a> Typechecker<'a> {
         if matches!(receiver, Expr::Name(name) if name.value == "json") && method.value == "write" {
             let value_type = args
                 .first()
-                .map(|arg| self.infer_expr(arg))
+                .map(|arg| self.infer_expr(&arg.value))
                 .unwrap_or(TypeInfo::Unknown);
             if !self.ctx.is_json_representable(&value_type) {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K1503,
-                    self.diagnostic_span(args.first().map_or(method.span, Expr::span)),
+                    self.diagnostic_span(args.first().map_or(method.span, |arg| arg.value.span())),
                     format!("type `{value_type}` is not JSON-representable"),
                 ));
             }
@@ -1301,7 +1334,7 @@ impl<'a> Typechecker<'a> {
         }
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
-            self.infer_expr(arg);
+            self.infer_expr(&arg.value);
         }
         if receiver_type == TypeInfo::Named("Secret".to_string()) && method.value == "unwrap" {
             self.check_call_args(&[], args, method.span);
@@ -1384,7 +1417,7 @@ impl<'a> Typechecker<'a> {
         }
     }
 
-    fn infer_http_call(&mut self, field: &Spanned<String>, args: &[Expr]) -> TypeInfo {
+    fn infer_http_call(&mut self, field: &Spanned<String>, args: &[CallArg]) -> TypeInfo {
         match field.value.as_str() {
             "ok" | "created" | "bad_request" | "conflict" | "internal_error" => {
                 self.check_call_args(&[TypeInfo::String], args, field.span);
@@ -1393,15 +1426,15 @@ impl<'a> Typechecker<'a> {
             "no_content" | "not_found" => TypeInfo::Named("http.Response".to_string()),
             "serve" => {
                 if let Some(port) = args.first() {
-                    let port_type = self.infer_expr(port);
-                    self.check_assignable(&port_type, &TypeInfo::Int, port.span());
+                    let port_type = self.infer_expr(&port.value);
+                    self.check_assignable(&port_type, &TypeInfo::Int, port.value.span());
                 }
                 if let Some(routes) = args.get(1) {
-                    let routes_type = self.infer_expr(routes);
+                    let routes_type = self.infer_expr(&routes.value);
                     self.check_assignable(
                         &routes_type,
                         &TypeInfo::Named("http.Router".to_string()),
-                        routes.span(),
+                        routes.value.span(),
                     );
                 }
                 TypeInfo::generic(

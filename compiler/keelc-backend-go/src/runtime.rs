@@ -45,6 +45,14 @@ func keelSQLDriver(conn string) string {
 	return "sqlite"
 }
 
+func keelSQLError(err error) KeelEnum {
+	msg := err.Error()
+	if strings.Contains(msg, "UNIQUE constraint") || strings.Contains(msg, "unique constraint") || strings.Contains(msg, "duplicate key") {
+		return keelSQLErr("UniqueViolation", msg)
+	}
+	return keelSQLErr("QueryFailed", msg)
+}
+
 func keelSQLMigrate(pool any, statements string) KeelEnum {
 	p := pool.(keelSQLPool)
 	for _, raw := range strings.Split(statements, ";") {
@@ -63,12 +71,12 @@ func keelSQLQuery(pool any, query string) KeelEnum {
 	p := pool.(keelSQLPool)
 	rows, err := p.db.Query(query)
 	if err != nil {
-		return Err(keelSQLErr("QueryFailed", err.Error()))
+		return Err(keelSQLError(err))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		return Err(keelSQLErr("QueryFailed", err.Error()))
+		return Err(keelSQLError(err))
 	}
 	var data [][]any
 	for rows.Next() {
@@ -104,7 +112,7 @@ func keelSQLExec(pool any, query string) KeelEnum {
 	p := pool.(keelSQLPool)
 	res, err := p.db.Exec(query)
 	if err != nil {
-		return Err(keelSQLErr("QueryFailed", err.Error()))
+		return Err(keelSQLError(err))
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -168,6 +176,15 @@ func keelSQLRowGetFloat(row any, index int64) float64 {
 		return v
 	}
 	return 0
+}
+
+func keelSQLRowGetTimestamp(row any, index int64) keelTimestamp {
+	v := keelSQLRowGetString(row, index)
+	parsed, ok := keelTimestampParse(v)
+	if ok {
+		return parsed
+	}
+	return keelTimestamp{}
 }
 
 "#;
@@ -518,7 +535,7 @@ impl<'a> Emitter<'a> {
         if self.uses_json || self.uses_http || self.uses_uuid_new {
             self.emit_uuid_runtime()?;
         }
-        if self.uses_json || self.uses_http || self.uses_timestamp_now {
+        if self.uses_json || self.uses_http || self.uses_timestamp_now || self.uses_sql {
             self.emit_timestamp_runtime()?;
         }
         if self.uses_json || self.uses_http {
@@ -887,21 +904,37 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_log_runtime(&mut self) -> Result<(), BackendError> {
-        self.line("func keelLogInfo(msg string) {")?;
+        self.line("func keelLogFormat(prefix string, parts ...any) {")?;
         self.indent += 1;
-        self.line("fmt.Println(\"[info]\", msg)")?;
+        self.line("b := strings.Builder{}")?;
+        self.line("b.WriteString(prefix)")?;
+        self.line("if len(parts) == 0 { fmt.Println(b.String()); return }")?;
+        self.line("b.WriteString(\" \")")?;
+        self.line("b.WriteString(fmt.Sprint(parts[0]))")?;
+        self.line("for i := 1; i+1 < len(parts); i += 2 {")?;
+        self.indent += 1;
+        self.line("fmt.Fprintf(&b, \" %s=%v\", parts[i], parts[i+1])")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("fmt.Println(b.String())")?;
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;
-        self.line("func keelLogWarn(msg string) {")?;
+        self.line("func keelLogInfo(parts ...any) {")?;
         self.indent += 1;
-        self.line("fmt.Println(\"[warn]\", msg)")?;
+        self.line("keelLogFormat(\"[info]\", parts...)")?;
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;
-        self.line("func keelLogError(msg string) {")?;
+        self.line("func keelLogWarn(parts ...any) {")?;
         self.indent += 1;
-        self.line("fmt.Println(\"[error]\", msg)")?;
+        self.line("keelLogFormat(\"[warn]\", parts...)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
+        self.line("func keelLogError(parts ...any) {")?;
+        self.indent += 1;
+        self.line("keelLogFormat(\"[error]\", parts...)")?;
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;

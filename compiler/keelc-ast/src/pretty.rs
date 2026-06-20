@@ -336,17 +336,21 @@ impl Printer {
                     .iter()
                     .enumerate()
                     .map(|(index, arg)| {
-                        if is_json_parse
+                        let arg_str = if is_json_parse
                             && index == 1
                             && matches!(
-                                arg,
+                                &arg.value,
                                 Expr::String(literal)
                                     if literal.value.text == "__keel_json_tolerant"
-                            )
-                        {
+                            ) {
                             "mode: .tolerant".to_string()
                         } else {
-                            self.expr(arg, 0, base_indent)
+                            self.expr(&arg.value, 0, base_indent)
+                        };
+                        if let Some(name) = &arg.name {
+                            format!("{}: {arg_str}", name.value)
+                        } else {
+                            arg_str
                         }
                     })
                     .collect::<Vec<_>>()
@@ -366,7 +370,14 @@ impl Printer {
                 let receiver = self.expr(receiver, 100, base_indent);
                 let args = args
                     .iter()
-                    .map(|arg| self.expr(arg, 0, base_indent))
+                    .map(|arg| {
+                        let arg_str = self.expr(&arg.value, 0, base_indent);
+                        if let Some(name) = &arg.name {
+                            format!("{}: {arg_str}", name.value)
+                        } else {
+                            arg_str
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 (format!("{receiver}.{}({args})", method.value), 100)

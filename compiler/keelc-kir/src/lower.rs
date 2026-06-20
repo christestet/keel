@@ -354,16 +354,45 @@ impl<'a> Lowerer<'a> {
                 type_args,
                 args,
                 ..
-            } => Expr::Call {
-                callee: Box::new(self.lower_expr(callee)),
-                type_args: type_args
-                    .iter()
-                    .map(TypeInfo::from_ast)
-                    .map(|ty| self.ctx.resolve_type(&ty))
-                    .collect(),
-                args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
-                ty,
-            },
+            } => {
+                let lowered_callee = self.lower_expr(callee);
+                let is_log_call = matches!(
+                    &lowered_callee,
+                    Expr::Field { target, field, .. }
+                        if matches!(target.as_ref(), Expr::Name(n) if n == "log")
+                            && matches!(field.as_str(), "info" | "warn" | "error")
+                );
+                let has_named_args = args.iter().any(|arg| arg.name.is_some());
+                let lowered_args = if is_log_call && has_named_args {
+                    args.iter()
+                        .flat_map(|arg| {
+                            let value = self.lower_expr(&arg.value);
+                            if let Some(name) = &arg.name {
+                                vec![
+                                    Expr::String(StringLiteral {
+                                        parts: vec![StringPart::Text(name.value.clone())],
+                                    }),
+                                    value,
+                                ]
+                            } else {
+                                vec![value]
+                            }
+                        })
+                        .collect()
+                } else {
+                    args.iter().map(|arg| self.lower_expr(&arg.value)).collect()
+                };
+                Expr::Call {
+                    callee: Box::new(lowered_callee),
+                    type_args: type_args
+                        .iter()
+                        .map(TypeInfo::from_ast)
+                        .map(|ty| self.ctx.resolve_type(&ty))
+                        .collect(),
+                    args: lowered_args,
+                    ty,
+                }
+            }
             keelc_ast::Expr::Field { target, field, .. } => Expr::Field {
                 target: Box::new(self.lower_expr(target)),
                 field: field.value.clone(),
@@ -375,11 +404,14 @@ impl<'a> Lowerer<'a> {
                 args,
                 ..
             } => {
-                let arg_types = args.iter().map(|arg| self.ctx.infer_expr(arg)).collect();
+                let arg_types = args
+                    .iter()
+                    .map(|arg| self.ctx.infer_expr(&arg.value))
+                    .collect();
                 Expr::MethodCall {
                     receiver: Box::new(self.lower_expr(receiver)),
                     method: method.value.clone(),
-                    args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                    args: args.iter().map(|arg| self.lower_expr(&arg.value)).collect(),
                     arg_types,
                     ty,
                 }
