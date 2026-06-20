@@ -35,6 +35,7 @@ codes! {
     K0501 => "? used in incompatible return context",
     K0502 => "catch is not exhaustive",
     K0503 => "union error match is not exhaustive",
+    K0504 => "cannot destructure opaque Error",
     K0601 => "interface declares more than five methods",
     K0602 => "duplicate method name in interface",
     K0603 => "missing method in impl",

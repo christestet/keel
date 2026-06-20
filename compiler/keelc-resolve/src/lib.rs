@@ -766,7 +766,16 @@ impl<'a> Typechecker<'a> {
                     .map_or((TypeInfo::Unknown, TypeInfo::Unknown), |(ok, err)| {
                         (ok.clone(), err.clone())
                     });
-                self.check_catch_exhaustive(&error_type, arms, *span);
+                if matches!(&error_type, TypeInfo::Named(name) if name == "Error") {
+                    // `Error` is opaque (KDR-0033): it cannot be destructured.
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0504,
+                        self.diagnostic_span(*span),
+                        "cannot `catch` a value of the opaque `Error` type; declare a union to branch on errors".to_string(),
+                    ));
+                } else {
+                    self.check_catch_exhaustive(&error_type, arms, *span);
+                }
                 self.push_scope();
                 self.define_value(error_name, error_type);
                 for arm in arms {
@@ -1537,6 +1546,16 @@ impl<'a> Typechecker<'a> {
     }
 
     fn check_match_exhaustive(&mut self, scrutinee_type: &TypeInfo, arms: &[MatchArm], span: Span) {
+        if matches!(scrutinee_type, TypeInfo::Named(name) if name == "Error") {
+            // `Error` is opaque (KDR-0033): it has no matchable variants.
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0504,
+                self.diagnostic_span(span),
+                "cannot `match` on the opaque `Error` type; declare a union to branch on errors"
+                    .to_string(),
+            ));
+            return;
+        }
         self.check_exhaustive(
             scrutinee_type,
             arms,

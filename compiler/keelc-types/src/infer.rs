@@ -1195,6 +1195,9 @@ pub fn types_compatible(left: &TypeInfo, right: &TypeInfo) -> bool {
 pub fn type_absorbs(target: &TypeInfo, source: &TypeInfo) -> bool {
     target == source
         || matches!(source, TypeInfo::Unknown)
+        // The universal `Error` (KDR-0033) is the one type that absorbs every
+        // error: any propagated `E` coerces into a `Result<_, Error>` context.
+        || matches!(target, TypeInfo::Named(name) if name == "Error")
         || match (target, source) {
             (TypeInfo::Union(_), TypeInfo::Union(sources)) => {
                 sources.iter().all(|source| type_absorbs(target, source))
