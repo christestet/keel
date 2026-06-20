@@ -121,6 +121,14 @@ impl<'a> Emitter<'a> {
                 self.line("if value.kind != \"string\" || !keelUUIDValid(value.text) { return Err(keelJSONType(path, \"Uuid\")) }")?;
                 self.line("return Ok(value.text)")?;
             }
+            TypeInfo::Named(name) if name == "Timestamp" => {
+                self.line(
+                    "if value.kind != \"string\" { return Err(keelJSONType(path, \"Timestamp\")) }",
+                )?;
+                self.line("decoded, ok := keelTimestampParse(value.text)")?;
+                self.line("if !ok { return Err(keelJSONType(path, \"Timestamp\")) }")?;
+                self.line("return Ok(decoded)")?;
+            }
             TypeInfo::Generic { name, args } if name == "Option" && args.len() == 1 => {
                 let inner = &args[0];
                 let inner_suffix = json_type_name(inner);
@@ -339,6 +347,9 @@ impl<'a> Emitter<'a> {
             TypeInfo::Char => self.line("return Ok(strconv.Quote(string(value)))")?,
             TypeInfo::Named(name) if name == "Uuid" => {
                 self.line("return Ok(strconv.Quote(value))")?;
+            }
+            TypeInfo::Named(name) if name == "Timestamp" => {
+                self.line("return Ok(strconv.Quote(keelTimestampFormat(value)))")?;
             }
             TypeInfo::Generic { name, args } if name == "Option" && args.len() == 1 => {
                 let inner = &args[0];

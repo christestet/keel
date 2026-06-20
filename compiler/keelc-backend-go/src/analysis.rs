@@ -201,6 +201,14 @@ pub fn module_uses_uuid_new(module: &Module) -> bool {
     })
 }
 
+pub fn module_uses_timestamp_now(module: &Module) -> bool {
+    any_in_module(module, true, &|expr| {
+        matches!(expr, Expr::MethodCall { receiver, method, .. }
+            if method == "now"
+                && matches!(receiver.as_ref(), Expr::Name(name) if name == "Timestamp"))
+    })
+}
+
 pub fn module_uses_http_serve(module: &Module) -> bool {
     any_in_module(module, false, &|expr| match expr {
         Expr::Call { callee, .. } => matches!(callee.as_ref(),

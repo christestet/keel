@@ -1208,6 +1208,12 @@ impl<'a> Typechecker<'a> {
             self.check_call_args(&[], args, method.span);
             return TypeInfo::Named("Uuid".to_string());
         }
+        if matches!(receiver, Expr::Name(name) if name.value == "Timestamp")
+            && method.value == "now"
+        {
+            self.check_call_args(&[], args, method.span);
+            return TypeInfo::Named("Timestamp".to_string());
+        }
         if matches!(receiver, Expr::Name(name) if name.value == "time") {
             return match method.value.as_str() {
                 "milliseconds" | "seconds" => {

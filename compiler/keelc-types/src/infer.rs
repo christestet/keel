@@ -379,6 +379,9 @@ impl TypeContext {
         if matches!(receiver, Expr::Name(name) if name.value == "Uuid") && method == "new" {
             return TypeInfo::Named("Uuid".to_string());
         }
+        if matches!(receiver, Expr::Name(name) if name.value == "Timestamp") && method == "now" {
+            return TypeInfo::Named("Timestamp".to_string());
+        }
         if matches!(receiver, Expr::Name(name) if name.value == "time") {
             return match method {
                 "milliseconds" | "seconds" => TypeInfo::Named("time.Duration".to_string()),
@@ -925,7 +928,7 @@ impl TypeContext {
             | TypeInfo::Bool
             | TypeInfo::String
             | TypeInfo::Char => true,
-            TypeInfo::Named(name) if name == "Uuid" => true,
+            TypeInfo::Named(name) if matches!(name.as_str(), "Uuid" | "Timestamp") => true,
             TypeInfo::Generic { name, args } if name == "Option" || name == "List" => {
                 args.len() == 1 && self.is_json_representable(&args[0])
             }

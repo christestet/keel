@@ -293,6 +293,18 @@ func keelPathParamUuid(req keelHTTPRequest, name string) KeelEnum {
 	return Ok(v)
 }
 
+func keelPathParamTimestamp(req keelHTTPRequest, name string) KeelEnum {
+	v, ok := req.params[name]
+	if !ok {
+		return Err("missing path parameter: " + name)
+	}
+	parsed, ok := keelTimestampParse(v)
+	if !ok {
+		return Err("invalid timestamp for " + name + ": " + v)
+	}
+	return Ok(parsed)
+}
+
 func keelQueryValues(req keelHTTPRequest) url.Values {
 	values, err := url.ParseQuery(req.rawQuery)
 	if err != nil {
@@ -357,6 +369,18 @@ func keelQueryParamUuid(req keelHTTPRequest, name string) KeelEnum {
 	return Some(v)
 }
 
+func keelQueryParamTimestamp(req keelHTTPRequest, name string) KeelEnum {
+	values := keelQueryValues(req)
+	if !values.Has(name) {
+		return None
+	}
+	parsed, ok := keelTimestampParse(values.Get(name))
+	if !ok {
+		return None
+	}
+	return Some(parsed)
+}
+
 "#;
 
 /// `std.config` runtime (KDR-0030). The `Secret` marker type and the
@@ -404,6 +428,8 @@ impl<'a> Emitter<'a> {
         self.line("values []any")?;
         self.indent -= 1;
         self.line("}")?;
+        self.line("")?;
+        self.line("type keelTimestamp struct { seconds int64; nanos int32 }")?;
         self.line("")?;
         self.line("type keelTask struct {")?;
         self.indent += 1;
@@ -467,6 +493,9 @@ impl<'a> Emitter<'a> {
         if self.uses_json || self.uses_http || self.uses_uuid_new {
             self.emit_uuid_runtime()?;
         }
+        if self.uses_json || self.uses_http || self.uses_timestamp_now {
+            self.emit_timestamp_runtime()?;
+        }
         if self.uses_json {
             self.emit_json_runtime()?;
         }
@@ -509,6 +538,59 @@ impl<'a> Emitter<'a> {
             self.indent -= 1;
             self.line("}")?;
         }
+        self.line("")?;
+        Ok(())
+    }
+
+    fn emit_timestamp_runtime(&mut self) -> Result<(), BackendError> {
+        self.line("func keelTimestampFormat(value keelTimestamp) string {")?;
+        self.indent += 1;
+        self.line(
+            "return time.Unix(value.seconds, int64(value.nanos)).UTC().Format(time.RFC3339Nano)",
+        )?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("func keelTimestampSyntax(value string) bool {")?;
+        self.indent += 1;
+        self.line("if len(value) < 20 || value[4] != '-' || value[7] != '-' || value[10] != 'T' || value[13] != ':' || value[16] != ':' { return false }")?;
+        self.line("for _, i := range []int{0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18} { if value[i] < '0' || value[i] > '9' { return false } }")?;
+        self.line("i := 19")?;
+        self.line("if value[i] == '.' {")?;
+        self.indent += 1;
+        self.line("i++")?;
+        self.line("start := i")?;
+        self.line("for i < len(value) && value[i] >= '0' && value[i] <= '9' { i++ }")?;
+        self.line("if i == start || i-start > 9 { return false }")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("if i < len(value) && value[i] == 'Z' { return i+1 == len(value) }")?;
+        self.line("if len(value)-i != 6 || (value[i] != '+' && value[i] != '-') || value[i+3] != ':' { return false }")?;
+        self.line("for _, j := range []int{i + 1, i + 2, i + 4, i + 5} { if value[j] < '0' || value[j] > '9' { return false } }")?;
+        self.line("hours := int(value[i+1]-'0')*10 + int(value[i+2]-'0')")?;
+        self.line("minutes := int(value[i+4]-'0')*10 + int(value[i+5]-'0')")?;
+        self.line("return hours <= 23 && minutes <= 59 && !(value[i] == '-' && hours == 0 && minutes == 0)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("func keelTimestampParse(value string) (keelTimestamp, bool) {")?;
+        self.indent += 1;
+        self.line("if !keelTimestampSyntax(value) { return keelTimestamp{}, false }")?;
+        self.line("parsed, err := time.Parse(time.RFC3339Nano, value)")?;
+        self.line("if err != nil { return keelTimestamp{}, false }")?;
+        self.line("parsed = parsed.UTC()")?;
+        self.line(
+            "if parsed.Year() < 0 || parsed.Year() > 9999 { return keelTimestamp{}, false }",
+        )?;
+        self.line(
+            "return keelTimestamp{seconds: parsed.Unix(), nanos: int32(parsed.Nanosecond())}, true",
+        )?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("func keelTimestampNow() keelTimestamp {")?;
+        self.indent += 1;
+        self.line("now := time.Now().UTC()")?;
+        self.line("return keelTimestamp{seconds: now.Unix(), nanos: int32(now.Nanosecond())}")?;
+        self.indent -= 1;
+        self.line("}")?;
         self.line("")?;
         Ok(())
     }

@@ -13,7 +13,7 @@ use crate::analysis::{
     collect_config_types, collect_enum_variant_names, collect_impls, collect_interfaces,
     collect_structs, expr_ty, module_uses_concurrency, module_uses_config, module_uses_http,
     module_uses_http_serve, module_uses_json, module_uses_log, module_uses_sql,
-    module_uses_uuid_new, ImplInfo, InterfaceInfo, StructInfo,
+    module_uses_timestamp_now, module_uses_uuid_new, ImplInfo, InterfaceInfo, StructInfo,
 };
 use crate::types::{
     go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name,
@@ -67,6 +67,7 @@ fn request_param_suffix(ty: &TypeInfo) -> Result<&'static str, BackendError> {
         TypeInfo::Bool => Ok("Bool"),
         TypeInfo::Float => Ok("Float"),
         TypeInfo::Named(name) if name == "Uuid" => Ok("Uuid"),
+        TypeInfo::Named(name) if name == "Timestamp" => Ok("Timestamp"),
         other => Err(BackendError::unsupported(format!(
             "request parameter of type `{other}`"
         ))),
@@ -105,6 +106,7 @@ struct Emitter<'a> {
     uses_sql: bool,
     uses_config: bool,
     uses_uuid_new: bool,
+    uses_timestamp_now: bool,
     config_needs_strconv: bool,
     json_types: Vec<TypeInfo>,
     config_types: Vec<TypeInfo>,
@@ -129,6 +131,7 @@ impl<'a> Emitter<'a> {
         let uses_sql = module_uses_sql(module);
         let uses_config = module_uses_config(module);
         let uses_uuid_new = module_uses_uuid_new(module);
+        let uses_timestamp_now = module_uses_timestamp_now(module);
         let config_types = collect_config_types(module);
         // `strconv` is only used by Int/Float field parsing; Secret/String/Bool
         // fields never touch it, so importing it unconditionally would break the
@@ -158,6 +161,7 @@ impl<'a> Emitter<'a> {
             uses_sql,
             uses_config,
             uses_uuid_new,
+            uses_timestamp_now,
             config_needs_strconv,
             json_types: Vec::new(),
             config_types,
@@ -276,6 +280,8 @@ impl<'a> Emitter<'a> {
         if self.uses_concurrency {
             imports.push("context");
             imports.push("sync");
+        }
+        if self.uses_concurrency || self.uses_json || self.uses_http || self.uses_timestamp_now {
             imports.push("time");
         }
         if self.uses_json {
@@ -902,6 +908,9 @@ impl<'a> Emitter<'a> {
         }
         if matches!(receiver, Expr::Name(name) if name == "Uuid") && method == "new" {
             return Ok("keelUUIDNew()".to_string());
+        }
+        if matches!(receiver, Expr::Name(name) if name == "Timestamp") && method == "now" {
+            return Ok("keelTimestampNow()".to_string());
         }
         if matches!(receiver, Expr::Name(name) if name == "sql") && method == "connect" {
             let arg = args
@@ -1816,6 +1825,8 @@ impl<'a> Emitter<'a> {
                     let emitted = self.emit_expr(expr)?;
                     if expr_ty(expr) == TypeInfo::Char {
                         args.push(format!("string({emitted})"));
+                    } else if expr_ty(expr) == TypeInfo::Named("Timestamp".to_string()) {
+                        args.push(format!("keelTimestampFormat({emitted})"));
                     } else {
                         args.push(emitted);
                     }
