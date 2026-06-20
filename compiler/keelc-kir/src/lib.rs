@@ -230,7 +230,7 @@ pub struct StringLiteral {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StringPart {
     Text(String),
-    Expr(Expr),
+    Expr { expr: Box<Expr>, ty: TypeInfo },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

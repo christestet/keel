@@ -601,16 +601,23 @@ impl<'a> Lowerer<'a> {
                 interpolation.span.source,
                 &interpolation.value,
             ) {
-                Some(expr) => parts.push(StringPart::Expr(self.lower_expr(&expr))),
+                Some(expr) => {
+                    let ty = self.ctx.infer_expr(&expr);
+                    parts.push(StringPart::Expr {
+                        expr: Box::new(self.lower_expr(&expr)),
+                        ty,
+                    });
+                }
                 None => {
                     self.diagnostics.push(Diagnostic::error(
                         registry::K0004,
                         span,
                         "malformed string interpolation",
                     ));
-                    parts.push(StringPart::Expr(Expr::Name(
-                        "__keel_bad_interp".to_string(),
-                    )));
+                    parts.push(StringPart::Expr {
+                        expr: Box::new(Expr::Name("__keel_bad_interp".to_string())),
+                        ty: TypeInfo::Unknown,
+                    });
                 }
             }
             cursor = start + needle.len();

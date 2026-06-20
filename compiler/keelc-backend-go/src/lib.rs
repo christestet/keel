@@ -1822,11 +1822,11 @@ impl<'a> Emitter<'a> {
         for part in &literal.parts {
             match part {
                 StringPart::Text(text) => args.push(format!("{:?}", text)),
-                StringPart::Expr(expr) => {
+                StringPart::Expr { expr, ty } => {
                     let emitted = self.emit_expr(expr)?;
-                    if expr_ty(expr) == TypeInfo::Char {
+                    if *ty == TypeInfo::Char {
                         args.push(format!("string({emitted})"));
-                    } else if expr_ty(expr) == TypeInfo::Named("Timestamp".to_string()) {
+                    } else if *ty == TypeInfo::Named("Timestamp".to_string()) {
                         args.push(format!("keelTimestampFormat({emitted})"));
                     } else {
                         args.push(emitted);
