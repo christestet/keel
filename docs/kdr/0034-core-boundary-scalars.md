@@ -31,10 +31,10 @@ Their initial constructors and canonical text forms are:
   ``!#$%&'*+-/=?^_`{|}~``; it is at most 64 bytes. The domain is one or more
   dot-separated labels containing letters, digits, or interior `-`; each label
   is at most 63 bytes and the domain is at most 253 bytes. The whole address is
-  at most 254 bytes. Its canonical text is the input text unchanged. This is a
-  deliberately narrow address syntax, not an RFC 5322 mailbox parser: comments,
-  display names, quoted local parts, internationalized addresses, and address
-  literals are rejected.
+  at most 254 bytes. Its canonical text preserves the local part and lowercases
+  the ASCII domain. This is a deliberately narrow address syntax, not an RFC
+  5322 mailbox parser: comments, display names, quoted local parts,
+  internationalized addresses, and address literals are rejected.
 
 All three map to JSON strings. `json.parse<T>` validates the accepted text and
 returns `json.TypeMismatch` for an invalid scalar string; `json.write` emits the
@@ -65,7 +65,10 @@ The narrow `Email` grammar is intentional. Full RFC 5322 mailbox syntax includes
 display names, comments, quoting, domain literals, and obsolete forms that are
 not useful as service identity values. Accepting those forms would create a
 large parser and still would not prove that a mailbox exists or can receive
-mail.
+mail. SMTP requires preserving a mailbox local part's case but applies normal
+case-insensitive DNS rules to its domain, so canonicalization follows that
+boundary rather than lowercasing the whole address or preserving equivalent
+domain spellings.
 
 ## Alternatives considered
 
@@ -96,6 +99,11 @@ mail.
 - **Implement full RFC 5322 email syntax.** Rejected: it adds substantial parser
   complexity for forms unsuitable for ordinary backend identity fields, while
   still providing no deliverability guarantee.
+- **Preserve domain letter case.** Rejected: SMTP mailbox domains follow DNS
+  case-insensitivity. Preserving domain case would give equivalent addresses
+  distinct values and unstable serialized forms. Local-part case is preserved
+  because SMTP requires receivers to treat it as case-sensitive, even though
+  relying on that distinction is discouraged for interoperability.
 - **Expose `parse(String)` constructors.** Rejected for the initial surface:
   the M6 program receives these values only from existing typed boundaries.
   Adding a second parsing API before a program needs it would duplicate boundary
@@ -112,8 +120,9 @@ mail.
 - `Timestamp.now()` reads wall-clock time. Monotonic clocks remain the source
   for deadlines and elapsed durations; timestamp serialization never carries a
   runtime's monotonic-clock metadata.
-- `Email` intentionally rejects some standards-valid mailbox spellings. Systems
-  that must preserve arbitrary mailbox syntax use `String` at that boundary.
+- `Email` intentionally rejects some standards-valid mailbox spellings and
+  normalizes ASCII domain case. Systems that must preserve the original spelling
+  or arbitrary mailbox syntax use `String` at that boundary.
 - SQL row decoding must validate scalar values rather than silently wrapping
   malformed database data. Database range and precision loss require explicit
   checked conversion; the exact column mapping remains Step 4 work.
