@@ -2,8 +2,8 @@
 
 use keelc_ast::{
     BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item,
-    MatchArm, Module, Param, Pattern, Stmt, StringLiteral as AstStringLiteral, StructDecl,
-    StructLiteralField, TestDecl, Type, TypeParam, UnaryOp, UseDecl, VariantDecl,
+    MatchArm, Module, Param, Pattern, Route, RouteHandler, Stmt, StringLiteral as AstStringLiteral,
+    StructDecl, StructLiteralField, TestDecl, Type, TypeParam, UnaryOp, UseDecl, VariantDecl,
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_lex::{lex, Keyword, LexOutput, Token, TokenKind};
@@ -718,7 +718,58 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Expr {
-        self.parse_binary(0)
+        let left = self.parse_binary(0);
+        if self.at_kind(&TokenKind::QuestionQuestion) {
+            let op_span = self
+                .advance()
+                .map_or_else(|| self.empty_span(), |token| token.span);
+            // `a ?? b` defaults an `Option` — right-associative so
+            // `a ?? b ?? c` is `a ?? (b ?? c)` (KDR-0031).
+            let default = self.parse_expr();
+            return self.desugar_coalesce(left, default, op_span);
+        }
+        left
+    }
+
+    /// Desugar `scrutinee ?? default` into `match scrutinee { Some(v) => v,
+    /// None => default }`, reusing the match machinery. A fixed binder name is
+    /// safe: each arm scopes its own binding.
+    fn desugar_coalesce(&self, scrutinee: Expr, default: Expr, span: Span) -> Expr {
+        let binder = Spanned::new("__keel_coalesce".to_string(), span);
+        let some_pattern = Pattern::Name {
+            name: Spanned::new("Some".to_string(), span),
+            args: vec![Pattern::Name {
+                name: binder.clone(),
+                args: Vec::new(),
+                span,
+            }],
+            span,
+        };
+        let none_pattern = Pattern::Name {
+            name: Spanned::new("None".to_string(), span),
+            args: Vec::new(),
+            span,
+        };
+        let full_span = scrutinee.span().join(default.span());
+        let default_span = default.span();
+        Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms: vec![
+                MatchArm {
+                    pattern: some_pattern,
+                    guard: None,
+                    value: Expr::Name(binder),
+                    span,
+                },
+                MatchArm {
+                    pattern: none_pattern,
+                    guard: None,
+                    value: default,
+                    span: default_span,
+                },
+            ],
+            span: full_span,
+        }
     }
 
     fn parse_expr_without_struct_literal(&mut self) -> Expr {
@@ -846,6 +897,8 @@ impl Parser {
             } else if self.allow_struct_literals && self.at_kind(&TokenKind::LeftBrace) {
                 if let Expr::Name(name) = expr {
                     expr = self.finish_struct_literal(name, Vec::new());
+                } else if is_http_router(&expr) {
+                    expr = self.finish_router(expr.span());
                 } else {
                     break;
                 }
@@ -857,11 +910,31 @@ impl Parser {
                 };
             } else if self.at_keyword(Keyword::Catch) {
                 expr = self.finish_catch(expr);
+            } else if self.at_separator() && self.next_significant_is_catch() {
+                // `catch` may continue a fallible expression on the next line.
+                // It is a keyword, so this never collides with a new statement.
+                self.skip_separators();
+                expr = self.finish_catch(expr);
             } else {
                 break;
             }
         }
         expr
+    }
+
+    /// Peek past separators for a `catch` keyword (continuation-line catch).
+    fn next_significant_is_catch(&self) -> bool {
+        let mut i = self.pos;
+        while matches!(
+            self.tokens.get(i).map(|token| &token.kind),
+            Some(TokenKind::Newline | TokenKind::Semicolon)
+        ) {
+            i += 1;
+        }
+        matches!(
+            self.tokens.get(i).map(|token| &token.kind),
+            Some(TokenKind::Keyword(Keyword::Catch))
+        )
     }
 
     fn parse_call_arg(&mut self) -> Expr {
@@ -1090,6 +1163,72 @@ impl Parser {
         }
     }
 
+    /// Parse the body of `http.Router{ "METHOD /path": handler, ... }`. The
+    /// leading `http.Router` field access has already been parsed; `start` is its
+    /// span and the cursor is at `{`.
+    fn finish_router(&mut self, start: Span) -> Expr {
+        self.expect_kind(&TokenKind::LeftBrace, "expected `{` after `http.Router`");
+        let mut routes = Vec::new();
+        self.skip_separators();
+        while !self.at_eof() && !self.at_kind(&TokenKind::RightBrace) {
+            let pattern = match self.advance() {
+                Some(Token {
+                    kind: TokenKind::String(literal),
+                    span,
+                }) => Spanned::new(literal.text, span),
+                other => {
+                    let span = other.map_or_else(|| self.empty_span(), |t| t.span);
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0003,
+                        span,
+                        "expected route pattern string in `http.Router`",
+                    ));
+                    Spanned::new(String::new(), span)
+                }
+            };
+            self.expect_kind(&TokenKind::Colon, "expected `:` after route pattern");
+            let handler = self.parse_route_handler();
+            let span = pattern.span.join(handler.span());
+            routes.push(Route {
+                pattern,
+                handler,
+                span,
+            });
+            self.eat_kind(&TokenKind::Comma);
+            self.skip_separators();
+        }
+        let end = self
+            .expect_kind(&TokenKind::RightBrace, "expected `}` after `http.Router`")
+            .unwrap_or_else(|| routes.last().map_or(start, |route| route.span));
+        Expr::Router {
+            routes,
+            span: start.join(end),
+        }
+    }
+
+    /// A route handler value: a bare function name or a `fn(req) => expr` closure.
+    fn parse_route_handler(&mut self) -> RouteHandler {
+        if self.at_keyword(Keyword::Fn) {
+            let start = self.advance().map_or_else(|| self.empty_span(), |t| t.span);
+            self.expect_kind(&TokenKind::LeftParen, "expected `(` after `fn`");
+            let param = self.expect_identifier("expected closure parameter name");
+            self.expect_kind(
+                &TokenKind::RightParen,
+                "expected `)` after closure parameter",
+            );
+            self.expect_kind(&TokenKind::FatArrow, "expected `=>` in closure");
+            let body = self.parse_expr();
+            let span = start.join(body.span());
+            RouteHandler::Closure {
+                param,
+                body: Box::new(body),
+                span,
+            }
+        } else {
+            RouteHandler::Expr(Box::new(self.parse_expr()))
+        }
+    }
+
     fn parse_type_args_in_angles(&mut self) -> Vec<Type> {
         self.expect_kind(&TokenKind::Less, "expected `<` before type arguments");
         let mut args = Vec::new();
@@ -1237,7 +1376,21 @@ impl Parser {
         let start = expr.span();
         self.expect_keyword(Keyword::Catch);
         let error_name = self.expect_identifier("expected catch error binding");
-        let arms = self.parse_match_arms();
+        // `catch err => expr` is a single catch-all arm binding the error to
+        // `err`; `catch err { ... }` matches the error against explicit arms.
+        let arms = if self.at_kind(&TokenKind::FatArrow) {
+            self.advance();
+            let value = self.parse_expr();
+            let span = error_name.span.join(value.span());
+            vec![MatchArm {
+                pattern: Pattern::Wildcard(error_name.span),
+                guard: None,
+                value,
+                span,
+            }]
+        } else {
+            self.parse_match_arms()
+        };
         let end = arms.last().map_or(error_name.span, |arm| arm.span);
         Expr::Catch {
             expr: Box::new(expr),
@@ -1526,6 +1679,17 @@ impl Parser {
         }
         .to_owned()
     }
+}
+
+/// True for the `http.Router` field access, the only `pkg.Type{ ... }` literal
+/// in M6 (KDR-0031). Keeps the route-table literal contained to `http`.
+fn is_http_router(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Field { target, field, .. }
+            if field.value == "Router"
+                && matches!(target.as_ref(), Expr::Name(name) if name.value == "http")
+    )
 }
 
 fn is_comparison_op(op: BinaryOp) -> bool {

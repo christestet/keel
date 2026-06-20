@@ -264,6 +264,45 @@ pub enum Expr {
         value: Option<Box<Expr>>,
         span: Span,
     },
+    /// `http.Router{ "METHOD /path": handler, ... }` — the compiler-known route
+    /// table (KDR-0031). The only construct with string keys and the only place a
+    /// handler closure may appear; both are contained here, not general features.
+    Router {
+        routes: Vec<Route>,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Route {
+    pub pattern: Spanned<String>,
+    pub handler: RouteHandler,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RouteHandler {
+    /// A handler value expected to be a function name resolving to
+    /// `fn(http.Request) -> http.Response`. Held as a general expression so the
+    /// resolver can reject non-name / wrong-signature values with `K1504`.
+    Expr(Box<Expr>),
+    /// `fn(req) => expr` — a single-expression handler that may capture the
+    /// enclosing scope. Restricted to route values; not a general closure.
+    Closure {
+        param: Spanned<String>,
+        body: Box<Expr>,
+        span: Span,
+    },
+}
+
+impl RouteHandler {
+    #[must_use]
+    pub fn span(&self) -> Span {
+        match self {
+            RouteHandler::Expr(expr) => expr.span(),
+            RouteHandler::Closure { span, .. } => *span,
+        }
+    }
 }
 
 impl Expr {
@@ -285,7 +324,8 @@ impl Expr {
             | Expr::Spawn { span, .. }
             | Expr::Question { span, .. }
             | Expr::Catch { span, .. }
-            | Expr::Return { span, .. } => *span,
+            | Expr::Return { span, .. }
+            | Expr::Router { span, .. } => *span,
             Expr::Int(value) | Expr::Float(value) | Expr::Char(value) | Expr::Name(value) => {
                 value.span
             }

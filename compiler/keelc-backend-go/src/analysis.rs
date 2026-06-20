@@ -1,4 +1,4 @@
-use keelc_kir::{Block, Expr, Field, FunctionDecl, Item, Method, Module, Stmt};
+use keelc_kir::{Block, Expr, Field, FunctionDecl, Item, Method, Module, RouteHandler, Stmt};
 use keelc_types::TypeInfo;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -144,6 +144,10 @@ pub fn any_in_expr(expr: &Expr, pred: &impl Fn(&Expr) -> bool) -> bool {
         }
         Expr::Spawn { expr, .. } => any_in_expr(expr, pred),
         Expr::Block(block) => any_expr_in_block(block, pred),
+        Expr::Router { routes, .. } => routes.iter().any(|route| match &route.handler {
+            RouteHandler::Closure { body, .. } => any_in_expr(body, pred),
+            RouteHandler::Named(_) => false,
+        }),
         Expr::Return {
             value: Some(value), ..
         } => any_in_expr(value, pred),
@@ -242,6 +246,7 @@ pub fn expr_ty(expr: &Expr) -> TypeInfo {
         | Expr::Match { ty, .. }
         | Expr::Payload { ty, .. }
         | Expr::Scope { ty, .. }
+        | Expr::Router { ty, .. }
         | Expr::Spawn { ty, .. } => ty.clone(),
         Expr::While { .. } | Expr::Return { .. } => TypeInfo::Unit,
         Expr::Block(block) => block.ty.clone(),

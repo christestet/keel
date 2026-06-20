@@ -199,6 +199,26 @@ pub enum Expr {
     Return {
         value: Option<Box<Expr>>,
     },
+    /// `http.Router{ ... }` route table (KDR-0031). Handlers are lowered to a
+    /// pattern string plus either a named function or an inline closure.
+    Router {
+        routes: Vec<Route>,
+        ty: TypeInfo,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Route {
+    pub pattern: String,
+    pub handler: RouteHandler,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RouteHandler {
+    /// A function name resolving to `fn(http.Request) -> http.Response`.
+    Named(String),
+    /// `fn(param) => body`, capturing the enclosing scope.
+    Closure { param: String, body: Box<Expr> },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

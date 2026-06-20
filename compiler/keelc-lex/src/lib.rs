@@ -36,6 +36,7 @@ pub enum TokenKind {
     Semicolon,
     At,
     Question,
+    QuestionQuestion,
     Underscore,
     Arrow,
     FatArrow,
@@ -156,7 +157,7 @@ impl<'a> Lexer<'a> {
                 ',' => self.single(TokenKind::Comma),
                 ':' => self.single(TokenKind::Colon),
                 '.' => self.single(TokenKind::Dot),
-                '?' => self.single(TokenKind::Question),
+                '?' => self.lex_question(),
                 '*' => self.single(TokenKind::Star),
                 '%' => self.single(TokenKind::Percent),
                 '&' => self.lex_amp(),
@@ -484,6 +485,17 @@ impl<'a> Lexer<'a> {
             self.push(TokenKind::PipePipe, start, self.offset);
         } else {
             self.push(TokenKind::Pipe, start, self.offset);
+        }
+    }
+
+    fn lex_question(&mut self) {
+        let start = self.offset;
+        self.advance_char();
+        if self.peek_char() == Some('?') {
+            self.advance_char();
+            self.push(TokenKind::QuestionQuestion, start, self.offset);
+        } else {
+            self.push(TokenKind::Question, start, self.offset);
         }
     }
 

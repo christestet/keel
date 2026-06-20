@@ -477,6 +477,26 @@ impl Printer {
                 value: Some(value), ..
             } => (format!("return {}", self.expr(value, 0, base_indent)), 10),
             Expr::Return { value: None, .. } => ("return".to_string(), 10),
+            Expr::Router { routes, .. } => {
+                let entries = routes
+                    .iter()
+                    .map(|route| {
+                        let handler = match &route.handler {
+                            crate::RouteHandler::Expr(expr) => self.expr(expr, 0, base_indent + 1),
+                            crate::RouteHandler::Closure { param, body, .. } => format!(
+                                "fn({}) => {}",
+                                param.value,
+                                self.expr(body, 0, base_indent + 1)
+                            ),
+                        };
+                        let line = format!("\"{}\": {handler},", route.pattern.value);
+                        self.indent_line(&line, base_indent + 1)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let close = self.indent_line("}", base_indent);
+                (format!("http.Router{{\n{entries}\n{close}"), 100)
+            }
         }
     }
 

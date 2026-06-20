@@ -1,5 +1,169 @@
 use crate::{BackendError, Emitter};
 
+/// Router runtime for `http.serve(port, http.Router{...})` (KDR-0031). Emitted
+/// once when a module calls `http.serve`. Splits each route pattern into method
+/// and path, matches `{name}` path segments, and exposes typed path/query
+/// parameter extraction. `K1505` (invalid port) is the runtime panic here.
+const HTTP_ROUTER_RUNTIME: &str = r#"type keelRoute struct {
+	pattern string
+	handler func(keelHTTPRequest) keelHTTPResponse
+}
+
+func keelRouteParts(pattern string) (string, string) {
+	fields := strings.Fields(pattern)
+	if len(fields) >= 2 {
+		return fields[0], fields[1]
+	}
+	if len(fields) == 1 {
+		return "GET", fields[0]
+	}
+	return "GET", "/"
+}
+
+func keelRouteMatch(pattern string, method string, path string) (map[string]string, bool) {
+	pMethod, pPath := keelRouteParts(pattern)
+	if pMethod != method {
+		return nil, false
+	}
+	pSegs := strings.Split(strings.Trim(pPath, "/"), "/")
+	aSegs := strings.Split(strings.Trim(path, "/"), "/")
+	if len(pSegs) != len(aSegs) {
+		return nil, false
+	}
+	params := map[string]string{}
+	for i := range pSegs {
+		if strings.HasPrefix(pSegs[i], "{") && strings.HasSuffix(pSegs[i], "}") {
+			params[pSegs[i][1:len(pSegs[i])-1]] = aSegs[i]
+		} else if pSegs[i] != aSegs[i] {
+			return nil, false
+		}
+	}
+	return params, true
+}
+
+func keelHTTPServe(port int64, routes []keelRoute) KeelEnum {
+	if port < 1 || port > 65535 {
+		panic("invalid HTTP port")
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		for _, route := range routes {
+			if params, ok := keelRouteMatch(route.pattern, r.Method, r.URL.Path); ok {
+				req := keelHTTPRequest{body: string(body), method: r.Method, path: r.URL.Path, params: params, rawQuery: r.URL.RawQuery}
+				resp := route.handler(req)
+				w.WriteHeader(int(resp.status))
+				_, _ = w.Write([]byte(resp.body))
+				return
+			}
+		}
+		w.WriteHeader(404)
+	})
+	err := http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+	if err != nil {
+		return Err(BindFailed(err.Error()))
+	}
+	return Ok(struct{}{})
+}
+
+func keelPathParamString(req keelHTTPRequest, name string) KeelEnum {
+	v, ok := req.params[name]
+	if !ok {
+		return Err("missing path parameter: " + name)
+	}
+	return Ok(v)
+}
+
+func keelPathParamInt(req keelHTTPRequest, name string) KeelEnum {
+	v, ok := req.params[name]
+	if !ok {
+		return Err("missing path parameter: " + name)
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return Err("invalid integer for " + name + ": " + v)
+	}
+	return Ok(n)
+}
+
+func keelPathParamBool(req keelHTTPRequest, name string) KeelEnum {
+	v, ok := req.params[name]
+	if !ok {
+		return Err("missing path parameter: " + name)
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return Err("invalid bool for " + name + ": " + v)
+	}
+	return Ok(b)
+}
+
+func keelPathParamFloat(req keelHTTPRequest, name string) KeelEnum {
+	v, ok := req.params[name]
+	if !ok {
+		return Err("missing path parameter: " + name)
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return Err("invalid float for " + name + ": " + v)
+	}
+	return Ok(f)
+}
+
+func keelQueryValues(req keelHTTPRequest) url.Values {
+	values, err := url.ParseQuery(req.rawQuery)
+	if err != nil {
+		return url.Values{}
+	}
+	return values
+}
+
+func keelQueryParamString(req keelHTTPRequest, name string) KeelEnum {
+	values := keelQueryValues(req)
+	if !values.Has(name) {
+		return None
+	}
+	return Some(values.Get(name))
+}
+
+func keelQueryParamInt(req keelHTTPRequest, name string) KeelEnum {
+	values := keelQueryValues(req)
+	if !values.Has(name) {
+		return None
+	}
+	n, err := strconv.ParseInt(values.Get(name), 10, 64)
+	if err != nil {
+		return None
+	}
+	return Some(n)
+}
+
+func keelQueryParamBool(req keelHTTPRequest, name string) KeelEnum {
+	values := keelQueryValues(req)
+	if !values.Has(name) {
+		return None
+	}
+	b, err := strconv.ParseBool(values.Get(name))
+	if err != nil {
+		return None
+	}
+	return Some(b)
+}
+
+func keelQueryParamFloat(req keelHTTPRequest, name string) KeelEnum {
+	values := keelQueryValues(req)
+	if !values.Has(name) {
+		return None
+	}
+	f, err := strconv.ParseFloat(values.Get(name), 64)
+	if err != nil {
+		return None
+	}
+	return Some(f)
+}
+
+"#;
+
 impl<'a> Emitter<'a> {
     pub(super) fn emit_runtime(&mut self) -> Result<(), BackendError> {
         self.line("type KeelEnum struct {")?;
@@ -262,6 +426,8 @@ impl<'a> Emitter<'a> {
         self.line("body string")?;
         self.line("method string")?;
         self.line("path string")?;
+        self.line("params map[string]string")?;
+        self.line("rawQuery string")?;
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;
@@ -271,31 +437,19 @@ impl<'a> Emitter<'a> {
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;
+        self.line("func keelString(v any) string {")?;
+        self.indent += 1;
+        self.line("if s, ok := v.(string); ok {")?;
+        self.indent += 1;
+        self.line("return s")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("return fmt.Sprint(v)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
         if self.uses_http_serve {
-            self.line("func keelHTTPServe(port int64, handler func(keelHTTPRequest) keelHTTPResponse) KeelEnum {")?;
-            self.indent += 1;
-            self.line("mux := http.NewServeMux()")?;
-            self.line("mux.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {")?;
-            self.indent += 1;
-            self.line("body, _ := io.ReadAll(r.Body)")?;
-            self.line(
-                "req := keelHTTPRequest{body: string(body), method: r.Method, path: r.URL.Path}",
-            )?;
-            self.line("resp := handler(req)")?;
-            self.line("w.WriteHeader(int(resp.status))")?;
-            self.line("_, _ = w.Write([]byte(resp.body))")?;
-            self.indent -= 1;
-            self.line("})")?;
-            self.line("err := http.ListenAndServe(fmt.Sprintf(\":%d\", port), mux)")?;
-            self.line("if err != nil {")?;
-            self.indent += 1;
-            self.line("return Err(BindFailed(err.Error()))")?;
-            self.indent -= 1;
-            self.line("}")?;
-            self.line("return Ok(struct{}{})")?;
-            self.indent -= 1;
-            self.line("}")?;
-            self.line("")?;
+            self.output.push_str(HTTP_ROUTER_RUNTIME);
         }
         Ok(())
     }

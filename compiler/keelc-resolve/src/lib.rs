@@ -1,6 +1,8 @@
 //! Name resolution and early semantic diagnostics for Keel Core.
 
-use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, StringLiteral};
+use keelc_ast::{
+    BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, RouteHandler, Stmt, StringLiteral,
+};
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{Span, Spanned};
 use keelc_types::infer::{is_int_float_pair, type_absorbs, types_compatible, TypeContext};
@@ -226,6 +228,19 @@ impl<'a> Resolver<'a> {
             Expr::Return { value, .. } => {
                 if let Some(value) = value {
                     self.resolve_expr(value);
+                }
+            }
+            Expr::Router { routes, .. } => {
+                for route in routes {
+                    match &route.handler {
+                        RouteHandler::Closure { param, body, .. } => {
+                            self.push_scope();
+                            self.define(param, BindingKind::Immutable);
+                            self.resolve_expr(body);
+                            self.pop_scope();
+                        }
+                        RouteHandler::Expr(expr) => self.resolve_expr(expr),
+                    }
                 }
             }
         }
@@ -764,7 +779,15 @@ impl<'a> Typechecker<'a> {
                 }
                 TypeInfo::Unit
             }
+            Expr::Router { routes, span } => self.infer_router(routes, *span),
         }
+    }
+
+    fn infer_router(&mut self, routes: &[keelc_ast::Route], anchor: Span) -> TypeInfo {
+        for route in routes {
+            self.check_http_handler(&route.handler, anchor);
+        }
+        TypeInfo::Named("http.Router".to_string())
     }
 
     fn infer_scope(&mut self, deadline: Option<&Expr>, body: &Block) -> TypeInfo {
@@ -981,6 +1004,25 @@ impl<'a> Typechecker<'a> {
                     }
                 }
             }
+            Expr::Field { target, field, .. }
+                if matches!(field.value.as_str(), "path_param" | "query_param") =>
+            {
+                let target_type = self.infer_expr(target);
+                if target_type == TypeInfo::Named("http.Request".to_string()) {
+                    self.check_call_args(&[TypeInfo::String], args, field.span);
+                    let parsed = type_args
+                        .first()
+                        .map(TypeInfo::from_ast)
+                        .map(|ty| self.resolve_type(&ty))
+                        .unwrap_or(TypeInfo::Unknown);
+                    match field.value.as_str() {
+                        "path_param" => TypeInfo::generic("Result", vec![parsed, TypeInfo::String]),
+                        _ => TypeInfo::generic("Option", vec![parsed]),
+                    }
+                } else {
+                    TypeInfo::Unknown
+                }
+            }
             Expr::Field { .. } => {
                 self.infer_expr(callee);
                 TypeInfo::Unknown
@@ -1165,8 +1207,13 @@ impl<'a> Typechecker<'a> {
                     let port_type = self.infer_expr(port);
                     self.check_assignable(&port_type, &TypeInfo::Int, port.span());
                 }
-                if let Some(handler) = args.get(1) {
-                    self.check_http_handler(handler);
+                if let Some(routes) = args.get(1) {
+                    let routes_type = self.infer_expr(routes);
+                    self.check_assignable(
+                        &routes_type,
+                        &TypeInfo::Named("http.Router".to_string()),
+                        routes.span(),
+                    );
                 }
                 TypeInfo::generic(
                     "Result",
@@ -1184,36 +1231,55 @@ impl<'a> Typechecker<'a> {
         }
     }
 
-    fn check_http_handler(&mut self, handler: &Expr) {
-        let Expr::Name(name) = handler else {
-            self.diagnostics.push(Diagnostic::error(
-                registry::K1504,
-                handler.span(),
-                "HTTP handler must be a function name with signature `fn(http.Request) -> http.Response`",
-            ));
-            return;
-        };
-        let Some(info) = self.function_info(&name.value) else {
-            self.diagnostics.push(Diagnostic::error(
-                registry::K1504,
-                name.span,
-                format!("`{}` is not a function", name.value),
-            ));
-            return;
-        };
-        let expected_params = vec![TypeInfo::Named("http.Request".to_string())];
-        let expected_return = TypeInfo::Named("http.Response".to_string());
-        if info.params != expected_params || info.return_type != expected_return {
-            self.diagnostics.push(Diagnostic::error(
-                registry::K1504,
-                name.span,
-                format!(
-                    "`{}` has signature `fn({}) -> {}`, expected `fn(http.Request) -> http.Response`",
-                    name.value,
-                    info.params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
-                    info.return_type,
-                ),
-            ));
+    fn check_http_handler(&mut self, handler: &RouteHandler, anchor: Span) {
+        let request = TypeInfo::Named("http.Request".to_string());
+        let response = TypeInfo::Named("http.Response".to_string());
+        match handler {
+            RouteHandler::Closure { param, body, .. } => {
+                self.push_scope();
+                self.define_value(param, request);
+                let body_type = self.infer_expr(body);
+                self.pop_scope();
+                if !types_compatible(&body_type, &response) {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        format!(
+                            "route handler closure returns `{body_type}`, expected `http.Response`"
+                        ),
+                    ));
+                }
+            }
+            RouteHandler::Expr(expr) => {
+                let Expr::Name(name) = expr.as_ref() else {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        "route handler must be a function name `fn(http.Request) -> http.Response` or a `fn(req) => ...` closure",
+                    ));
+                    return;
+                };
+                let Some(info) = self.function_info(&name.value) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        format!("`{}` is not a function", name.value),
+                    ));
+                    return;
+                };
+                if info.params != vec![request] || info.return_type != response {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        format!(
+                            "`{}` has signature `fn({}) -> {}`, expected `fn(http.Request) -> http.Response`",
+                            name.value,
+                            info.params.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "),
+                            info.return_type,
+                        ),
+                    ));
+                }
+            }
         }
     }
 

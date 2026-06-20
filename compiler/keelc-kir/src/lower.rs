@@ -9,7 +9,8 @@
 
 use crate::{
     BinaryOp, Block, EnumDecl, Expr, Field, FunctionDecl, ImplDecl, InterfaceDecl, Item, MatchArm,
-    Method, Module, Param, Pattern, Stmt, StringLiteral, StringPart, StructDecl, TestDecl, Variant,
+    Method, Module, Param, Pattern, Route, RouteHandler, Stmt, StringLiteral, StringPart,
+    StructDecl, TestDecl, Variant,
 };
 use keelc_ast::{Item as AstItem, StringLiteral as AstStringLiteral};
 use keelc_diag::{registry, Diagnostic};
@@ -485,6 +486,39 @@ impl<'a> Lowerer<'a> {
             keelc_ast::Expr::Return { value, .. } => Expr::Return {
                 value: value.as_ref().map(|expr| Box::new(self.lower_expr(expr))),
             },
+            keelc_ast::Expr::Router { routes, .. } => {
+                let routes = routes
+                    .iter()
+                    .map(|route| {
+                        let handler = match &route.handler {
+                            keelc_ast::RouteHandler::Closure { param, body, .. } => {
+                                self.ctx.push_scope();
+                                self.ctx.define_value(
+                                    &param.value,
+                                    TypeInfo::Named("http.Request".to_string()),
+                                );
+                                let body = Box::new(self.lower_expr(body));
+                                self.ctx.pop_scope();
+                                RouteHandler::Closure {
+                                    param: param.value.clone(),
+                                    body,
+                                }
+                            }
+                            keelc_ast::RouteHandler::Expr(expr) => match expr.as_ref() {
+                                keelc_ast::Expr::Name(name) => {
+                                    RouteHandler::Named(name.value.clone())
+                                }
+                                _ => RouteHandler::Named(String::new()),
+                            },
+                        };
+                        Route {
+                            pattern: route.pattern.value.clone(),
+                            handler,
+                        }
+                    })
+                    .collect();
+                Expr::Router { routes, ty }
+            }
         }
     }
 
@@ -869,7 +903,7 @@ fn expr_ty(expr: &Expr) -> TypeInfo {
         | Expr::Match { ty, .. }
         | Expr::Payload { ty, .. } => ty.clone(),
         Expr::While { .. } | Expr::Return { .. } => TypeInfo::Unit,
-        Expr::Spawn { ty, .. } | Expr::Scope { ty, .. } => ty.clone(),
+        Expr::Spawn { ty, .. } | Expr::Scope { ty, .. } | Expr::Router { ty, .. } => ty.clone(),
         Expr::Block(block) => block.ty.clone(),
     }
 }
@@ -961,6 +995,13 @@ fn collect_expr_scope_errors(expr: &Expr, errors: &mut Vec<TypeInfo>) {
         Expr::Scope { .. } => {}
         Expr::Payload { value, .. } => collect_expr_scope_errors(value, errors),
         Expr::Block(block) => collect_scope_errors(block, errors),
+        Expr::Router { routes, .. } => {
+            for route in routes {
+                if let RouteHandler::Closure { body, .. } = &route.handler {
+                    collect_expr_scope_errors(body, errors);
+                }
+            }
+        }
         Expr::Return {
             value: Some(value), ..
         } => collect_expr_scope_errors(value, errors),

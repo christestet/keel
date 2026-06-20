@@ -198,6 +198,7 @@ impl TypeContext {
                 .cloned()
                 .unwrap_or(TypeInfo::Unknown),
             Expr::Return { .. } => TypeInfo::Unit,
+            Expr::Router { .. } => TypeInfo::Named("http.Router".to_string()),
         }
     }
 
@@ -312,6 +313,21 @@ impl TypeContext {
                 match field.value.as_str() {
                     "info" | "warn" | "error" => TypeInfo::Unit,
                     _ => TypeInfo::Unknown,
+                }
+            }
+            Expr::Field { target, field, .. }
+                if matches!(field.value.as_str(), "path_param" | "query_param")
+                    && self.infer_expr(target) == TypeInfo::Named("http.Request".to_string()) =>
+            {
+                let parsed = type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown);
+                if field.value == "path_param" {
+                    TypeInfo::generic("Result", vec![parsed, TypeInfo::String])
+                } else {
+                    TypeInfo::generic("Option", vec![parsed])
                 }
             }
             _ => TypeInfo::Unknown,
@@ -517,6 +533,13 @@ impl TypeContext {
                 value: Some(value), ..
             } => self.collect_expr_scope_errors(value, errors),
             Expr::Block(block) => self.collect_scope_errors(block, errors),
+            Expr::Router { routes, .. } => {
+                for route in routes {
+                    if let keelc_ast::RouteHandler::Closure { body, .. } = &route.handler {
+                        self.collect_expr_scope_errors(body, errors);
+                    }
+                }
+            }
             Expr::Missing(_)
             | Expr::Int(_)
             | Expr::Float(_)

@@ -19,8 +19,8 @@ use crate::types::{
     primitive_underlying, zero_value,
 };
 use keelc_kir::{
-    BinaryOp, Block, EnumDecl, Expr, FunctionDecl, Item, MatchArm, Module, Pattern, Stmt,
-    StringLiteral, StringPart, StructDecl, UnaryOp, Variant,
+    BinaryOp, Block, EnumDecl, Expr, FunctionDecl, Item, MatchArm, Module, Pattern, Route,
+    RouteHandler, Stmt, StringLiteral, StringPart, StructDecl, UnaryOp, Variant,
 };
 use keelc_types::infer::{task_inner, task_value_type};
 use keelc_types::TypeInfo;
@@ -36,6 +36,21 @@ impl BackendError {
         Self {
             message: format!("Go backend does not yet support {}", feature.into()),
         }
+    }
+}
+
+/// Map a `path_param<T>` / `query_param<T>` type argument to its runtime helper
+/// suffix (`keelPathParamString`, `keelQueryParamInt`, …). M6 supports the
+/// scalar wire types; richer types arrive with their own KDR.
+fn request_param_suffix(ty: &TypeInfo) -> Result<&'static str, BackendError> {
+    match ty {
+        TypeInfo::String => Ok("String"),
+        TypeInfo::Int => Ok("Int"),
+        TypeInfo::Bool => Ok("Bool"),
+        TypeInfo::Float => Ok("Float"),
+        other => Err(BackendError::unsupported(format!(
+            "request parameter of type `{other}`"
+        ))),
     }
 }
 
@@ -222,6 +237,9 @@ impl<'a> Emitter<'a> {
         }
         if self.uses_http_serve {
             imports.push("net/http");
+            imports.push("net/url");
+            imports.push("strconv");
+            imports.push("strings");
         }
         if self.uses_json || self.uses_http_serve {
             imports.push("io");
@@ -708,7 +726,29 @@ impl<'a> Emitter<'a> {
                     Ok("return".to_string())
                 }
             }
+            Expr::Router { routes, .. } => self.emit_router(routes),
         }
+    }
+
+    /// Emit a `[]keelRoute{ ... }` literal (KDR-0031). Each entry pairs the route
+    /// pattern with a Go handler func; the runtime splits method/path and extracts
+    /// `{name}` path params at request time.
+    fn emit_router(&mut self, routes: &[Route]) -> Result<String, BackendError> {
+        let mut entries = Vec::new();
+        for route in routes {
+            let handler = match &route.handler {
+                RouteHandler::Named(name) => name.clone(),
+                RouteHandler::Closure { param, body } => {
+                    let body = self.emit_expr(body)?;
+                    format!("func({param} keelHTTPRequest) keelHTTPResponse {{ return {body} }}")
+                }
+            };
+            entries.push(format!(
+                "{{pattern: {}, handler: {handler}}}",
+                go_string_literal(&route.pattern)
+            ));
+        }
+        Ok(format!("[]keelRoute{{{}}}", entries.join(", ")))
     }
 
     fn emit_method_call(
@@ -805,6 +845,20 @@ impl<'a> Emitter<'a> {
             }
             if matches!(target.as_ref(), Expr::Name(name) if name == "log") {
                 return self.emit_log_call(field, args);
+            }
+            if matches!(field.as_str(), "path_param" | "query_param") && !type_args.is_empty() {
+                let receiver = self.emit_expr(target)?;
+                let name = args.first().ok_or_else(|| {
+                    BackendError::unsupported(format!("{field} without a name argument"))
+                })?;
+                let name = self.emit_expr(name)?;
+                let suffix = request_param_suffix(&type_args[0])?;
+                let func = if field == "path_param" {
+                    "keelPathParam"
+                } else {
+                    "keelQueryParam"
+                };
+                return Ok(format!("{func}{suffix}({receiver}, {name})"));
             }
         }
         let callee_name = match callee {
@@ -1336,10 +1390,12 @@ impl<'a> Emitter<'a> {
     fn emit_http_call(&mut self, method: &str, args: &[Expr]) -> Result<String, BackendError> {
         match method {
             "ok" | "created" | "bad_request" | "conflict" | "internal_error" => {
-                let body = args
-                    .first()
-                    .map(|a| self.emit_expr(a))
-                    .unwrap_or(Ok("\"\"".to_string()))?;
+                let body = match args.first() {
+                    // Bodies may arrive as `any` (catch results, path params);
+                    // keelString bridges both the `string` and `any` cases.
+                    Some(arg) => format!("keelString({})", self.emit_expr(arg)?),
+                    None => "\"\"".to_string(),
+                };
                 let status = match method {
                     "ok" => "200",
                     "created" => "201",
