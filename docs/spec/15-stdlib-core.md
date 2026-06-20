@@ -8,7 +8,9 @@ Router and parameter extraction governed by
 [`KDR-0031`](../kdr/0031-http-router-and-params.md), the SQL database access
 surface governed by [`KDR-0029`](../kdr/0029-sql-database-access.md), and the
 configuration loading surface governed by
-[`KDR-0030`](../kdr/0030-config-loading-surface.md).
+[`KDR-0030`](../kdr/0030-config-loading-surface.md), and the compiler-known
+boundary scalars governed by
+[`KDR-0034`](../kdr/0034-core-boundary-scalars.md).
 
 ## 15.1 The `std.time` module
 
@@ -805,3 +807,104 @@ permanent; its message text may improve without changing the code.
 - [`KDR-0005`](../kdr/0005-no-exceptions.md) — config failures are `Result`, not panics.
 - [`KDR-0015`](../kdr/0015-boundary-doctrine.md) — typed config boundary with `Secret`.
 - [`KDR-0030`](../kdr/0030-config-loading-surface.md) — env var mapping, parse rules, rejected alternatives.
+
+## 15.34 Core boundary scalar types
+
+`Uuid`, `Timestamp`, and `Email` are compiler-known opaque value types available
+without an import. They may be used anywhere a type is permitted. User code
+cannot construct them with struct or enum syntax, access fields on them, or
+implicitly convert them to or from `String`.
+
+Values of the same scalar type support `==` and `!=`. No other operator is
+defined for them. Each type is renderable in string interpolation using the
+canonical text form below.
+
+### 15.34.1 `Uuid`
+
+```text
+fn Uuid.new() -> Uuid
+```
+
+`Uuid` is a version-4 UUID with the RFC variant. `Uuid.new()` obtains 16 bytes
+from the operating system's cryptographically secure random source, fixes the
+version and variant bits, and returns the resulting value. Failure of the
+operating system random source terminates the process as a platform failure; it
+is not an error caused by source input and is not catchable.
+
+The canonical text form is 36 ASCII bytes: lower-case hexadecimal groups of
+8, 4, 4, 4, and 12 digits separated by `-`. Parsing rejects upper-case digits,
+missing or displaced separators, non-hexadecimal digits, a version other than
+4, and a non-RFC variant.
+
+### 15.34.2 `Timestamp`
+
+```text
+fn Timestamp.now() -> Timestamp
+```
+
+`Timestamp` is a UTC instant stored as signed nanoseconds from the Unix epoch.
+`Timestamp.now()` reads the operating system wall clock and returns its current
+instant at the available resolution.
+
+The canonical text form is UTC RFC 3339 with a trailing `Z`. Fractional seconds
+are omitted when zero; otherwise one to nine digits are emitted and trailing
+zeroes are removed. Parsing accepts exactly this form: numeric UTC offsets,
+lower-case `t` or `z`, a space separator, and more than nine fractional digits
+are rejected. An instant outside the signed 64-bit nanosecond range is rejected.
+
+### 15.34.3 `Email`
+
+`Email` contains one ASCII address. Its local part is one or more dot-separated
+atoms. Each atom contains only ASCII letters, digits, or
+``!#$%&'*+-/=?^_`{|}~``; the complete local part is at most 64 bytes.
+
+The domain is one or more dot-separated labels. Each label contains ASCII
+letters, digits, or `-`, is at most 63 bytes, and neither starts nor ends with
+`-`. The complete domain is at most 253 bytes. The local part and domain are
+separated by exactly one `@`, and the whole address is at most 254 bytes.
+
+The canonical text is the accepted input unchanged. Equality is therefore
+case-sensitive. Display names, comments, quoted local parts, consecutive dots,
+internationalized addresses, and address literals are rejected. `Email` proves
+only that the string has this syntax; it does not prove mailbox ownership or
+deliverability.
+
+### 15.34.4 Boundary mappings
+
+All three scalar types are JSON-representable under §15.8 and map to JSON
+strings containing their canonical text. `json.parse<T>` returns
+`json.TypeMismatch(path, expected)` when a JSON string is not valid for scalar
+type `T`. `json.write` emits the canonical text and cannot fail for an existing
+scalar value.
+
+`http.Request.path_param<T>` accepts `Uuid`, `Timestamp`, and `Email` and applies
+the same parser as JSON after HTTP parameter extraction. An invalid value
+returns `Err(message)` as specified in §15.18. `query_param<T>` applies the same
+parser; an invalid present value produces `None`, matching its `Option<T>`
+surface.
+
+SQL parameter binding and row decoding are specified separately with the SQL
+row-mapping work. This section does not infer a scalar from a database column
+without an explicit target type.
+
+### 15.35 Planned scalar conformance cases
+
+| Case | Kind | Asserts |
+|---|---|---|
+| `779-uuid-json-roundtrip` | accept | canonical version-4 UUID JSON parses and writes unchanged |
+| `780-uuid-json-invalid` | accept | invalid UUID text returns `json.TypeMismatch` |
+| `781-uuid-path-param` | build | `path_param<Uuid>` is a valid typed extraction |
+| `782-uuid-new` | build | `Uuid.new()` returns `Uuid` |
+| `783-timestamp-json-roundtrip` | accept | canonical UTC timestamp JSON parses and writes unchanged |
+| `784-timestamp-json-invalid` | accept | invalid timestamp text returns `json.TypeMismatch` |
+| `785-timestamp-now` | build | `Timestamp.now()` returns `Timestamp` |
+| `786-email-json-roundtrip` | accept | accepted email JSON parses and writes unchanged |
+| `787-email-json-invalid` | accept | invalid email text returns `json.TypeMismatch` |
+| `788-scalar-struct-json-roundtrip` | accept | a struct containing all three scalar types round-trips |
+
+### 15.36 Scalar dependencies
+
+- [`KDR-0009`](../kdr/0009-no-operator-overloading.md) — no implicit string conversion or user-defined operators.
+- [`KDR-0015`](../kdr/0015-boundary-doctrine.md) — external text becomes an honest type at an explicit parse point.
+- [`KDR-0027`](../kdr/0027-json-boundary-mapping.md) — compiler-derived scalar JSON mapping is strict and deterministic.
+- [`KDR-0034`](../kdr/0034-core-boundary-scalars.md) — closed initial scalar set and canonical forms.
