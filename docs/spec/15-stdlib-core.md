@@ -842,15 +842,33 @@ missing or displaced separators, non-hexadecimal digits, a version other than
 fn Timestamp.now() -> Timestamp
 ```
 
-`Timestamp` is a UTC instant stored as signed nanoseconds from the Unix epoch.
-`Timestamp.now()` reads the operating system wall clock and returns its current
-instant at the available resolution.
+`Timestamp` is an instant on Keel's civil timeline. Its semantic representation
+is signed seconds from the Unix epoch plus a nanosecond-of-second in
+`0..999_999_999`; it carries neither a time zone nor a calendar. Its range is
+the RFC 3339 four-digit-year range `0000..9999` after normalization to UTC.
 
-The canonical text form is UTC RFC 3339 with a trailing `Z`. Fractional seconds
-are omitted when zero; otherwise one to nine digits are emitted and trailing
-zeroes are removed. Parsing accepts exactly this form: numeric UTC offsets,
-lower-case `t` or `z`, a space separator, and more than nine fractional digits
-are rejected. An instant outside the signed 64-bit nanosecond range is rejected.
+`Timestamp.now()` reads the operating system wall clock and returns its current
+instant at the available resolution. A backend MUST discard any monotonic-clock
+reading attached by its runtime. Deadlines and elapsed-duration measurement use
+the monotonic clock specified for structured concurrency, not `Timestamp`.
+
+Accepted text has the form
+`YYYY-MM-DDTHH:MM:SS[.fraction](Z|+HH:MM|-HH:MM)`. `T` and `Z` MUST be upper
+case, the fraction contains one to nine digits when present, and the numeric
+offset follows the RFC 3339 ranges. `-00:00` is rejected because RFC 3339 uses
+it to mean that the local offset is unknown; `+00:00` is accepted. A parser
+validates the Gregorian date and time, applies the offset, and rejects the value
+if the normalized UTC instant is outside `0000..9999`.
+
+The canonical text form is the normalized UTC instant with a trailing `Z`.
+Fractional seconds are omitted when zero; otherwise one to nine digits are
+emitted and trailing zeroes are removed. Numeric offsets are therefore accepted
+but never preserved. Local date-times without an offset, lower-case `t` or `z`,
+space separators, more than nine fractional digits, and leap-second `:60`
+spellings are rejected. Keel's civil timeline represents every day as exactly
+86,400 seconds; it does not maintain a leap-second table or define a clock
+smear. Equality compares normalized instants, not source spellings or runtime
+metadata.
 
 ### 15.34.3 `Email`
 
@@ -901,6 +919,9 @@ without an explicit target type.
 | `786-email-json-roundtrip` | accept | accepted email JSON parses and writes unchanged |
 | `787-email-json-invalid` | accept | invalid email text returns `json.TypeMismatch` |
 | `788-scalar-struct-json-roundtrip` | accept | a struct containing all three scalar types round-trips |
+| `789-timestamp-offset-normalizes` | accept | a numeric offset parses and writes as the equivalent UTC instant |
+| `790-timestamp-full-range` | accept | an instant beyond the signed-64-bit-nanosecond range round-trips |
+| `791-timestamp-leap-second-invalid` | accept | a leap-second spelling returns `json.TypeMismatch` |
 
 ### 15.36 Scalar dependencies
 
