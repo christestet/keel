@@ -1,0 +1,14 @@
+use std.json
+
+fn quote() -> Char { '"' }
+
+fn main() {
+    let encoded = json.write(
+        json.parse<Timestamp>("{quote()}2026-06-20T14:34:56+02:00{quote()}") catch err {
+            other => return print("parse error"),
+        },
+    ) catch err {
+        other => return print("write error"),
+    }
+    print(encoded)
+}
