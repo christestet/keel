@@ -22,9 +22,12 @@ Their initial constructors and canonical text forms are:
   otherwise emitted to the necessary nanosecond precision with trailing zeroes
   removed. Parsing accepts exactly the canonical form and rejects values outside
   the signed 64-bit nanosecond range.
-- `Email` is an ASCII address with exactly one `@`, a non-empty local part and
-  domain, no ASCII whitespace or control bytes, and no leading or trailing dot
-  in either part. Its canonical text is the input text unchanged. This is a
+- `Email` is an ASCII address with exactly one `@`. The local part is one or
+  more dot-separated atoms containing letters, digits, or
+  ``!#$%&'*+-/=?^_`{|}~``; it is at most 64 bytes. The domain is one or more
+  dot-separated labels containing letters, digits, or interior `-`; each label
+  is at most 63 bytes and the domain is at most 253 bytes. The whole address is
+  at most 254 bytes. Its canonical text is the input text unchanged. This is a
   deliberately narrow address syntax, not an RFC 5322 mailbox parser: comments,
   display names, quoted local parts, internationalized addresses, and address
   literals are rejected.
