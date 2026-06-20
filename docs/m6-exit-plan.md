@@ -60,11 +60,10 @@ The gap is five language features plus a test harness:
 
 ## The steps (each: KDR → spec → conformance → compiler)
 
-**Step 1 — Universal `Error` type.** Define `Error` as the catch-all every
-concrete error `?`-coerces into; teach `?` and `main` return-checking to accept
-it. *Smallest, fully unblocks `main`.* DoD: a case where `?` lifts two
-different error types into `Error`. Open question for the KDR: is `Error`
-openly coercible, and can you still `catch`/match it afterward?
+**Step 1 — Universal `Error` type. ✅ DONE** (KDR-0033; spec §5; cases
+511/512; impl in `type_absorbs` + catch/match opacity, `K0504`). `Error`
+absorbs any propagated error at `?`/return and is opaque (no destructure;
+`catch`/`match` on it is `K0504`). M1–M6 preflight green.
 
 **Step 2 — Core scalars `Uuid`/`Timestamp`/`Email`.** Compiler-known scalars
 backed by `string`/`int64`: constructors, JSON-as-string, `path_param<Uuid>`,
@@ -116,6 +115,8 @@ The final gate (Step 6) additionally runs the example end-to-end on SQLite.
 
 ## Next work
 
-Start with **Step 1** (KDR for the universal `Error` type) — smallest,
-unblocks `main`, no dependencies. See [`docs/M6-implementation-handoff.md`](M6-implementation-handoff.md)
-§4 for the original aspirational-feature list this plan expands.
+Step 1 (universal `Error`) is **done**. Next is **Step 2** (Core scalars
+`Uuid`/`Timestamp`/`Email`) — the biggest step; split its compiler work into
+one PR per scalar behind a single KDR/spec. See
+[`docs/M6-implementation-handoff.md`](M6-implementation-handoff.md) §4 for the
+original aspirational-feature list this plan expands.
