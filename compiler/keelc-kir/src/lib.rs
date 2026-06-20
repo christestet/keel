@@ -159,6 +159,7 @@ pub enum Expr {
         receiver: Box<Expr>,
         method: String,
         args: Vec<Expr>,
+        arg_types: Vec<TypeInfo>,
         ty: TypeInfo,
     },
     StructLiteral {

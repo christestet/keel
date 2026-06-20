@@ -374,12 +374,16 @@ impl<'a> Lowerer<'a> {
                 method,
                 args,
                 ..
-            } => Expr::MethodCall {
-                receiver: Box::new(self.lower_expr(receiver)),
-                method: method.value.clone(),
-                args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
-                ty,
-            },
+            } => {
+                let arg_types = args.iter().map(|arg| self.ctx.infer_expr(arg)).collect();
+                Expr::MethodCall {
+                    receiver: Box::new(self.lower_expr(receiver)),
+                    method: method.value.clone(),
+                    args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                    arg_types,
+                    ty,
+                }
+            }
             keelc_ast::Expr::StructLiteral { name, fields, .. } => Expr::StructLiteral {
                 name: name.value.clone(),
                 fields: fields

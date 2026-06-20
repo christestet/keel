@@ -777,8 +777,9 @@ impl<'a> Emitter<'a> {
                 receiver,
                 method,
                 args,
+                arg_types,
                 ..
-            } => self.emit_method_call(receiver, method, args),
+            } => self.emit_method_call(receiver, method, args, arg_types),
             Expr::StructLiteral { name, fields, .. } => self.emit_struct_literal(name, fields),
             Expr::If {
                 condition,
@@ -899,6 +900,7 @@ impl<'a> Emitter<'a> {
         receiver: &Expr,
         method: &str,
         args: &[Expr],
+        arg_types: &[TypeInfo],
     ) -> Result<String, BackendError> {
         if matches!(receiver, Expr::Name(name) if name == "Float") && method == "from" {
             let arg = args
@@ -945,7 +947,7 @@ impl<'a> Emitter<'a> {
             let value = args
                 .first()
                 .ok_or_else(|| BackendError::unsupported("json.write without argument"))?;
-            let value_type = expr_ty(value);
+            let value_type = arg_types.first().cloned().unwrap_or_else(|| expr_ty(value));
             self.register_json_type(&value_type);
             let value = self.emit_expr(value)?;
             return Ok(format!(
