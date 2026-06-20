@@ -1,6 +1,7 @@
 use std.sql
 
-fn main() {
+fn main() -> Result<Unit, sql.Error> {
     let db = sql.connect("postgres://localhost/mydb")?
-    let row = db.query_one("select id, name from users where id = $1")
+    let row = db.query_one("select id, name from users where id = $1")?
+    Ok(())
 }

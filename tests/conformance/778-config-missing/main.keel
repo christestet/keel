@@ -5,8 +5,9 @@ struct AppConfig {
     port: Int
 }
 
-fn main() {
+fn main() -> Result<Unit, config.Error> {
     let cfg = config.load<AppConfig>()?
     let url = cfg.database_url.unwrap()
     let port = cfg.port
+    Ok(())
 }

@@ -12,8 +12,9 @@ fn user_from_row(row: sql.Row) -> User {
     }
 }
 
-fn main() {
+fn main() -> Result<Unit, sql.Error> {
     let db = sql.connect("postgres://localhost/mydb")?
-    let rows = db.query("select id, name from users")
+    let rows = db.query("select id, name from users")?
     let users = rows.map(user_from_row).collect()
+    Ok(())
 }

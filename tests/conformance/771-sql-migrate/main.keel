@@ -1,6 +1,6 @@
 use std.sql
 
-fn main() {
+fn main() -> Result<Unit, sql.Error> {
     let db = sql.connect("postgres://localhost/mydb")?
     db.migrate("create table if not exists users (id int primary key)")
 }
