@@ -68,6 +68,7 @@ fn request_param_suffix(ty: &TypeInfo) -> Result<&'static str, BackendError> {
         TypeInfo::Float => Ok("Float"),
         TypeInfo::Named(name) if name == "Uuid" => Ok("Uuid"),
         TypeInfo::Named(name) if name == "Timestamp" => Ok("Timestamp"),
+        TypeInfo::Named(name) if name == "Email" => Ok("Email"),
         other => Err(BackendError::unsupported(format!(
             "request parameter of type `{other}`"
         ))),

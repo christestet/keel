@@ -928,7 +928,9 @@ impl TypeContext {
             | TypeInfo::Bool
             | TypeInfo::String
             | TypeInfo::Char => true,
-            TypeInfo::Named(name) if matches!(name.as_str(), "Uuid" | "Timestamp") => true,
+            TypeInfo::Named(name) if matches!(name.as_str(), "Uuid" | "Timestamp" | "Email") => {
+                true
+            }
             TypeInfo::Generic { name, args } if name == "Option" || name == "List" => {
                 args.len() == 1 && self.is_json_representable(&args[0])
             }

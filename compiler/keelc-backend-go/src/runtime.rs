@@ -305,6 +305,18 @@ func keelPathParamTimestamp(req keelHTTPRequest, name string) KeelEnum {
 	return Ok(parsed)
 }
 
+func keelPathParamEmail(req keelHTTPRequest, name string) KeelEnum {
+	v, ok := req.params[name]
+	if !ok {
+		return Err("missing path parameter: " + name)
+	}
+	parsed, ok := keelEmailParse(v)
+	if !ok {
+		return Err("invalid email for " + name + ": " + v)
+	}
+	return Ok(parsed)
+}
+
 func keelQueryValues(req keelHTTPRequest) url.Values {
 	values, err := url.ParseQuery(req.rawQuery)
 	if err != nil {
@@ -375,6 +387,19 @@ func keelQueryParamTimestamp(req keelHTTPRequest, name string) KeelEnum {
 		return None
 	}
 	parsed, ok := keelTimestampParse(values.Get(name))
+	if !ok {
+		return None
+	}
+	return Some(parsed)
+}
+
+func keelQueryParamEmail(req keelHTTPRequest, name string) KeelEnum {
+	values := keelQueryValues(req)
+	if !values.Has(name) {
+		return None
+	}
+	v := values.Get(name)
+	parsed, ok := keelEmailParse(v)
 	if !ok {
 		return None
 	}
@@ -496,6 +521,9 @@ impl<'a> Emitter<'a> {
         if self.uses_json || self.uses_http || self.uses_timestamp_now {
             self.emit_timestamp_runtime()?;
         }
+        if self.uses_json || self.uses_http {
+            self.emit_email_runtime()?;
+        }
         if self.uses_json {
             self.emit_json_runtime()?;
         }
@@ -589,6 +617,59 @@ impl<'a> Emitter<'a> {
         self.indent += 1;
         self.line("now := time.Now().UTC()")?;
         self.line("return keelTimestamp{seconds: now.Unix(), nanos: int32(now.Nanosecond())}")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
+        Ok(())
+    }
+
+    fn emit_email_runtime(&mut self) -> Result<(), BackendError> {
+        self.line("func keelEmailValid(value string) bool {")?;
+        self.indent += 1;
+        self.line("if len(value) == 0 || len(value) > 254 { return false }")?;
+        self.line("at := -1")?;
+        self.line("for i := 0; i < len(value); i++ { if value[i] == '@' { if at >= 0 { return false }; at = i } }")?;
+        self.line(
+            "if at <= 0 || at > 64 || at == len(value)-1 || len(value)-at-1 > 253 { return false }",
+        )?;
+        self.line("atom := 0")?;
+        self.line("for i := 0; i < at; i++ {")?;
+        self.indent += 1;
+        self.line("c := value[i]")?;
+        self.line("if c == '.' { if atom == 0 { return false }; atom = 0; continue }")?;
+        self.line("allowed := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\\'' || c == '*' || c == '+' || c == '-' || c == '/' || c == '=' || c == '?' || c == '^' || c == '_' || c == '`' || c == '{' || c == '|' || c == '}' || c == '~'")?;
+        self.line("if !allowed { return false }")?;
+        self.line("atom++")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("if atom == 0 { return false }")?;
+        self.line("label := 0")?;
+        self.line("for i := at + 1; i < len(value); i++ {")?;
+        self.indent += 1;
+        self.line("c := value[i]")?;
+        self.line("if c == '.' { if label == 0 || value[i-1] == '-' { return false }; label = 0; continue }")?;
+        self.line("if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || (c == '-' && label > 0)) { return false }")?;
+        self.line("label++")?;
+        self.line("if label > 63 { return false }")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("return label > 0 && value[len(value)-1] != '-'")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("func keelEmailParse(value string) (string, bool) {")?;
+        self.indent += 1;
+        self.line("if !keelEmailValid(value) { return \"\", false }")?;
+        self.line("canonical := []byte(value)")?;
+        self.line("domain := false")?;
+        self.line("for i := 0; i < len(canonical); i++ {")?;
+        self.indent += 1;
+        self.line("if canonical[i] == '@' { domain = true; continue }")?;
+        self.line(
+            "if domain && canonical[i] >= 'A' && canonical[i] <= 'Z' { canonical[i] += 'a' - 'A' }",
+        )?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("return string(canonical), true")?;
         self.indent -= 1;
         self.line("}")?;
         self.line("")?;
