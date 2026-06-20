@@ -17,11 +17,15 @@ Their initial constructors and canonical text forms are:
   lower-case hexadecimal in the `8-4-4-4-12` form. Parsing accepts exactly that
   form and requires the RFC 4122 variant and version 4.
 - `Timestamp.now() -> Timestamp` reads the current UTC wall clock. A timestamp
-  is an instant stored as signed nanoseconds from the Unix epoch. Its canonical
-  text is UTC RFC 3339 with `Z`; fractional seconds are omitted when zero and
+  is an instant represented semantically by signed Unix-epoch seconds and a
+  nanosecond-of-second in `0..999_999_999`; it carries no time zone or calendar.
+  Its range is the RFC 3339 four-digit-year range `0000..9999`. Parsing accepts
+  an upper-case RFC 3339 date-time with either `Z` or a numeric offset and at
+  most nine fractional digits, then normalizes the instant to UTC. It rejects
+  local date-times without an offset and leap-second spellings. Canonical text
+  uses upper-case `T` and `Z`; fractional seconds are omitted when zero and
   otherwise emitted to the necessary nanosecond precision with trailing zeroes
-  removed. Parsing accepts exactly the canonical form and rejects values outside
-  the signed 64-bit nanosecond range.
+  removed.
 - `Email` is an ASCII address with exactly one `@`. The local part is one or
   more dot-separated atoms containing letters, digits, or
   ``!#$%&'*+-/=?^_`{|}~``; it is at most 64 bytes. The domain is one or more
@@ -32,7 +36,7 @@ Their initial constructors and canonical text forms are:
   display names, quoted local parts, internationalized addresses, and address
   literals are rejected.
 
-All three map to JSON strings. `json.parse<T>` validates the canonical form and
+All three map to JSON strings. `json.parse<T>` validates the accepted text and
 returns `json.TypeMismatch` for an invalid scalar string; `json.write` emits the
 canonical form. `http.Request.path_param<T>` and `query_param<T>` use the same
 parsers. `Uuid.new()` and `Timestamp.now()` are the only source constructors in
@@ -74,9 +78,21 @@ mail.
   types in signatures without imports, and these types participate directly in
   compiler-derived JSON and HTTP parsing. They are primitive boundary values,
   not service APIs.
-- **Store `Timestamp` as text.** Rejected: textual storage makes ordering and
-  equality depend on equivalent spellings. A UTC nanosecond instant has one
-  value and one canonical rendering.
+- **Store `Timestamp` as text.** Rejected: textual storage makes equality depend
+  on equivalent offset spellings. An instant has one value and one canonical
+  rendering.
+- **Store `Timestamp` as total signed nanoseconds.** Rejected: a signed 64-bit
+  count covers only about 1678 through 2262, silently narrowing RFC 3339 and
+  common database ranges. Keeping seconds and nanosecond-of-second separate
+  preserves nanosecond precision across the complete wire range.
+- **Preserve a timestamp's input offset or zone.** Rejected: an offset is one
+  spelling of an instant, while a named zone is a separate rule set whose
+  offset can change. Calendar and zoned date-time types require separate
+  semantics if a program needs them.
+- **Represent leap seconds.** Rejected for the initial scalar: correct
+  validation requires an updated leap-second table or an explicitly specified
+  smear. Keel instead uses a civil timeline with exactly 86,400 represented
+  seconds per day and rejects the RFC 3339 `:60` spelling.
 - **Implement full RFC 5322 email syntax.** Rejected: it adds substantial parser
   complexity for forms unsuitable for ordinary backend identity fields, while
   still providing no deliverability guarantee.
@@ -93,10 +109,14 @@ mail.
   cannot be accepted at one boundary and rejected at another.
 - `Uuid.new()` and `Timestamp.now()` are nondeterministic runtime operations;
   compiler output and serialization remain deterministic.
+- `Timestamp.now()` reads wall-clock time. Monotonic clocks remain the source
+  for deadlines and elapsed durations; timestamp serialization never carries a
+  runtime's monotonic-clock metadata.
 - `Email` intentionally rejects some standards-valid mailbox spellings. Systems
   that must preserve arbitrary mailbox syntax use `String` at that boundary.
 - SQL row decoding must validate scalar values rather than silently wrapping
-  malformed database data; the exact column mapping remains Step 4 work.
+  malformed database data. Database range and precision loss require explicit
+  checked conversion; the exact column mapping remains Step 4 work.
 
 ## Reopening clause
 
