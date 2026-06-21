@@ -710,6 +710,12 @@ impl<'a> Emitter<'a> {
             Stmt::Expr(Expr::Payload {
                 ty: TypeInfo::Unit, ..
             }) => self.line("_ = struct{}{}"),
+            // A discarded `?` result (e.g. `db.exec(...)?` for its effect only)
+            // lowers to a bare payload expression; Go rejects unused values.
+            Stmt::Expr(expr @ Expr::Payload { .. }) => {
+                let expr = self.emit_expr(expr)?;
+                self.line_fmt(format_args!("_ = {expr}"))
+            }
             Stmt::Expr(expr) => {
                 let expr = self.emit_expr(expr)?;
                 self.line(&expr)
