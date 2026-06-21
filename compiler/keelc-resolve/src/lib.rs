@@ -1446,7 +1446,13 @@ impl<'a> Typechecker<'a> {
 
     fn infer_http_call(&mut self, field: &Spanned<String>, args: &[CallArg]) -> TypeInfo {
         match field.value.as_str() {
-            "ok" | "created" | "bad_request" | "conflict" | "internal_error" => {
+            // The two error-status helpers take the universal Error (KDR-0041);
+            // the rest take a String body.
+            "bad_request" | "internal_error" => {
+                self.check_call_args(&[TypeInfo::Named("Error".to_string())], args, field.span);
+                TypeInfo::Named("http.Response".to_string())
+            }
+            "ok" | "created" | "conflict" => {
                 self.check_call_args(&[TypeInfo::String], args, field.span);
                 TypeInfo::Named("http.Response".to_string())
             }
@@ -1754,6 +1760,10 @@ impl<'a> Typechecker<'a> {
             return;
         }
         if expected == actual {
+            return;
+        }
+        // The universal Error absorbs any error value (KDR-0033/0041).
+        if matches!(expected, TypeInfo::Named(name) if name == "Error") {
             return;
         }
         if let TypeInfo::Interface(interface_name) = expected {
