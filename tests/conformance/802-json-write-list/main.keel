@@ -1,0 +1,19 @@
+use std.sql
+use std.json
+
+struct User {
+    id: Int
+    name: String
+}
+
+fn all(db: sql.Pool) -> Result<List<User>, sql.Error> {
+    let rows = db.query("select id, name from users")?
+    rows.map(User.from_row).collect()
+}
+
+fn main() -> Result<Unit, Error> {
+    let db = sql.connect("sqlite::memory:")?
+    let users = all(db)?
+    print(json.write(users))
+    Ok(())
+}
