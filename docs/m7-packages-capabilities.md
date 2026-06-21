@@ -1,7 +1,8 @@
 # M7 packages & capabilities — implementation wiki note
 
-Non-normative. Tracks the package-manifest + capability slice that opens M7. The
-governing texts are [`ROADMAP.md`](../ROADMAP.md) §M7,
+Non-normative. Tracks the package-manifest + capability slice — differentiator 1
+of 6 — within M7; the milestone-wide live note is [`m7-status.md`](m7-status.md).
+The governing texts are [`ROADMAP.md`](../ROADMAP.md) §M7,
 [`KDR-0011`](kdr/0011-package-capabilities.md),
 [`KDR-0017`](kdr/0017-function-capabilities.md),
 [`KDR-0007`](kdr/0007-no-build-scripts.md), and the two spec chapters below —
@@ -13,7 +14,7 @@ this note links them, it does not restate them.
 
 - [`docs/spec/06-modules-packages.md`](spec/06-modules-packages.md): package =
   directory rooted at `keel.toml`; closed manifest schema (`[package]`
-  name/version/capabilities, `[dependencies]` path deps); module resolution by
+  name/version/edition/capabilities, `[dependencies]` path deps); module resolution by
   first segment (`std` / self / dependency alias); acyclic dependency graph;
   diagnostics `K1101`–`K1108`.
 - [`docs/spec/11-capabilities.md`](spec/11-capabilities.md): the six
