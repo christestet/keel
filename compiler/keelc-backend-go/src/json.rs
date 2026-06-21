@@ -153,7 +153,9 @@ impl<'a> Emitter<'a> {
             TypeInfo::Generic { name, args } if name == "List" && args.len() == 1 => {
                 let inner = &args[0];
                 let inner_suffix = json_type_name(inner);
-                self.line("if value.kind != \"array\" { return Err(keelJSONType(path, \"List\")) }")?;
+                self.line(
+                    "if value.kind != \"array\" { return Err(keelJSONType(path, \"List\")) }",
+                )?;
                 self.line("out := []any{}")?;
                 self.line("for _, item := range value.items {")?;
                 self.indent += 1;

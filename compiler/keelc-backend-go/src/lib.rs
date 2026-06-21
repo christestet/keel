@@ -1020,7 +1020,11 @@ impl<'a> Emitter<'a> {
         }
         // Option<T>.unwrap() -> T: extract the Some payload, abort on None (KDR-0039).
         if method == "unwrap" {
-            if let TypeInfo::Generic { name, args: type_args } = expr_ty(receiver) {
+            if let TypeInfo::Generic {
+                name,
+                args: type_args,
+            } = expr_ty(receiver)
+            {
                 if name == "Option" && type_args.len() == 1 {
                     let go_ty = self.go_type(&type_args[0]);
                     let recv = self.emit_expr(receiver)?;

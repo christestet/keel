@@ -521,8 +521,7 @@ impl<'a> Lowerer<'a> {
                 arms,
                 ..
             } => {
-                let (stmts, result, _result_ty) =
-                    self.desugar_catch_expr(expr, error_name, arms);
+                let (stmts, result, _result_ty) = self.desugar_catch_expr(expr, error_name, arms);
                 self.pending.extend(stmts);
                 result
             }

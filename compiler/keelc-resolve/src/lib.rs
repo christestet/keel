@@ -1359,7 +1359,11 @@ impl<'a> Typechecker<'a> {
             return TypeInfo::String;
         }
         if method.value == "unwrap" {
-            if let TypeInfo::Generic { name, args: type_args } = &receiver_type {
+            if let TypeInfo::Generic {
+                name,
+                args: type_args,
+            } = &receiver_type
+            {
                 if name == "Option" && type_args.len() == 1 {
                     let inner = type_args[0].clone();
                     self.check_call_args(&[], args, method.span);
