@@ -409,14 +409,17 @@ supplied body (or an empty body for body-free responses):
 fn http.ok(body: String) -> http.Response             — 200 OK
 fn http.created(body: String) -> http.Response        — 201 Created
 fn http.no_content() -> http.Response                 — 204 No Content
-fn http.bad_request(body: String) -> http.Response    — 400 Bad Request
+fn http.bad_request(err: Error) -> http.Response      — 400 Bad Request
 fn http.not_found() -> http.Response                  — 404 Not Found
 fn http.conflict(body: String) -> http.Response       — 409 Conflict
-fn http.internal_error(body: String) -> http.Response — 500 Internal Server Error
+fn http.internal_error(err: Error) -> http.Response   — 500 Internal Server Error
 ```
 
-Body arguments are UTF-8 strings. The backend does not apply HTML escaping to
-the body.
+String body arguments are UTF-8 strings. The backend does not apply HTML
+escaping to the body. The two error-status constructors take `Error` (KDR-0041),
+the universal error type (§5): any error value flows in directly and the body is
+its rendered text. Because `Error` absorbs `String` too, a plain string body
+remains accepted.
 
 ## 15.21 `http.Error`
 

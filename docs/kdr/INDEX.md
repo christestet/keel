@@ -46,6 +46,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0038](0038-union-narrowing-patterns.md) | Union narrowing patterns (typed bindings, `()`) | proposed |
 | [0039](0039-option-unwrap.md) | `Option<T>.unwrap()` | proposed |
 | [0040](0040-json-write-returns-string.md) | `json.write` returns `String` | proposed |
+| [0041](0041-http-error-helpers-accept-error.md) | HTTP error response helpers accept `Error` | proposed |
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
 | [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | proposed |
