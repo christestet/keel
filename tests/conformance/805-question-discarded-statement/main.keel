@@ -1,0 +1,17 @@
+fn step(ok: Bool) -> Result<Int, String> {
+    if ok { return Ok(1) }
+    Err("stop")
+}
+
+fn run() -> Result<Unit, String> {
+    step(true)?
+    step(true)?
+    Ok(())
+}
+
+fn main() {
+    match run() {
+        Ok(())  => print("done"),
+        Err(e)  => print(e),
+    }
+}
