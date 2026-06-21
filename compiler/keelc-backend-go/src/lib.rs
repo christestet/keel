@@ -1348,10 +1348,21 @@ impl<'a> Emitter<'a> {
             return Ok(());
         }
         for info in self.structs.clone() {
-            self.emit_struct_from_row(&info)?;
-            self.line("")?;
+            // Only column-mappable structs get a from_row; structs with Option,
+            // Secret, or nested fields are not row-shaped (and never derived).
+            if info.fields.iter().all(|f| Self::is_row_mappable(&f.ty)) {
+                self.emit_struct_from_row(&info)?;
+                self.line("")?;
+            }
         }
         Ok(())
+    }
+
+    fn is_row_mappable(ty: &TypeInfo) -> bool {
+        matches!(
+            ty,
+            TypeInfo::String | TypeInfo::Int | TypeInfo::Bool | TypeInfo::Float
+        ) || matches!(ty, TypeInfo::Named(n) if n == "Uuid" || n == "Email" || n == "Timestamp")
     }
 
     fn emit_struct_from_row(&mut self, info: &StructInfo) -> Result<(), BackendError> {
