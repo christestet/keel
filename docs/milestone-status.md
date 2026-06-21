@@ -130,6 +130,27 @@ all generic syntax.
 **Conformance score:** 185 / 185 passed at M6, 3 skipped. The live planning note
 with the step-by-step exit sequence is [`docs/m6-status.md`](m6-status.md).
 
+## M7 — The differentiators (in progress)
+
+**Exit (all six must hold).** Per [`ROADMAP.md`](../ROADMAP.md) §M7, the packaged
+`examples/users-service/` workspace must demonstrate every differentiator end to
+end, each locked by conformance. Live note: [`docs/m7-status.md`](m7-status.md).
+
+| Differentiator | Exit demonstrand | State |
+|---|---|---|
+| Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject variant | **Spec landed**, impl pending — chapters [`06`](spec/06-modules-packages.md)/[`11`](spec/11-capabilities.md), `K1101`–`K1108`, `K1110`–`K1112`. |
+| `keel audit` | deterministic effective-capability report for the dep graph | **Spec landed** ([§11.5](spec/11-capabilities.md)), impl pending. |
+| `arena` | `arena { }` scratch region compiles + runs safely | **Spec landed** ([ch10](spec/10-memory.md), `K1001`; KDR-0012/0016), impl pending. |
+| `keel gen` | service types generated from protobuf/OpenAPI; round-trips `keel fmt` | **KDR landed** ([0104](kdr/0104-keel-gen-codegen-surface.md)), spec + impl pending. |
+| Hermetic builds | two clean builds byte-identical, no host/net leakage | **KDR landed** ([0105](kdr/0105-hermetic-reproducible-builds.md)), spec + impl pending. |
+| Editions | manifest `edition` honored; unknown edition diagnosed | **Spec landed** ([ch14](spec/14-editions.md), `K1401`–`K1403`; KDR-0001), impl pending. |
+
+Function-level capability annotations ([`KDR-0017`](kdr/0017-function-capabilities.md))
+remain deferred. Per-slice detail: [`docs/m7-packages-capabilities.md`](m7-packages-capabilities.md).
+
+**Conformance score:** unchanged from M6 (spec-only so far; cases `810`–`817`,
+`820`–`826` land with the capability test PR).
+
 ## Future: LSP server (M7+)
 
 | Area | State |
