@@ -139,11 +139,11 @@ end, each locked by conformance. Live note: [`docs/m7-status.md`](m7-status.md).
 | Differentiator | Exit demonstrand | State |
 |---|---|---|
 | Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject variant | **Spec landed**, impl pending — chapters [`06`](spec/06-modules-packages.md)/[`11`](spec/11-capabilities.md), `K1101`–`K1108`, `K1110`–`K1112`. |
-| `keel audit` | deterministic effective-capability report for the dep graph | Not started (spec §11.5). |
-| `arena` | `arena { }` scratch region compiles + runs safely | Not started (KDR-0012/0016; spec ch10). |
-| `keel gen` | service types generated from protobuf/OpenAPI; round-trips `keel fmt` | Not started. |
-| Hermetic builds | two clean builds byte-identical, no host/net leakage | Not started (hard rule 7). |
-| Editions | manifest `edition` honored; unknown edition diagnosed | Spec slot opened (ch06 `edition` key); semantics pending (KDR-0001; spec ch14). |
+| `keel audit` | deterministic effective-capability report for the dep graph | **Spec landed** ([§11.5](spec/11-capabilities.md)), impl pending. |
+| `arena` | `arena { }` scratch region compiles + runs safely | **Spec landed** ([ch10](spec/10-memory.md), `K1001`; KDR-0012/0016), impl pending. |
+| `keel gen` | service types generated from protobuf/OpenAPI; round-trips `keel fmt` | **KDR landed** ([0104](kdr/0104-keel-gen-codegen-surface.md)), spec + impl pending. |
+| Hermetic builds | two clean builds byte-identical, no host/net leakage | **KDR landed** ([0105](kdr/0105-hermetic-reproducible-builds.md)), spec + impl pending. |
+| Editions | manifest `edition` honored; unknown edition diagnosed | **Spec landed** ([ch14](spec/14-editions.md), `K1401`–`K1403`; KDR-0001), impl pending. |
 
 Function-level capability annotations ([`KDR-0017`](kdr/0017-function-capabilities.md))
 remain deferred. Per-slice detail: [`docs/m7-packages-capabilities.md`](m7-packages-capabilities.md).
