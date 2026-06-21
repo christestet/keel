@@ -117,17 +117,9 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
 }
 
 fn build_module(module: &Module, source_path: &Path, source: &str) -> ExitCode {
-    let kir_output = lower(module, source);
-    if !kir_output.diagnostics.is_empty() {
-        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
-        return ExitCode::FAILURE;
-    }
-    let go_source = match emit(&kir_output.module) {
+    let go_source = match emit_go(module, source, false) {
         Ok(source) => source,
-        Err(err) => {
-            eprintln!("backend error: {err}");
-            return ExitCode::FAILURE;
-        }
+        Err(code) => return code,
     };
 
     let temp_dir = env::temp_dir().join(format!("keelc-build-{}", std::process::id()));
@@ -215,17 +207,9 @@ impl Drop for TempDir {
 }
 
 fn run_module(module: &Module, source: &str) -> ExitCode {
-    let kir_output = lower(module, source);
-    if !kir_output.diagnostics.is_empty() {
-        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
-        return ExitCode::FAILURE;
-    }
-    let go_source = match emit(&kir_output.module) {
+    let go_source = match emit_go(module, source, false) {
         Ok(source) => source,
-        Err(err) => {
-            eprintln!("backend error: {err}");
-            return ExitCode::FAILURE;
-        }
+        Err(code) => return code,
     };
     let temp_dir = env::temp_dir().join(format!("keelc-go-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
@@ -269,17 +253,9 @@ fn run_module(module: &Module, source: &str) -> ExitCode {
 }
 
 fn run_tests(module: &Module, source: &str) -> ExitCode {
-    let kir_output = lower(module, source);
-    if !kir_output.diagnostics.is_empty() {
-        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
-        return ExitCode::FAILURE;
-    }
-    let go_source = match emit_tests(&kir_output.module) {
+    let go_source = match emit_go(module, source, true) {
         Ok(source) => source,
-        Err(err) => {
-            eprintln!("backend error: {err}");
-            return ExitCode::FAILURE;
-        }
+        Err(code) => return code,
     };
 
     let temp_dir = env::temp_dir().join(format!("keelc-go-tests-{}", std::process::id()));
@@ -321,6 +297,26 @@ fn run_tests(module: &Module, source: &str) -> ExitCode {
     } else {
         ExitCode::FAILURE
     }
+}
+
+fn emit_go(module: &Module, source: &str, tests: bool) -> Result<String, ExitCode> {
+    let kir_output = lower(module, source);
+    if !kir_output.diagnostics.is_empty() {
+        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
+        return Err(ExitCode::FAILURE);
+    }
+    let go_source = match if tests {
+        emit_tests(&kir_output.module)
+    } else {
+        emit(&kir_output.module)
+    } {
+        Ok(source) => source,
+        Err(err) => {
+            eprintln!("backend error: {err}");
+            return Err(ExitCode::FAILURE);
+        }
+    };
+    Ok(go_source)
 }
 
 fn file_label(path: &Path) -> String {
