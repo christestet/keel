@@ -48,6 +48,7 @@ is an error (`K1104`), so a typo is caught, never silently honored.
 [package]
 name = "users_service"        # required; snake_case identifier (K0101 rules)
 version = "0.1.0"             # required; "MAJOR.MINOR.PATCH"
+edition = "1"                # optional; defaults to the current edition; see chapter 14
 capabilities = ["net", "fs"]  # optional; defaults to []; see chapter 11
 
 [dependencies]
@@ -60,6 +61,12 @@ shared = { path = "../shared" }   # path dependency (only form in this milestone
 - **`[package].version`** — required. A three-part `MAJOR.MINOR.PATCH` string.
   Its only role in this milestone is identity in diagnostics and `keel audit`;
   version **resolution** (ranges, registries) is out of scope.
+- **`[package].edition`** — optional, defaults to the toolchain's current
+  edition. A string naming the language edition the package is written against
+  ([`KDR-0001`](../kdr/0001-editions.md)). Its **value validation and semantics**
+  are deferred to chapter 14 (editions); this chapter only admits the key into
+  the closed schema. An unrecognized edition value is a chapter-14 diagnostic,
+  not `K1104`.
 - **`[package].capabilities`** — optional, defaults to `[]`. A set of capability
   names drawn from the six in [`11-capabilities.md`](11-capabilities.md).
   Order-insensitive and deduplicated. An entry that is not one of the six is
