@@ -15,21 +15,34 @@ KDR → spec → conformance → compiler sequence.
 - M6 stdlib slice complete: `std.time`, `std.json`, `std.http`, `std.sql`,
   `std.config`, `std.log` (per-module notes: [json](#stdjson) / [log](#stdlog)
   below).
-- Conformance (M6): **185 passed, 0 failed, 3 skipped**. M1–M5 preflight sweep
+- Conformance (M6): **194 passed, 0 failed, 3 skipped**. M1–M5 preflight sweep
   green — no earlier gate regressed.
-- This is **necessary but not sufficient** for M6 exit.
+- **M6 exit reached.** [`examples/users-service/main.keel`](../examples/users-service/main.keel)
+  compiles and runs full CRUD on SQLite (pure-Go `modernc.org/sqlite`,
+  KDR-0042). Behavior locked by cases `804-sql-params-roundtrip` and
+  `806-sql-crud-update-list`.
 
-## The exit gap
+## The exit gap — CLOSED
 
 ROADMAP M6 **exit** is: [`examples/users-service/main.keel`](../examples/users-service/main.keel)
 compiles, runs, and passes its test file. The example is aspirational by
 design (see [`examples/CLAUDE.md`](../examples/CLAUDE.md) and the
-[service README](../examples/users-service/README.md)) — Core grows to meet it.
+[service README](../examples/users-service/README.md)) — Core grew to meet it.
 
-Already built and **not** part of the gap: union error returns
-(`UserError | sql.Error`), `?` union widening, `catch` + exhaustiveness
-(conformance 506/509/510), all five stdlib surfaces, `fn main() -> Result<Unit, E>`
-for concrete `E`, primitive `path_param`/`query_param`/`json`.
+The four remaining gaps and the SQLite execution path are all resolved:
+
+- **`Option<T>.unwrap()`** — KDR-0039, case 797.
+- **`json.write` → `String`** — KDR-0040, cases 725/733/779/783/786/788/789/790/792.
+- **http error helpers accept `Error`** — KDR-0041, case 798.
+- **SQLite execution** — KDR-0042: pure-Go driver, module-mode build, `$N`→`?N`
+  placeholder rewrite, parameter binding, `collect()` flattening; cases 804/806.
+- Supporting codegen: `?`/`catch` ANF hoist (799), discarded `?` (805),
+  `go_type(http.Router)` (800), from_row gating (803), `List<T>` JSON codec (802).
+
+Already built before this wave: union error returns (`UserError | sql.Error`),
+`?` union widening, `catch` + exhaustiveness (506/509/510), all five stdlib
+surfaces, `fn main() -> Result<Unit, E>`, primitive
+`path_param`/`query_param`/`json`.
 
 ## The steps (each: KDR → spec → conformance → compiler)
 
