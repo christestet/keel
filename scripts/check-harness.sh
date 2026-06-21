@@ -49,9 +49,14 @@ elif [ "$(readlink .claude)" != ".agents" ]; then
   err ".claude points to $(readlink .claude), expected .agents"
 fi
 [ -f .agents/settings.json ] || err ".agents/settings.json missing"
-for c in preflight new-case new-kdr wiki-note; do
-  [ -f ".agents/commands/$c.md" ] || err ".agents/commands/$c.md missing"
-  [ -f ".claude/commands/$c.md" ] || err ".claude/commands/$c.md missing via .claude symlink"
+# Every command in .agents must resolve through the .claude symlink too. Glob,
+# don't hardcode names — a new command shouldn't need a check-harness edit.
+shopt -s nullglob
+cmds=(.agents/commands/*.md)
+shopt -u nullglob
+[ "${#cmds[@]}" -gt 0 ] || err ".agents/commands has no command files"
+for c in "${cmds[@]}"; do
+  [ -f ".claude/commands/$(basename "$c")" ] || err "$c not reachable via .claude symlink"
 done
 
 if [ "$fail" -ne 0 ]; then
