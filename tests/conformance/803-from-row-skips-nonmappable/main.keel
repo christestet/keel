@@ -1,0 +1,21 @@
+use std.sql
+
+struct Row {
+    id: Int
+    name: String
+}
+
+struct Patch {
+    name: Option<String>
+}
+
+fn load(db: sql.Pool) -> Result<Row, sql.Error> {
+    let r = db.query_one("select id, name from t where id = $1", 1)?
+    Ok(Row.from_row(r)?)
+}
+
+fn main() -> Result<Unit, Error> {
+    let db = sql.connect("sqlite::memory:")?
+    let row = load(db)?
+    Ok(())
+}
