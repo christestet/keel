@@ -1360,6 +1360,15 @@ impl<'a> Typechecker<'a> {
             self.check_call_args(&[], args, method.span);
             return TypeInfo::String;
         }
+        if method.value == "unwrap" {
+            if let TypeInfo::Generic { name, args: type_args } = &receiver_type {
+                if name == "Option" && type_args.len() == 1 {
+                    let inner = type_args[0].clone();
+                    self.check_call_args(&[], args, method.span);
+                    return inner;
+                }
+            }
+        }
         if let Some(result) = self.infer_sql_method(&receiver_type, method, args) {
             return result;
         }

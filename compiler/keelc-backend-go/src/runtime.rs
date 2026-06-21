@@ -488,6 +488,13 @@ impl<'a> Emitter<'a> {
         self.line("")?;
         self.line("var None = KeelEnum{tag: \"None\"}")?;
         self.line("")?;
+        self.line("func keelOptionUnwrap(v KeelEnum) any {")?;
+        self.indent += 1;
+        self.line("if v.tag != \"Some\" { panic(\"unwrap of None\") }")?;
+        self.line("return v.values[0]")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
         self.line("var Cancelled = KeelEnum{tag: \"Cancelled\"}")?;
         self.line("")?;
         self.line("func keelPrint(values ...any) {")?;
