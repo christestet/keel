@@ -1,0 +1,50 @@
+// Union-narrowing patterns (KDR-0038): nested variant destructuring, typed
+// union patterns `x: T`, and the `()` unit payload pattern.
+enum NotFound {
+    Missing(id: Int),
+}
+
+enum Denied {
+    Forbidden(reason: String),
+}
+
+fn lookup(id: Int) -> Result<Int, NotFound | Denied> {
+    if id == 0 {
+        return Err(Missing(0))
+    }
+    if id == 1 {
+        return Err(Forbidden("locked"))
+    }
+    Ok(id)
+}
+
+fn describe(id: Int) -> String {
+    match lookup(id) {
+        Ok(v)           => "ok: {v}",
+        Err(Missing(n)) => "missing: {n}",
+        Err(d: Denied)  => "denied",
+    }
+}
+
+fn act(id: Int) -> Result<Unit, NotFound> {
+    if id == 0 {
+        Err(Missing(0))
+    } else {
+        Ok(())
+    }
+}
+
+fn run_act(id: Int) -> String {
+    match act(id) {
+        Ok(())          => "done",
+        Err(Missing(n)) => "no: {n}",
+    }
+}
+
+fn main() {
+    print(describe(0))
+    print(describe(1))
+    print(describe(2))
+    print(run_act(7))
+    print(run_act(0))
+}

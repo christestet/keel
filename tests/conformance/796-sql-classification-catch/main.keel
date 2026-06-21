@@ -1,0 +1,37 @@
+// sql.Error classification patterns (KDR-0037): qualified `sql.NoRows` /
+// `sql.UniqueViolation` in catch arms, propagation of unmatched errors through
+// the enclosing `... | sql.Error` return, and the typed `Err(err: sql.Error)`
+// match pattern. Build-only: exercising it requires a live database (Step 6).
+use std.sql
+
+enum AppError {
+    NotThere(id: Int),
+}
+
+fn fetch(db: sql.Pool, id: Int) -> Result<sql.Row, AppError | sql.Error> {
+    let row = db.query_one("select id from t where id = $1", id)
+        catch sql.NoRows => return Err(NotThere(id))
+    Ok(row)
+}
+
+fn insert(db: sql.Pool, id: Int) -> Result<Int, AppError | sql.Error> {
+    let n = db.exec("insert into t (id) values ($1)", id) catch err {
+        sql.UniqueViolation => return Err(NotThere(id)),
+        other               => return Err(other),
+    }
+    Ok(n)
+}
+
+fn classify(db: sql.Pool, id: Int) -> Int {
+    match fetch(db, id) {
+        Ok(_)             => 0,
+        Err(NotThere(_))  => 1,
+        Err(err: sql.Error) => 2,
+    }
+}
+
+fn main() -> Result<Unit, sql.Error> {
+    let db = sql.connect("postgres://localhost/test")?
+    print("{classify(db, 1)}")
+    Ok(())
+}
