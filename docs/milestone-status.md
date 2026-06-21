@@ -130,6 +130,16 @@ all generic syntax.
 **Conformance score:** 185 / 185 passed at M6, 3 skipped. The live planning note
 with the step-by-step exit sequence is [`docs/m6-status.md`](m6-status.md).
 
+## M7 — The differentiators (in progress)
+
+| Area | State |
+|---|---|
+| Package manifests + capabilities (spec) | **Specified, impl pending.** Spec chapters [`06-modules-packages.md`](spec/06-modules-packages.md) (`keel.toml`, path deps, module resolution, `K1101`–`K1108`) and [`11-capabilities.md`](spec/11-capabilities.md) (six capabilities, stdlib capability map, package-level + transitive enforcement, `keel audit`, `K1110`–`K1112`) landed. Governed by [`KDR-0011`](kdr/0011-package-capabilities.md); function-level annotations ([`KDR-0017`](kdr/0017-function-capabilities.md)) deferred. Tests + implementation are the next two PRs (hard rule 1). See [`docs/m7-packages-capabilities.md`](m7-packages-capabilities.md). |
+| `keel audit`, `arena`, `keel gen`, hermetic builds, editions | Not started. |
+
+**Conformance score:** unchanged from M6 (spec-only slice adds no cases yet;
+cases `810`–`817`, `820`–`826` land with the test PR).
+
 ## Future: LSP server (M7+)
 
 | Area | State |
