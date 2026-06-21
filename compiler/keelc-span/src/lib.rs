@@ -11,11 +11,6 @@ impl SourceId {
     pub const fn new(raw: u32) -> Self {
         Self(raw)
     }
-
-    #[must_use]
-    pub const fn raw(self) -> u32 {
-        self.0
-    }
 }
 
 /// Half-open byte span within one source file.
@@ -50,16 +45,6 @@ impl Span {
             end: self.end.max(other.end),
         }
     }
-
-    #[must_use]
-    pub const fn len(self) -> usize {
-        self.end.saturating_sub(self.start)
-    }
-
-    #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.start == self.end
-    }
 }
 
 /// A value paired with its source span.
@@ -86,31 +71,6 @@ pub struct LineCol {
 impl fmt::Display for LineCol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.line, self.column)
-    }
-}
-
-/// Compute a 1-based line/column pair for a byte offset.
-///
-/// Offsets past the end of the file map to the end position.
-#[must_use]
-pub fn line_col(source: &str, byte_offset: usize) -> LineCol {
-    let target = byte_offset.min(source.len());
-    let mut line = 1usize;
-    let mut line_start = 0usize;
-
-    for (idx, ch) in source.char_indices() {
-        if idx >= target {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            line_start = idx + ch.len_utf8();
-        }
-    }
-
-    LineCol {
-        line,
-        column: target.saturating_sub(line_start) + 1,
     }
 }
 
@@ -155,25 +115,16 @@ impl LineIndex {
 
 #[cfg(test)]
 mod tests {
-    use super::{line_col, LineCol, LineIndex};
+    use super::{LineCol, LineIndex};
 
     #[test]
-    fn maps_offsets_to_lines_and_columns() {
-        let text = "a\nbc\n";
-
-        assert_eq!(line_col(text, 0), LineCol { line: 1, column: 1 });
-        assert_eq!(line_col(text, 2), LineCol { line: 2, column: 1 });
-        assert_eq!(line_col(text, 4), LineCol { line: 2, column: 3 });
-        assert_eq!(line_col(text, 99), LineCol { line: 3, column: 1 });
-    }
-
-    #[test]
-    fn line_index_matches_line_col() {
+    fn line_index_maps_offsets_to_lines_and_columns() {
         let text = "a\nbc\n";
         let index = LineIndex::new(text);
 
-        for offset in [0, 1, 2, 3, 4, 5, 99] {
-            assert_eq!(index.line_col(offset), line_col(text, offset));
-        }
+        assert_eq!(index.line_col(0), LineCol { line: 1, column: 1 });
+        assert_eq!(index.line_col(2), LineCol { line: 2, column: 1 });
+        assert_eq!(index.line_col(4), LineCol { line: 2, column: 3 });
+        assert_eq!(index.line_col(99), LineCol { line: 3, column: 1 });
     }
 }
