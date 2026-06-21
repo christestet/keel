@@ -28,6 +28,7 @@ Built-in generic types (user-defined generics are NOT in Core):
 `Option<T>`, `Result<T, E>`, `List<T>`, `Map<K, V>`.
 
 - **No null.** `Option<T>` with variants `Some(T)` / `None` is the only absence. (`K0201` for any nullish construct)
+- `Option<T>.unwrap() -> T` returns the `Some` payload and aborts the program on `None` (KDR-0039). It is a deliberate assertion that the value is present; recoverable absence uses `match`, `?`, or `catch` instead.
 - **No implicit conversions.** `Int` + `Float` is `K0202`; convert explicitly: `Float.from(i)`.
 - Integer overflow panics in debug, wraps with `%+` operators only (explicit) — default `+` panics on overflow in all modes for Core. (`K0203` family)
 
