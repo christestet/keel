@@ -6,8 +6,6 @@ struct User {
 }
 
 fn main() {
-    let encoded = json.write(User { name: "Ada", active: true }) catch err {
-        other => return print("error"),
-    }
+    let encoded = json.write(User { name: "Ada", active: true })
     print(encoded)
 }

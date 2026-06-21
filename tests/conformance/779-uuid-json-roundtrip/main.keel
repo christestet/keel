@@ -7,8 +7,6 @@ fn main() {
         json.parse<Uuid>("{quote()}550e8400-e29b-41d4-a716-446655440000{quote()}") catch err {
             other => return print("parse error"),
         },
-    ) catch err {
-        other => return print("write error"),
-    }
+    )
     print(encoded)
 }

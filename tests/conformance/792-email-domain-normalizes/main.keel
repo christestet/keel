@@ -7,8 +7,6 @@ fn main() {
         json.parse<Email>("{quote()}User.Name@EXAMPLE.COM{quote()}") catch err {
             other => return print("parse error"),
         },
-    ) catch err {
-        other => return print("write error"),
-    }
+    )
     print(encoded)
 }

@@ -13,8 +13,6 @@ fn main() {
     let record = json.parse<Record>(input) catch err {
         other => return print("parse error"),
     }
-    let encoded = json.write(record) catch err {
-        other => return print("write error"),
-    }
+    let encoded = json.write(record)
     print(encoded)
 }
