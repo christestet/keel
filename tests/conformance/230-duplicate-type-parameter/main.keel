@@ -2,6 +2,6 @@ interface Foo {
     fn foo(self) -> Int
 }
 
-fn dup[A: Foo, A: Foo](x: A) -> A {
+fn dup<A: Foo, A: Foo>(x: A) -> A {
     x
 }

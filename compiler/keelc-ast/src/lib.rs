@@ -95,6 +95,7 @@ pub struct ImplDecl {
 pub struct Param {
     pub name: Spanned<String>,
     pub ty: Option<Type>,
+    pub default: Option<Expr>,
     pub span: Span,
 }
 
@@ -181,6 +182,20 @@ pub struct StringLiteral {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallArg {
+    pub name: Option<Spanned<String>>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+impl CallArg {
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Expr {
     Missing(Span),
     Int(Spanned<String>),
@@ -204,7 +219,7 @@ pub enum Expr {
     Call {
         callee: Box<Expr>,
         type_args: Vec<Type>,
-        args: Vec<Expr>,
+        args: Vec<CallArg>,
         span: Span,
     },
     Field {
@@ -215,7 +230,7 @@ pub enum Expr {
     MethodCall {
         receiver: Box<Expr>,
         method: Spanned<String>,
-        args: Vec<Expr>,
+        args: Vec<CallArg>,
         span: Span,
     },
     StructLiteral {
@@ -256,7 +271,10 @@ pub enum Expr {
     },
     Catch {
         expr: Box<Expr>,
-        error_name: Spanned<String>,
+        /// The error binding, e.g. `err` in `catch err { ... }`. `None` for the
+        /// arrow form whose head is a classification pattern (`catch sql.NoRows
+        /// => ...`), which binds nothing (KDR-0037).
+        error_name: Option<Spanned<String>>,
         arms: Vec<MatchArm>,
         span: Span,
     },
@@ -264,6 +282,47 @@ pub enum Expr {
         value: Option<Box<Expr>>,
         span: Span,
     },
+    /// `http.Router{ "METHOD /path": handler, ... }` — the compiler-known route
+    /// table (KDR-0031). The only construct with string keys and the only place a
+    /// handler closure may appear; both are contained here, not general features.
+    Router {
+        routes: Vec<Route>,
+        span: Span,
+    },
+    /// `()` — the unit value (e.g. `Ok(())`).
+    Unit(Span),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Route {
+    pub pattern: Spanned<String>,
+    pub handler: RouteHandler,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RouteHandler {
+    /// A handler value expected to be a function name resolving to
+    /// `fn(http.Request) -> http.Response`. Held as a general expression so the
+    /// resolver can reject non-name / wrong-signature values with `K1504`.
+    Expr(Box<Expr>),
+    /// `fn(req) => expr` — a single-expression handler that may capture the
+    /// enclosing scope. Restricted to route values; not a general closure.
+    Closure {
+        param: Spanned<String>,
+        body: Box<Expr>,
+        span: Span,
+    },
+}
+
+impl RouteHandler {
+    #[must_use]
+    pub fn span(&self) -> Span {
+        match self {
+            RouteHandler::Expr(expr) => expr.span(),
+            RouteHandler::Closure { span, .. } => *span,
+        }
+    }
 }
 
 impl Expr {
@@ -285,7 +344,9 @@ impl Expr {
             | Expr::Spawn { span, .. }
             | Expr::Question { span, .. }
             | Expr::Catch { span, .. }
-            | Expr::Return { span, .. } => *span,
+            | Expr::Return { span, .. }
+            | Expr::Router { span, .. }
+            | Expr::Unit(span) => *span,
             Expr::Int(value) | Expr::Float(value) | Expr::Char(value) | Expr::Name(value) => {
                 value.span
             }
@@ -337,10 +398,19 @@ pub struct MatchArm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Pattern {
     Name {
+        /// Module qualifier for classification patterns, e.g. `sql` in
+        /// `sql.NoRows` (KDR-0037). `None` for plain variants and bindings.
+        qualifier: Option<Spanned<String>>,
         name: Spanned<String>,
         args: Vec<Pattern>,
+        /// Type annotation for a typed binding, e.g. `sql.Error` in
+        /// `Err(err: sql.Error)` (KDR-0038). Narrows a union member. Boxed to
+        /// keep the enum's variants close in size.
+        ty: Option<Box<Type>>,
         span: Span,
     },
+    /// `()` — matches the unit payload, binds nothing.
+    Unit(Span),
     Wildcard(Span),
 }
 
@@ -348,7 +418,7 @@ impl Pattern {
     #[must_use]
     pub const fn span(&self) -> Span {
         match self {
-            Pattern::Name { span, .. } | Pattern::Wildcard(span) => *span,
+            Pattern::Name { span, .. } | Pattern::Unit(span) | Pattern::Wildcard(span) => *span,
         }
     }
 }

@@ -6,6 +6,4 @@ description = "M3 Go source emitter for keelc."
 
 [dependencies]
 keelc-kir = { path = "../keelc-kir" }
-keelc-parse = { path = "../keelc-parse" }
-keelc-span = { path = "../keelc-span" }
 keelc-types = { path = "../keelc-types" }

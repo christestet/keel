@@ -4,12 +4,39 @@
 //! The backend no longer performs type inference or AST traversal; it only
 //! maps KIR constructs to readable Go source.
 
-use keelc_kir::{
-    BinaryOp, Block, EnumDecl, Expr, Field, FunctionDecl, Item, MatchArm, Method, Module, Pattern,
-    Stmt, StringLiteral, StringPart, StructDecl, UnaryOp, Variant,
+mod analysis;
+mod json;
+mod runtime;
+mod types;
+
+use crate::analysis::{
+    collect_enum_variant_names, collect_impls, collect_interfaces, collect_structs, collect_usage,
+    expr_ty, ImplInfo, InterfaceInfo, StructInfo,
 };
+use crate::types::{
+    go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name,
+    primitive_underlying, zero_value,
+};
+use keelc_kir::{
+    BinaryOp, Block, EnumDecl, Expr, Field, FunctionDecl, Item, MatchArm, Module, Pattern, Route,
+    RouteHandler, Stmt, StringLiteral, StringPart, StructDecl, UnaryOp, Variant,
+};
+use keelc_types::infer::{task_inner, task_value_type};
 use keelc_types::TypeInfo;
 use std::fmt::{self, Write as _};
+
+/// A config field type whose env parsing calls `strconv` (`Int`/`Float`, bare
+/// or wrapped in `Option`). `Bool` uses `keelConfigBool`; `String`/`Secret`
+/// need no parsing.
+fn config_field_needs_strconv(ty: &TypeInfo) -> bool {
+    match ty {
+        TypeInfo::Int | TypeInfo::Float => true,
+        TypeInfo::Generic { name, args } if name == "Option" => {
+            args.first().is_some_and(config_field_needs_strconv)
+        }
+        _ => false,
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackendError {
@@ -21,6 +48,51 @@ impl BackendError {
         Self {
             message: format!("Go backend does not yet support {}", feature.into()),
         }
+    }
+}
+
+/// Map a `path_param<T>` / `query_param<T>` type argument to its runtime helper
+/// suffix (`keelPathParamString`, `keelQueryParamInt`, …). M6 supports the
+/// scalar wire types; richer types arrive with their own KDR.
+fn is_result_type(ty: &TypeInfo) -> bool {
+    matches!(ty, TypeInfo::Generic { name, .. } if name == "Result")
+}
+
+/// Conjoin pattern conditions; an empty set always matches.
+fn join_conditions(conds: &[String]) -> String {
+    if conds.is_empty() {
+        "true".to_string()
+    } else {
+        conds.join(" && ")
+    }
+}
+
+/// `(access.tag == "A" || access.tag == "B" ...)` — a typed binding's tag-set
+/// membership test (KDR-0038).
+fn tag_membership(access: &str, tags: &[String]) -> String {
+    if tags.is_empty() {
+        return "true".to_string();
+    }
+    let checks = tags
+        .iter()
+        .map(|tag| format!("{access}.tag == {tag:?}"))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    format!("({checks})")
+}
+
+fn request_param_suffix(ty: &TypeInfo) -> Result<&'static str, BackendError> {
+    match ty {
+        TypeInfo::String => Ok("String"),
+        TypeInfo::Int => Ok("Int"),
+        TypeInfo::Bool => Ok("Bool"),
+        TypeInfo::Float => Ok("Float"),
+        TypeInfo::Named(name) if name == "Uuid" => Ok("Uuid"),
+        TypeInfo::Named(name) if name == "Timestamp" => Ok("Timestamp"),
+        TypeInfo::Named(name) if name == "Email" => Ok("Email"),
+        other => Err(BackendError::unsupported(format!(
+            "request parameter of type `{other}`"
+        ))),
     }
 }
 
@@ -37,26 +109,7 @@ pub fn emit(module: &Module) -> Result<String, BackendError> {
 }
 
 pub fn emit_tests(module: &Module) -> Result<String, BackendError> {
-    Emitter::new_for_tests(module).emit_test_runner()
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct StructInfo {
-    name: String,
-    fields: Vec<Field>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct InterfaceInfo {
-    name: String,
-    methods: Vec<Method>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ImplInfo {
-    interface_name: String,
-    type_name: String,
-    methods: Vec<FunctionDecl>,
+    Emitter::new(module).emit_test_runner()
 }
 
 struct Emitter<'a> {
@@ -68,6 +121,17 @@ struct Emitter<'a> {
     interface_names: Vec<String>,
     impls: Vec<ImplInfo>,
     uses_concurrency: bool,
+    uses_json: bool,
+    uses_http: bool,
+    uses_http_serve: bool,
+    uses_log: bool,
+    uses_sql: bool,
+    uses_config: bool,
+    uses_uuid_new: bool,
+    uses_timestamp_now: bool,
+    config_needs_strconv: bool,
+    json_types: Vec<TypeInfo>,
+    config_types: Vec<TypeInfo>,
     task_values: Vec<Vec<(String, TypeInfo)>>,
     output: String,
     indent: usize,
@@ -81,7 +145,20 @@ impl<'a> Emitter<'a> {
         let interfaces = collect_interfaces(module);
         let interface_names = interfaces.iter().map(|i| i.name.clone()).collect();
         let enum_variant_names = collect_enum_variant_names(module);
-        let uses_concurrency = module_uses_concurrency(module);
+        let usage = collect_usage(module);
+        let config_types = usage.config_types;
+        // `strconv` is only used by Int/Float field parsing; Secret/String/Bool
+        // fields never touch it, so importing it unconditionally would break the
+        // Go build with an unused import.
+        let config_needs_strconv = config_types.iter().any(|ty| {
+            let TypeInfo::Named(name) = ty else {
+                return false;
+            };
+            structs
+                .iter()
+                .find(|s| s.name == *name)
+                .is_some_and(|s| s.fields.iter().any(|f| config_field_needs_strconv(&f.ty)))
+        });
         Self {
             module,
             structs,
@@ -90,7 +167,18 @@ impl<'a> Emitter<'a> {
             interfaces,
             interface_names,
             impls: collect_impls(module),
-            uses_concurrency,
+            uses_concurrency: usage.concurrency,
+            uses_json: usage.json,
+            uses_http: usage.http,
+            uses_http_serve: usage.http_serve,
+            uses_log: usage.log,
+            uses_sql: usage.sql,
+            uses_config: usage.config,
+            uses_uuid_new: usage.uuid_new,
+            uses_timestamp_now: usage.timestamp_now,
+            config_needs_strconv,
+            json_types: Vec::new(),
+            config_types,
             task_values: Vec::new(),
             output: String::new(),
             indent: 0,
@@ -98,18 +186,17 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn new_for_tests(module: &'a Module) -> Self {
-        Self::new(module)
-    }
-
     fn go_type(&self, ty: &TypeInfo) -> String {
         go_type(ty, &self.struct_names, &self.interface_names)
     }
 
     fn emit(mut self) -> Result<String, BackendError> {
+        let main_result = self.module.items.iter().any(|item| {
+            matches!(item, Item::Function(f) if f.name == "main" && is_result_type(&f.return_type))
+        });
         self.line("package main")?;
         self.line("")?;
-        self.emit_imports(false)?;
+        self.emit_imports(main_result)?;
         self.line("")?;
         self.emit_runtime()?;
 
@@ -134,6 +221,10 @@ impl<'a> Emitter<'a> {
                 self.line("")?;
             }
         }
+
+        self.emit_json_codecs()?;
+        self.emit_config_loaders()?;
+        self.emit_struct_from_rows()?;
 
         Ok(self.output)
     }
@@ -170,6 +261,9 @@ impl<'a> Emitter<'a> {
             }
         }
 
+        self.emit_json_codecs()?;
+        self.emit_struct_from_rows()?;
+
         self.line("func main() {")?;
         self.indent += 1;
         for item in &self.module.items {
@@ -199,8 +293,55 @@ impl<'a> Emitter<'a> {
             imports.push("context");
             imports.push("sync");
         }
+        if self.uses_concurrency
+            || self.uses_json
+            || self.uses_http
+            || self.uses_timestamp_now
+            || self.uses_sql
+        {
+            imports.push("time");
+        }
+        if self.uses_json {
+            imports.push("encoding/json");
+            imports.push("math");
+            imports.push("strconv");
+            imports.push("strings");
+        }
+        if self.uses_uuid_new {
+            imports.push("crypto/rand");
+        }
+        if self.uses_http_serve {
+            imports.push("net/http");
+            imports.push("net/url");
+            imports.push("strconv");
+            imports.push("strings");
+        }
+        if self.uses_sql {
+            imports.push("database/sql");
+            imports.push("strings");
+        }
+        if self.uses_log {
+            imports.push("strings");
+        }
+        if self.uses_config {
+            imports.push("os");
+        }
+        if self.config_needs_strconv {
+            imports.push("strconv");
+        }
+        if self.uses_json || self.uses_http_serve {
+            imports.push("io");
+        }
         imports.sort();
-        if imports.len() == 1 {
+        imports.dedup();
+        // Blank-import the SQLite driver so database/sql can resolve the
+        // "sqlite" driver name at runtime (KDR-0042).
+        let blank_imports: &[&str] = if self.uses_sql {
+            &["modernc.org/sqlite"]
+        } else {
+            &[]
+        };
+        if imports.len() == 1 && blank_imports.is_empty() {
             self.line_fmt(format_args!("import {:?}", imports[0]))?;
             return Ok(());
         }
@@ -209,62 +350,11 @@ impl<'a> Emitter<'a> {
         for import in imports {
             self.line_fmt(format_args!("{import:?}"))?;
         }
+        for blank in blank_imports {
+            self.line_fmt(format_args!("_ {blank:?}"))?;
+        }
         self.indent -= 1;
         self.line(")")
-    }
-
-    fn emit_runtime(&mut self) -> Result<(), BackendError> {
-        self.line("type KeelEnum struct {")?;
-        self.indent += 1;
-        self.line("tag string")?;
-        self.line("values []any")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.line("type keelTask struct {")?;
-        self.indent += 1;
-        self.line("value any")?;
-        self.line("result KeelEnum")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.line("func Some(value any) KeelEnum {")?;
-        self.indent += 1;
-        self.line("return KeelEnum{tag: \"Some\", values: []any{value}}")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.line("var None = KeelEnum{tag: \"None\"}")?;
-        self.line("")?;
-        self.line("func Ok(value any) KeelEnum {")?;
-        self.indent += 1;
-        self.line("return KeelEnum{tag: \"Ok\", values: []any{value}}")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.line("func Err(value any) KeelEnum {")?;
-        self.indent += 1;
-        self.line("return KeelEnum{tag: \"Err\", values: []any{value}}")?;
-        self.indent -= 1;
-        self.line("}")?;
-        self.line("")?;
-        self.emit_checked_op("checked_div", "KeelEnum", "/", "return None", "Some")?;
-        self.emit_checked_op("checked_rem", "KeelEnum", "%", "return None", "Some")?;
-        self.emit_checked_op(
-            "keelDiv",
-            "int64",
-            "/",
-            r#"panic("K0204: division by zero")"#,
-            "",
-        )?;
-        self.emit_checked_op(
-            "keelRem",
-            "int64",
-            "%",
-            r#"panic("K0204: remainder by zero")"#,
-            "",
-        )?;
-        Ok(())
     }
 
     fn emit_checked_op(
@@ -308,12 +398,15 @@ impl<'a> Emitter<'a> {
         self.line_fmt(format_args!("type {} interface {{", interface.name))?;
         self.indent += 1;
         for method in &interface.methods {
-            let params = method
+            let mut params = method
                 .params
                 .iter()
                 .map(|param| format!("{} {}", param.name, self.go_type(&param.ty)))
-                .collect::<Vec<_>>()
-                .join(", ");
+                .collect::<Vec<_>>();
+            if self.uses_concurrency {
+                params.insert(0, "__keel_ctx context.Context".to_string());
+            }
+            let params = params.join(", ");
             let ret = self.go_type(&method.return_type);
             if ret.is_empty() {
                 self.line_fmt(format_args!("{}({})", method.name, params))?;
@@ -336,8 +429,11 @@ impl<'a> Emitter<'a> {
             "func (self {}) {}(",
             impl_decl.type_name, method.name
         )?;
+        if self.uses_concurrency {
+            self.output.push_str("__keel_ctx context.Context");
+        }
         for (index, param) in method.params.iter().enumerate() {
-            if index > 0 {
+            if index > 0 || self.uses_concurrency {
                 self.output.push_str(", ");
             }
             write!(self.output, "{} {}", param.name, self.go_type(&param.ty))?;
@@ -350,6 +446,9 @@ impl<'a> Emitter<'a> {
         self.output.push_str(" {\n");
 
         self.indent += 1;
+        if self.uses_concurrency {
+            self.line("_ = __keel_ctx")?;
+        }
         self.emit_block_statements(&method.body, method.return_type != TypeInfo::Unit)?;
         self.indent -= 1;
 
@@ -421,8 +520,11 @@ impl<'a> Emitter<'a> {
         method: &FunctionDecl,
     ) -> Result<(), BackendError> {
         write!(self.output, "func (recv {box_name}) {}(", method.name)?;
+        if self.uses_concurrency {
+            self.output.push_str("__keel_ctx context.Context");
+        }
         for (index, param) in method.params.iter().enumerate() {
-            if index > 0 {
+            if index > 0 || self.uses_concurrency {
                 self.output.push_str(", ");
             }
             write!(self.output, "{} {}", param.name, self.go_type(&param.ty))?;
@@ -435,6 +537,9 @@ impl<'a> Emitter<'a> {
         self.output.push_str(" {\n");
 
         self.indent += 1;
+        if self.uses_concurrency {
+            self.line("_ = __keel_ctx")?;
+        }
         // Rebind `self` to the raw primitive so method bodies operate on the
         // underlying value rather than the wrapper type.
         self.line_fmt(format_args!("self := {underlying}(recv)"))?;
@@ -494,10 +599,17 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_function(&mut self, function: &FunctionDecl) -> Result<(), BackendError> {
+        if function.name == "main" && is_result_type(&function.return_type) {
+            return self.emit_main_with_result(function);
+        }
         write!(self.output, "func {}", function.name)?;
         self.output.push('(');
+        let accepts_context = self.uses_concurrency && function.name != "main";
+        if accepts_context {
+            self.output.push_str("__keel_ctx context.Context");
+        }
         for (index, param) in function.params.iter().enumerate() {
-            if index > 0 {
+            if index > 0 || accepts_context {
                 self.output.push_str(", ");
             }
             write!(self.output, "{} {}", param.name, self.go_type(&param.ty))?;
@@ -511,9 +623,42 @@ impl<'a> Emitter<'a> {
         self.output.push_str(" {\n");
 
         self.indent += 1;
+        if self.uses_concurrency && function.name == "main" {
+            self.line("__keel_ctx := context.Background()")?;
+            self.line("_ = __keel_ctx")?;
+        } else if accepts_context {
+            self.line("_ = __keel_ctx")?;
+        }
         self.emit_block_statements(&function.body, function.return_type != TypeInfo::Unit)?;
         self.indent -= 1;
 
+        self.line("}")?;
+        Ok(())
+    }
+
+    /// `fn main() -> Result<Unit, E>` (keel-core §7): emit the body as
+    /// `keelMain() KeelEnum`, then a Go `main` that prints the error to stderr
+    /// and exits non-zero on `Err`.
+    fn emit_main_with_result(&mut self, function: &FunctionDecl) -> Result<(), BackendError> {
+        self.output.push_str("func keelMain() KeelEnum {\n");
+        self.indent += 1;
+        if self.uses_concurrency {
+            self.line("__keel_ctx := context.Background()")?;
+            self.line("_ = __keel_ctx")?;
+        }
+        self.emit_block_statements(&function.body, true)?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.line("")?;
+        self.line("func main() {")?;
+        self.indent += 1;
+        self.line("if __keel_r := keelMain(); __keel_r.tag == \"Err\" {")?;
+        self.indent += 1;
+        self.line("fmt.Fprintln(os.Stderr, __keel_r.values[0])")?;
+        self.line("os.Exit(1)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        self.indent -= 1;
         self.line("}")?;
         Ok(())
     }
@@ -543,10 +688,15 @@ impl<'a> Emitter<'a> {
                 let emitted = self.emit_expr(value)?;
                 let expr = self.cast_typed_literal(value, &emitted)?;
                 self.line_fmt(format_args!("{} := {expr}", name))?;
+                self.line_fmt(format_args!("_ = {name}"))?;
                 Ok(())
             }
             Stmt::Var { name, ty } => {
-                let ty = self.go_type(ty);
+                let ty = if *ty == TypeInfo::Unit {
+                    "struct{}".to_string()
+                } else {
+                    self.go_type(ty)
+                };
                 self.line_fmt(format_args!("var {} {}", name, ty))?;
                 Ok(())
             }
@@ -567,6 +717,15 @@ impl<'a> Emitter<'a> {
                 scrutinee, arms, ..
             }) => self.emit_match_stmt(scrutinee, arms),
             Stmt::Expr(Expr::Block(block)) => self.emit_block_statements(block, false),
+            Stmt::Expr(Expr::Payload {
+                ty: TypeInfo::Unit, ..
+            }) => self.line("_ = struct{}{}"),
+            // A discarded `?` result (e.g. `db.exec(...)?` for its effect only)
+            // lowers to a bare payload expression; Go rejects unused values.
+            Stmt::Expr(expr @ Expr::Payload { .. }) => {
+                let expr = self.emit_expr(expr)?;
+                self.line_fmt(format_args!("_ = {expr}"))
+            }
             Stmt::Expr(expr) => {
                 let expr = self.emit_expr(expr)?;
                 self.line(&expr)
@@ -605,6 +764,7 @@ impl<'a> Emitter<'a> {
             Expr::String(literal) => self.emit_string(literal),
             Expr::Char(value) => Ok(format!("{:?}", value)),
             Expr::Bool(value) => Ok(value.to_string()),
+            Expr::Unit => Ok("struct{}{}".to_string()),
             Expr::Name(name) => Ok(name.clone()),
             Expr::Unary { op, expr, .. } => {
                 let expr = self.emit_expr(expr)?;
@@ -627,13 +787,28 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(format!("({left} {} {right})", go_binary_op(*op)))
             }
-            Expr::Call { callee, args, .. } => self.emit_call(callee, args),
+            Expr::Call {
+                callee,
+                type_args,
+                args,
+                ..
+            } => self.emit_call(callee, type_args, args),
             Expr::Field { target, field, .. } => {
                 if field == "value" {
                     if let Expr::Name(name) = target.as_ref() {
                         if let Some(value_ty) = self.task_value_type(name) {
                             let target = self.emit_expr(target)?;
+                            if value_ty == TypeInfo::Unit {
+                                return Ok("struct{}{}".to_string());
+                            }
                             return Ok(format!("{target}.value.({})", self.go_type(&value_ty)));
+                        }
+                    }
+                }
+                if field == "from_row" {
+                    if let Expr::Name(name) = target.as_ref() {
+                        if self.struct_names.contains(name) {
+                            return Ok(format!("keelFromRow_{name}"));
                         }
                     }
                 }
@@ -644,8 +819,9 @@ impl<'a> Emitter<'a> {
                 receiver,
                 method,
                 args,
+                arg_types,
                 ..
-            } => self.emit_method_call(receiver, method, args),
+            } => self.emit_method_call(receiver, method, args, arg_types),
             Expr::StructLiteral { name, fields, .. } => self.emit_struct_literal(name, fields),
             Expr::If {
                 condition,
@@ -670,6 +846,9 @@ impl<'a> Emitter<'a> {
             )),
             Expr::Block(block) => self.emit_block_expr(block),
             Expr::Payload { value, index, ty } => {
+                if *ty == TypeInfo::Unit {
+                    return Ok("struct{}{}".to_string());
+                }
                 let value = self.emit_expr(value)?;
                 Ok(format!(
                     "{}.values[{}].({})",
@@ -681,12 +860,87 @@ impl<'a> Emitter<'a> {
             Expr::Return { value } => {
                 if let Some(value) = value {
                     let expr = self.emit_expr(value)?;
-                    Ok(format!("return {expr}"))
+                    if expr_ty(value) == TypeInfo::Unit {
+                        Ok(format!("{expr}; return"))
+                    } else {
+                        Ok(format!("return {expr}"))
+                    }
                 } else {
                     Ok("return".to_string())
                 }
             }
+            Expr::Router { routes, .. } => self.emit_router(routes),
         }
+    }
+
+    /// Emit a `[]keelRoute{ ... }` literal (KDR-0031). Each entry pairs the route
+    /// pattern with a Go handler func; the runtime splits method/path and extracts
+    /// `{name}` path params at request time.
+    fn emit_router(&mut self, routes: &[Route]) -> Result<String, BackendError> {
+        let mut entries = Vec::new();
+        for route in routes {
+            let handler = match &route.handler {
+                RouteHandler::Named(name) => name.clone(),
+                RouteHandler::Closure { param, body } => {
+                    let body = self.emit_expr(body)?;
+                    format!("func({param} keelHTTPRequest) keelHTTPResponse {{ return {body} }}")
+                }
+            };
+            entries.push(format!(
+                "{{pattern: {}, handler: {handler}}}",
+                go_string_literal(&route.pattern)
+            ));
+        }
+        Ok(format!("[]keelRoute{{{}}}", entries.join(", ")))
+    }
+
+    /// Codegen for `std.sql` value methods (KDR-0029). Dispatched by method name,
+    /// gated on `uses_sql` since the backend cannot re-derive a `Name`'s type.
+    // ponytail: name-based dispatch, scoped to sql modules; upgrade to a typed
+    // receiver check if a sql module ever shadows these names on a user type.
+    fn emit_sql_method(
+        &mut self,
+        receiver: &Expr,
+        method: &str,
+        args: &[Expr],
+    ) -> Result<Option<String>, BackendError> {
+        if !self.uses_sql {
+            return Ok(None);
+        }
+        let func = match method {
+            "query" => "keelSQLQuery",
+            "query_one" => "keelSQLQueryOne",
+            "exec" => "keelSQLExec",
+            "migrate" => "keelSQLMigrate",
+            "collect" => "keelSQLCollect",
+            "map" => {
+                let recv = self.emit_expr(receiver)?;
+                let mapper = args
+                    .first()
+                    .ok_or_else(|| BackendError::unsupported("sql map without a function"))?;
+                let mapper = self.emit_expr(mapper)?;
+                return Ok(Some(format!(
+                    "keelSQLMap({recv}, func(__keel_row keelSQLRow) any {{ return {mapper}(__keel_row) }})"
+                )));
+            }
+            _ => return Ok(None),
+        };
+        let recv = self.emit_expr(receiver)?;
+        if method == "collect" {
+            return Ok(Some(format!("{func}({recv})")));
+        }
+        // migrate takes only the statement text; query/query_one/exec take the
+        // query string followed by its bound parameters ($1, $2, ...).
+        let emitted = args
+            .iter()
+            .map(|a| self.emit_expr(a))
+            .collect::<Result<Vec<_>, _>>()?;
+        if method == "migrate" {
+            let stmt = emitted.first().cloned().unwrap_or_default();
+            return Ok(Some(format!("{func}({recv}, {stmt})")));
+        }
+        let call_args = std::iter::once(recv).chain(emitted).collect::<Vec<_>>();
+        Ok(Some(format!("{func}({})", call_args.join(", "))))
     }
 
     fn emit_method_call(
@@ -694,6 +948,7 @@ impl<'a> Emitter<'a> {
         receiver: &Expr,
         method: &str,
         args: &[Expr],
+        arg_types: &[TypeInfo],
     ) -> Result<String, BackendError> {
         if matches!(receiver, Expr::Name(name) if name == "Float") && method == "from" {
             let arg = args
@@ -702,16 +957,163 @@ impl<'a> Emitter<'a> {
             let arg_expr = self.emit_expr(arg)?;
             return Ok(format!("float64({arg_expr})"));
         }
+        if matches!(receiver, Expr::Name(name) if name == "Uuid") && method == "new" {
+            return Ok("keelUUIDNew()".to_string());
+        }
+        if matches!(receiver, Expr::Name(name) if name == "Timestamp") && method == "now" {
+            return Ok("keelTimestampNow()".to_string());
+        }
+        if matches!(receiver, Expr::Name(name) if name == "sql") && method == "connect" {
+            let arg = args
+                .first()
+                .ok_or_else(|| BackendError::unsupported("sql.connect without argument"))?;
+            let arg = self.emit_expr(arg)?;
+            return Ok(format!("keelSQLConnect({arg})"));
+        }
+        if let Some(call) = self.emit_sql_method(receiver, method, args)? {
+            return Ok(call);
+        }
+        if matches!(receiver, Expr::Name(name) if name == "time") {
+            let arg = args.first().ok_or_else(|| {
+                BackendError::unsupported(format!("time.{method} without argument"))
+            })?;
+            let arg = self.emit_expr(arg)?;
+            return match method {
+                "milliseconds" => Ok(format!("keelDuration({arg}, time.Millisecond)")),
+                "seconds" => Ok(format!("keelDuration({arg}, time.Second)")),
+                "sleep" => Ok(format!("keelSleep(__keel_ctx, {arg})")),
+                _ => Err(BackendError::unsupported(format!("time.{method}"))),
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name == "http") {
+            return self.emit_http_call(method, args);
+        }
+        if matches!(receiver, Expr::Name(name) if name == "log") {
+            return self.emit_log_call(method, args);
+        }
+        if matches!(receiver, Expr::Name(name) if name == "json") && method == "write" {
+            let value = args
+                .first()
+                .ok_or_else(|| BackendError::unsupported("json.write without argument"))?;
+            let value_type = arg_types.first().cloned().unwrap_or_else(|| expr_ty(value));
+            self.register_json_type(&value_type);
+            let value = self.emit_expr(value)?;
+            // Encoding a representable type is total (KDR-0040); the encoder
+            // always returns Ok(string), so unwrap the payload directly.
+            return Ok(format!(
+                "keelJSONEncode_{}({}, \"$\").values[0].(string)",
+                json_type_name(&value_type),
+                value
+            ));
+        }
+        // Derive Struct.from_row(row) -> Result<Struct, sql.Error> for any struct.
+        if method == "from_row" {
+            if let Expr::Name(name) = receiver {
+                if self.struct_names.contains(name) {
+                    let arg = args
+                        .first()
+                        .ok_or_else(|| BackendError::unsupported("from_row without argument"))?;
+                    let arg_expr = self.emit_expr(arg)?;
+                    return Ok(format!("keelFromRow_{name}({arg_expr})"));
+                }
+            }
+        }
+        // Option<T>.unwrap() -> T: extract the Some payload, abort on None (KDR-0039).
+        if method == "unwrap" {
+            if let TypeInfo::Generic {
+                name,
+                args: type_args,
+            } = expr_ty(receiver)
+            {
+                if name == "Option" && type_args.len() == 1 {
+                    let go_ty = self.go_type(&type_args[0]);
+                    let recv = self.emit_expr(receiver)?;
+                    return Ok(format!("keelOptionUnwrap({recv}).({go_ty})"));
+                }
+            }
+        }
         let receiver_expr = self.emit_expr(receiver)?;
-        let args = args
+        let mut args = args
             .iter()
             .map(|arg| self.emit_expr(arg))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
+            .collect::<Result<Vec<_>, _>>()?;
+        if self.uses_concurrency {
+            args.insert(0, "__keel_ctx".to_string());
+        }
+        let args = args.join(", ");
         Ok(format!("{receiver_expr}.{method}({args})"))
     }
 
-    fn emit_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<String, BackendError> {
+    fn emit_call(
+        &mut self,
+        callee: &Expr,
+        type_args: &[TypeInfo],
+        args: &[Expr],
+    ) -> Result<String, BackendError> {
+        if let Expr::Field { target, field, .. } = callee {
+            if matches!(target.as_ref(), Expr::Name(name) if name == "json") && field == "parse" {
+                let target_type = type_args.first().ok_or_else(|| {
+                    BackendError::unsupported("json.parse without a type argument")
+                })?;
+                let input = args
+                    .first()
+                    .ok_or_else(|| BackendError::unsupported("json.parse without input"))?;
+                self.register_json_type(target_type);
+                let input = self.emit_expr(input)?;
+                let tolerant = args.get(1).is_some_and(|arg| {
+                    matches!(
+                        arg,
+                        Expr::String(literal)
+                            if matches!(
+                                literal.parts.as_slice(),
+                                [StringPart::Text(text)] if text == "__keel_json_tolerant"
+                            )
+                    )
+                });
+                return Ok(format!(
+                    "keelJSONParse_{}({}, {})",
+                    json_type_name(target_type),
+                    input,
+                    tolerant
+                ));
+            }
+            if matches!(target.as_ref(), Expr::Name(name) if name == "config") && field == "load" {
+                let target_type = type_args.first().ok_or_else(|| {
+                    BackendError::unsupported("config.load without a type argument")
+                })?;
+                self.register_config_type(target_type);
+                return Ok(format!("keelConfigLoad_{}()", json_type_name(target_type)));
+            }
+            if matches!(target.as_ref(), Expr::Name(name) if name == "http") {
+                return self.emit_http_call(field, args);
+            }
+            if matches!(target.as_ref(), Expr::Name(name) if name == "log") {
+                return self.emit_log_call(field, args);
+            }
+            if field == "get" && self.uses_sql && !type_args.is_empty() {
+                let receiver = self.emit_expr(target)?;
+                let index = args
+                    .first()
+                    .ok_or_else(|| BackendError::unsupported("row.get without an index"))?;
+                let index = self.emit_expr(index)?;
+                let suffix = request_param_suffix(&type_args[0])?;
+                return Ok(format!("keelSQLRowGet{suffix}({receiver}, {index})"));
+            }
+            if matches!(field.as_str(), "path_param" | "query_param") && !type_args.is_empty() {
+                let receiver = self.emit_expr(target)?;
+                let name = args.first().ok_or_else(|| {
+                    BackendError::unsupported(format!("{field} without a name argument"))
+                })?;
+                let name = self.emit_expr(name)?;
+                let suffix = request_param_suffix(&type_args[0])?;
+                let func = if field == "path_param" {
+                    "keelPathParam"
+                } else {
+                    "keelQueryParam"
+                };
+                return Ok(format!("{func}{suffix}({receiver}, {name})"));
+            }
+        }
         let callee_name = match callee {
             Expr::Name(name) => Some(name.as_str()),
             _ => None,
@@ -726,6 +1128,9 @@ impl<'a> Emitter<'a> {
                     .any(|variant| variant == name)
         });
         let is_print = callee_name == Some("print");
+        if callee_name == Some("check_cancel") {
+            return Ok("keelCheckCancel(__keel_ctx)".to_string());
+        }
 
         let mut emitted_args = Vec::new();
         if constructor {
@@ -739,7 +1144,7 @@ impl<'a> Emitter<'a> {
         }
 
         if is_print {
-            return Ok(format!("fmt.Println({})", emitted_args.join(", ")));
+            return Ok(format!("keelPrint({})", emitted_args.join(", ")));
         }
         if constructor {
             let name = callee_name.ok_or_else(|| {
@@ -769,8 +1174,40 @@ impl<'a> Emitter<'a> {
         } else {
             emitted_args
         };
+        let is_user_function = self.callee_param_types(callee).is_some();
+        let mut final_args = final_args;
+        // KDR-0036: fill omitted trailing arguments with the callee's declared
+        // defaults. ponytail: defaults bypass box_for_slot — add when a default
+        // ever flows into an erased generic slot (the M6 surface has none).
+        if let Some(defaults) = self.callee_param_defaults(callee) {
+            for default in defaults.into_iter().skip(args.len()).flatten() {
+                let emitted = self.emit_expr(&default)?;
+                final_args.push(emitted);
+            }
+        }
         let callee = self.emit_expr(callee)?;
+        if self.uses_concurrency && is_user_function {
+            final_args.insert(0, "__keel_ctx".to_string());
+        }
         Ok(format!("{callee}({})", final_args.join(", ")))
+    }
+
+    /// Declared parameter defaults for a directly-named user function, in
+    /// declaration order, used to fill omitted trailing arguments (KDR-0036).
+    fn callee_param_defaults(&self, callee: &Expr) -> Option<Vec<Option<Expr>>> {
+        let Expr::Name(name) = callee else {
+            return None;
+        };
+        self.module.items.iter().find_map(|item| match item {
+            Item::Function(function) if function.name == *name => Some(
+                function
+                    .params
+                    .iter()
+                    .map(|param| param.default.clone())
+                    .collect(),
+            ),
+            _ => None,
+        })
     }
 
     /// Declared parameter types for a directly-named user function, used to box
@@ -798,6 +1235,193 @@ impl<'a> Emitter<'a> {
             .flat_map(|scope| scope.iter().rev())
             .find(|(task_name, _)| task_name == name)
             .map(|(_, ty)| ty.clone())
+    }
+
+    fn register_json_type(&mut self, ty: &TypeInfo) {
+        if !self.json_types.contains(ty) {
+            self.json_types.push(ty.clone());
+        }
+    }
+
+    fn register_config_type(&mut self, ty: &TypeInfo) {
+        if !self.config_types.contains(ty) {
+            self.config_types.push(ty.clone());
+        }
+    }
+
+    /// Generate one `keelConfigLoad_<Struct>()` per config struct that
+    /// `config.load<T>()` was called with (KDR-0030). Each reads its fields
+    /// from the environment, keyed by `FIELD.uppercase()`, applying defaults,
+    /// `Option` semantics, and the spec §15.31 parse table.
+    fn emit_config_loaders(&mut self) -> Result<(), BackendError> {
+        let types = self.config_types.clone();
+        for ty in &types {
+            self.emit_config_loader(ty)?;
+            self.line("")?;
+        }
+        Ok(())
+    }
+
+    fn emit_config_loader(&mut self, ty: &TypeInfo) -> Result<(), BackendError> {
+        let TypeInfo::Named(name) = ty else {
+            return Err(BackendError::unsupported(
+                "config.load on a non-struct type",
+            ));
+        };
+        let Some(info) = self.structs.iter().find(|s| s.name == *name).cloned() else {
+            return Err(BackendError::unsupported(format!(
+                "config.load on unknown struct `{name}`"
+            )));
+        };
+        self.line_fmt(format_args!(
+            "func keelConfigLoad_{}() KeelEnum {{",
+            json_type_name(ty)
+        ))?;
+        self.indent += 1;
+        self.line_fmt(format_args!("var result {name}"))?;
+        for field in &info.fields {
+            self.emit_config_field(name, field)?;
+        }
+        self.line("return Ok(result)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        Ok(())
+    }
+
+    fn emit_config_field(&mut self, struct_name: &str, field: &Field) -> Result<(), BackendError> {
+        let env = field.name.to_uppercase();
+        let slot = format!("result.{}", field.name);
+        // The else-branch when the env var is absent: a declared default, else
+        // the type-appropriate "missing" error.
+        let missing = if let Some(default) = &field.default {
+            let value = self.emit_expr(default)?;
+            format!("{slot} = {value}")
+        } else if matches!(&field.ty, TypeInfo::Named(n) if n == "Secret") {
+            format!("return Err(keelConfigMissingSecret({:?}))", field.name)
+        } else {
+            format!("return Err(keelConfigMissingEnvVar({:?}))", field.name)
+        };
+
+        if let TypeInfo::Generic { name, args } = &field.ty {
+            if name == "Option" {
+                let inner = args.first().cloned().unwrap_or(TypeInfo::Unknown);
+                self.line_fmt(format_args!(
+                    "if v, ok := os.LookupEnv({env:?}); !ok || v == \"\" {{"
+                ))?;
+                self.indent += 1;
+                self.line_fmt(format_args!("{slot} = None"))?;
+                self.indent -= 1;
+                self.line("} else {")?;
+                self.indent += 1;
+                let parsed = self.emit_config_parse(&inner, &field.name)?;
+                self.line_fmt(format_args!("{slot} = Some({parsed})"))?;
+                self.indent -= 1;
+                self.line("}")?;
+                return Ok(());
+            }
+        }
+
+        self.line_fmt(format_args!("if v, ok := os.LookupEnv({env:?}); ok {{"))?;
+        self.indent += 1;
+        let parsed = self.emit_config_parse(&field.ty, &field.name)?;
+        self.line_fmt(format_args!("{slot} = {parsed}"))?;
+        self.indent -= 1;
+        self.line("} else {")?;
+        self.indent += 1;
+        self.line(&missing)?;
+        self.indent -= 1;
+        self.line("}")?;
+        let _ = struct_name;
+        Ok(())
+    }
+
+    /// Emit code that parses the in-scope Go string `v` into `ty`, returning a
+    /// `ParseError` on failure. Leaves the parsed value as the final expression
+    /// assigned by the caller. Assumes `v` is bound in the current Go scope.
+    fn emit_config_parse(&mut self, ty: &TypeInfo, field: &str) -> Result<String, BackendError> {
+        match ty {
+            TypeInfo::String => Ok("v".to_string()),
+            TypeInfo::Named(n) if n == "Secret" => Ok("keelConfigSecret{value: v}".to_string()),
+            TypeInfo::Int => {
+                self.line("n, err := strconv.ParseInt(v, 10, 64)")?;
+                self.line_fmt(format_args!(
+                    "if err != nil {{ return Err(keelConfigParseError({field:?}, \"Int\", err.Error())) }}"
+                ))?;
+                Ok("n".to_string())
+            }
+            TypeInfo::Float => {
+                self.line("f, err := strconv.ParseFloat(v, 64)")?;
+                self.line_fmt(format_args!(
+                    "if err != nil {{ return Err(keelConfigParseError({field:?}, \"Float\", err.Error())) }}"
+                ))?;
+                Ok("f".to_string())
+            }
+            TypeInfo::Bool => {
+                self.line("b, ok := keelConfigBool(v)")?;
+                self.line_fmt(format_args!(
+                    "if !ok {{ return Err(keelConfigParseError({field:?}, \"Bool\", \"not a boolean: \"+v)) }}"
+                ))?;
+                Ok("b".to_string())
+            }
+            other => Err(BackendError::unsupported(format!(
+                "config field type `{other}`"
+            ))),
+        }
+    }
+
+    fn emit_struct_from_rows(&mut self) -> Result<(), BackendError> {
+        if !self.uses_sql {
+            return Ok(());
+        }
+        for info in self.structs.clone() {
+            // Only column-mappable structs get a from_row; structs with Option,
+            // Secret, or nested fields are not row-shaped (and never derived).
+            if info.fields.iter().all(|f| Self::is_row_mappable(&f.ty)) {
+                self.emit_struct_from_row(&info)?;
+                self.line("")?;
+            }
+        }
+        Ok(())
+    }
+
+    fn is_row_mappable(ty: &TypeInfo) -> bool {
+        matches!(
+            ty,
+            TypeInfo::String | TypeInfo::Int | TypeInfo::Bool | TypeInfo::Float
+        ) || matches!(ty, TypeInfo::Named(n) if n == "Uuid" || n == "Email" || n == "Timestamp")
+    }
+
+    fn emit_struct_from_row(&mut self, info: &StructInfo) -> Result<(), BackendError> {
+        self.line_fmt(format_args!(
+            "func keelFromRow_{}(row keelSQLRow) KeelEnum {{",
+            info.name
+        ))?;
+        self.indent += 1;
+        self.line_fmt(format_args!("var result {}", info.name))?;
+        for (index, field) in info.fields.iter().enumerate() {
+            let getter = self.row_field_getter(&field.ty);
+            self.line_fmt(format_args!(
+                "result.{} = {}(row, int64({}))",
+                field.name, getter, index
+            ))?;
+        }
+        self.line("return Ok(result)")?;
+        self.indent -= 1;
+        self.line("}")?;
+        Ok(())
+    }
+
+    fn row_field_getter(&self, ty: &TypeInfo) -> &'static str {
+        match ty {
+            TypeInfo::String => "keelSQLRowGetString",
+            TypeInfo::Int => "keelSQLRowGetInt",
+            TypeInfo::Bool => "keelSQLRowGetBool",
+            TypeInfo::Float => "keelSQLRowGetFloat",
+            TypeInfo::Named(n) if n == "Uuid" => "keelSQLRowGetString",
+            TypeInfo::Named(n) if n == "Email" => "keelSQLRowGetString",
+            TypeInfo::Named(n) if n == "Timestamp" => "keelSQLRowGetTimestamp",
+            _ => "keelSQLRowGetString",
+        }
     }
 
     fn cast_constructor_arg(&mut self, arg: &Expr) -> Result<String, BackendError> {
@@ -897,14 +1521,14 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_match_arm_stmt(&mut self, temp: &str, arm: &MatchArm) -> Result<(), BackendError> {
-        match &arm.pattern {
-            Pattern::Wildcard => self.line("if true {")?,
-            Pattern::Name { name, .. } => {
-                self.line_fmt(format_args!("if {temp}.tag == {:?} {{", name))?;
-            }
-        }
+        let (conds, bindings) = self.pattern_match_parts(temp, &arm.pattern);
+        let cond = join_conditions(&conds);
+        self.line_fmt(format_args!("if {cond} {{"))?;
         self.indent += 1;
-        self.emit_pattern_bindings(temp, &arm.pattern)?;
+        for (name, value) in bindings {
+            self.line_fmt(format_args!("{name} := {value}"))?;
+            self.line_fmt(format_args!("_ = {name}"))?;
+        }
         if let Some(guard) = &arm.guard {
             let guard = self.emit_expr(guard)?;
             self.line_fmt(format_args!("if {guard} {{"))?;
@@ -919,26 +1543,54 @@ impl<'a> Emitter<'a> {
         self.line("}")
     }
 
-    fn emit_pattern_bindings(&mut self, temp: &str, pattern: &Pattern) -> Result<(), BackendError> {
-        if let Pattern::Name {
-            args,
-            payload_types,
-            ..
-        } = pattern
-        {
-            for (index, arg) in args.iter().enumerate() {
-                let ty = payload_types
-                    .get(index)
-                    .cloned()
-                    .unwrap_or(TypeInfo::Unknown);
-                if let Pattern::Name { name, .. } = arg {
-                    let payload = format!("{}.values[{}].({})", temp, index, self.go_type(&ty));
-                    self.line_fmt(format_args!("{} := {payload}", name))?;
-                    self.line_fmt(format_args!("_ = {}", name))?;
+    /// Recursively lower a pattern into Go boolean conditions (tag checks and
+    /// typed-binding membership tests) and `name := accessor` bindings, both
+    /// keyed off `access` (a Go expression evaluating to the matched value).
+    fn pattern_match_parts(
+        &self,
+        access: &str,
+        pattern: &Pattern,
+    ) -> (Vec<String>, Vec<(String, String)>) {
+        match pattern {
+            Pattern::Wildcard | Pattern::Unit => (Vec::new(), Vec::new()),
+            Pattern::Name {
+                name,
+                is_binding: true,
+                type_test,
+                ..
+            } => {
+                let conds = type_test
+                    .as_ref()
+                    .map(|tags| vec![tag_membership(access, tags)])
+                    .unwrap_or_default();
+                (conds, vec![(name.clone(), access.to_string())])
+            }
+            Pattern::Name {
+                name,
+                args,
+                payload_types,
+                is_binding: false,
+                ..
+            } => {
+                let mut conds = vec![format!("{access}.tag == {name:?}")];
+                let mut bindings = Vec::new();
+                for (index, arg) in args.iter().enumerate() {
+                    let ty = payload_types
+                        .get(index)
+                        .cloned()
+                        .unwrap_or(TypeInfo::Unknown);
+                    let sub_access = if ty == TypeInfo::Unit {
+                        "struct{}{}".to_string()
+                    } else {
+                        format!("{access}.values[{index}].({})", self.go_type(&ty))
+                    };
+                    let (sub_conds, sub_binds) = self.pattern_match_parts(&sub_access, arg);
+                    conds.extend(sub_conds);
+                    bindings.extend(sub_binds);
                 }
+                (conds, bindings)
             }
         }
-        Ok(())
     }
 
     fn emit_if_expr(
@@ -1023,29 +1675,10 @@ impl<'a> Emitter<'a> {
         result_ty: &TypeInfo,
         arm: &MatchArm,
     ) -> Result<(), BackendError> {
-        match &arm.pattern {
-            Pattern::Wildcard => out.push_str("if true { "),
-            Pattern::Name { name, .. } => {
-                write!(out, "if {temp}.tag == {:?} {{ ", name)?;
-            }
-        }
-
-        if let Pattern::Name {
-            args,
-            payload_types,
-            ..
-        } = &arm.pattern
-        {
-            for (index, arg) in args.iter().enumerate() {
-                let ty = payload_types
-                    .get(index)
-                    .cloned()
-                    .unwrap_or(TypeInfo::Unknown);
-                if let Pattern::Name { name, .. } = arg {
-                    let payload = format!("{}.values[{}].({})", temp, index, self.go_type(&ty));
-                    write!(out, "{} := {}; _ = {}; ", name, payload, name)?;
-                }
-            }
+        let (conds, bindings) = self.pattern_match_parts(temp, &arm.pattern);
+        write!(out, "if {} {{ ", join_conditions(&conds))?;
+        for (name, value) in bindings {
+            write!(out, "{name} := {value}; _ = {name}; ")?;
         }
 
         if let Some(guard) = &arm.guard {
@@ -1093,9 +1726,6 @@ impl<'a> Emitter<'a> {
         ty: &TypeInfo,
         error_ty: Option<&TypeInfo>,
     ) -> Result<String, BackendError> {
-        if deadline.is_some() {
-            return Err(BackendError::unsupported("scope deadlines"));
-        }
         let return_ty = self.go_type(ty);
         let mut out = String::new();
         if return_ty.is_empty() {
@@ -1103,10 +1733,19 @@ impl<'a> Emitter<'a> {
         } else {
             write!(out, "func() {return_ty} {{ ")?;
         }
-        out.push_str("ctx, cancel := context.WithCancel(context.Background()); _ = ctx; defer cancel(); var wg sync.WaitGroup; ");
+        if let Some(deadline) = deadline {
+            let deadline = self.emit_expr(deadline)?;
+            write!(
+                out,
+                "ctx, cancel := context.WithTimeout(__keel_ctx, {deadline}); "
+            )?;
+        } else {
+            out.push_str("ctx, cancel := context.WithCancel(__keel_ctx); ");
+        }
+        out.push_str("defer cancel(); __keel_ctx := ctx; var wg keelWaitGroup; ");
         if error_ty.is_some() {
             out.push_str(
-                "var firstErr KeelEnum; firstErrIndex := int64(-1); var errMu sync.Mutex; ",
+                "var firstErr KeelEnum; firstErrIndex := int64(-1); var errMu keelMutex; _ = errMu; ",
             );
         }
 
@@ -1140,6 +1779,9 @@ impl<'a> Emitter<'a> {
         out.push_str("wg.Wait(); ");
         if error_ty.is_some() {
             out.push_str("if firstErrIndex >= 0 { return firstErr }; ");
+            if deadline.is_some() {
+                out.push_str("if ctx.Err() != nil { return Err(Cancelled) }; ");
+            }
         }
 
         match tail {
@@ -1207,6 +1849,64 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
+    fn emit_http_call(&mut self, method: &str, args: &[Expr]) -> Result<String, BackendError> {
+        match method {
+            "ok" | "created" | "bad_request" | "conflict" | "internal_error" => {
+                let body = match args.first() {
+                    // Bodies may arrive as `any` (catch results, path params);
+                    // keelString bridges both the `string` and `any` cases.
+                    Some(arg) => format!("keelString({})", self.emit_expr(arg)?),
+                    None => "\"\"".to_string(),
+                };
+                let status = match method {
+                    "ok" => "200",
+                    "created" => "201",
+                    "bad_request" => "400",
+                    "conflict" => "409",
+                    "internal_error" => "500",
+                    _ => unreachable!(),
+                };
+                Ok(format!(
+                    "keelHTTPResponse{{status: {status}, body: {body}}}"
+                ))
+            }
+            "no_content" | "not_found" => {
+                let status = match method {
+                    "no_content" => "204",
+                    "not_found" => "404",
+                    _ => unreachable!(),
+                };
+                Ok(format!("keelHTTPResponse{{status: {status}, body: \"\"}}"))
+            }
+            "serve" => {
+                let port = args
+                    .first()
+                    .map(|a| self.emit_expr(a))
+                    .unwrap_or(Ok("0".to_string()))?;
+                let handler = args
+                    .get(1)
+                    .map(|a| self.emit_expr(a))
+                    .unwrap_or(Ok("\"\"".to_string()))?;
+                Ok(format!("keelHTTPServe({port}, {handler})"))
+            }
+            _ => Err(BackendError::unsupported(format!("http.{method}"))),
+        }
+    }
+
+    fn emit_log_call(&mut self, method: &str, args: &[Expr]) -> Result<String, BackendError> {
+        let mut emitted = Vec::new();
+        for arg in args {
+            emitted.push(self.emit_expr(arg)?);
+        }
+        let go_func = match method {
+            "info" => "keelLogInfo",
+            "warn" => "keelLogWarn",
+            "error" => "keelLogError",
+            _ => return Err(BackendError::unsupported(format!("log.{method}"))),
+        };
+        Ok(format!("{go_func}({})", emitted.join(", ")))
+    }
+
     fn emit_returning_block(&mut self, block: &Block) -> Result<String, BackendError> {
         let Some((last, prefix)) = block.statements.split_last() else {
             return Err(BackendError::unsupported("empty block expressions"));
@@ -1238,10 +1938,14 @@ impl<'a> Emitter<'a> {
             Stmt::Let { name, value, .. } => {
                 let emitted = self.emit_expr(value)?;
                 let expr = self.cast_typed_literal(value, &emitted)?;
-                Ok(format!("{} := {};", name, expr))
+                Ok(format!("{name} := {expr}; _ = {name};"))
             }
             Stmt::Var { name, ty } => {
-                let ty = self.go_type(ty);
+                let ty = if *ty == TypeInfo::Unit {
+                    "struct{}".to_string()
+                } else {
+                    self.go_type(ty)
+                };
                 Ok(format!("var {} {};", name, ty))
             }
             Stmt::Assign { target, value } => Ok(format!(
@@ -1279,7 +1983,16 @@ impl<'a> Emitter<'a> {
         for part in &literal.parts {
             match part {
                 StringPart::Text(text) => args.push(format!("{:?}", text)),
-                StringPart::Expr(expr) => args.push(self.emit_expr(expr)?),
+                StringPart::Expr { expr, ty } => {
+                    let emitted = self.emit_expr(expr)?;
+                    if *ty == TypeInfo::Char {
+                        args.push(format!("string({emitted})"));
+                    } else if *ty == TypeInfo::Named("Timestamp".to_string()) {
+                        args.push(format!("keelTimestampFormat({emitted})"));
+                    } else {
+                        args.push(emitted);
+                    }
+                }
             }
         }
         if args.is_empty() {
@@ -1301,167 +2014,12 @@ impl<'a> Emitter<'a> {
     }
 
     fn next_temp(&mut self) -> String {
-        let temp = format!("__keel_tmp_{}", self.temp_index);
+        let temp = format!("__keel_backend_tmp_{}", self.temp_index);
         self.temp_index += 1;
         temp
     }
 }
 
-fn collect_structs(module: &Module) -> Vec<StructInfo> {
-    let mut structs = Vec::new();
-    for item in &module.items {
-        if let Item::Struct(decl) = item {
-            structs.push(StructInfo {
-                name: decl.name.clone(),
-                fields: decl.fields.clone(),
-            });
-        }
-    }
-    structs.sort_by(|left, right| left.name.cmp(&right.name));
-    structs
-}
-
-fn collect_enum_variant_names(module: &Module) -> Vec<String> {
-    let mut names = Vec::new();
-    for item in &module.items {
-        if let Item::Enum(decl) = item {
-            for variant in &decl.variants {
-                names.push(variant.name.clone());
-            }
-        }
-    }
-    names.sort();
-    names
-}
-
-fn collect_interfaces(module: &Module) -> Vec<InterfaceInfo> {
-    let mut interfaces = Vec::new();
-    for item in &module.items {
-        if let Item::Interface(decl) = item {
-            interfaces.push(InterfaceInfo {
-                name: decl.name.clone(),
-                methods: decl.methods.clone(),
-            });
-        }
-    }
-    interfaces.sort_by(|left, right| left.name.cmp(&right.name));
-    interfaces
-}
-
-fn collect_impls(module: &Module) -> Vec<ImplInfo> {
-    let mut impls = Vec::new();
-    for item in &module.items {
-        if let Item::Impl(decl) = item {
-            impls.push(ImplInfo {
-                interface_name: decl.interface_name.clone(),
-                type_name: decl.type_name.clone(),
-                methods: decl.methods.clone(),
-            });
-        }
-    }
-    impls.sort_by(|left, right| {
-        left.type_name
-            .cmp(&right.type_name)
-            .then_with(|| left.interface_name.cmp(&right.interface_name))
-    });
-    impls
-}
-
-fn go_type(ty: &TypeInfo, struct_names: &[String], interface_names: &[String]) -> String {
-    match ty {
-        TypeInfo::Named(name) if struct_names.iter().any(|n| n == name) => name.clone(),
-        TypeInfo::Named(name) if interface_names.iter().any(|n| n == name) => name.clone(),
-        TypeInfo::Int => "int64".to_string(),
-        TypeInfo::Float => "float64".to_string(),
-        TypeInfo::Bool => "bool".to_string(),
-        TypeInfo::String => "string".to_string(),
-        TypeInfo::Char => "rune".to_string(),
-        TypeInfo::Unit => String::new(),
-        TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => {
-            "KeelEnum".to_string()
-        }
-        // A type parameter erases to its bound interface (§8, dictionary-free
-        // erasure leveraging Go's structural interface dispatch).
-        TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => name.clone(),
-        TypeInfo::Unknown => "any".to_string(),
-    }
-}
-
-fn zero_value(ty: &TypeInfo) -> &'static str {
-    match ty {
-        TypeInfo::Int | TypeInfo::Float | TypeInfo::Char => "0",
-        TypeInfo::Bool => "false",
-        TypeInfo::String => "\"\"",
-        TypeInfo::Unit => "",
-        TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Union(_) => "KeelEnum{}",
-        TypeInfo::Interface(_) | TypeInfo::TypeParam { .. } => "nil",
-        TypeInfo::Unknown => "nil",
-    }
-}
-
-fn go_string_literal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for ch in s.chars() {
-        match ch {
-            '\\' => out.push_str("\\\\"),
-            '"' => out.push_str("\\\""),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            ch => out.push(ch),
-        }
-    }
-    out.push('"');
-    out
-}
-
-fn go_binary_op(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Add => "+",
-        BinaryOp::Subtract => "-",
-        BinaryOp::Multiply => "*",
-        BinaryOp::Divide => "/",
-        BinaryOp::Remainder => "%",
-        BinaryOp::Equal => "==",
-        BinaryOp::NotEqual => "!=",
-        BinaryOp::Less => "<",
-        BinaryOp::LessEqual => "<=",
-        BinaryOp::Greater => ">",
-        BinaryOp::GreaterEqual => ">=",
-        BinaryOp::And => "&&",
-        BinaryOp::Or => "||",
-    }
-}
-
-/// The Go underlying type for a boxable primitive `impl` target, or `None` for
-/// non-primitive (struct/enum) types.
-fn primitive_underlying(type_name: &str) -> Option<&'static str> {
-    match type_name {
-        "Int" => Some("int64"),
-        "Float" => Some("float64"),
-        "Bool" => Some("bool"),
-        "String" => Some("string"),
-        "Char" => Some("rune"),
-        _ => None,
-    }
-}
-
-/// The boxed wrapper type name for a primitive value type, or `None` otherwise.
-fn primitive_box_name(ty: &TypeInfo) -> Option<&'static str> {
-    match ty {
-        TypeInfo::Int => Some("keelBox_Int"),
-        TypeInfo::Float => Some("keelBox_Float"),
-        TypeInfo::Bool => Some("keelBox_Bool"),
-        TypeInfo::String => Some("keelBox_String"),
-        TypeInfo::Char => Some("keelBox_Char"),
-        _ => None,
-    }
-}
-
-/// Wrap a primitive value in its boxed wrapper when it flows into an interface
-/// or erased type-parameter slot; pass structs (which carry Go methods)
-/// through unchanged.
 fn box_for_slot(slot_ty: &TypeInfo, value: &Expr, emitted: String) -> String {
     if matches!(slot_ty, TypeInfo::Interface(_) | TypeInfo::TypeParam { .. }) {
         if let Some(box_name) = primitive_box_name(&expr_ty(value)) {
@@ -1471,262 +2029,10 @@ fn box_for_slot(slot_ty: &TypeInfo, value: &Expr, emitted: String) -> String {
     emitted
 }
 
-fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
-    match ty {
-        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
-        _ => None,
-    }
-}
-
-fn task_value_type(inner: &TypeInfo) -> TypeInfo {
-    inner
-        .result_parts()
-        .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())
-}
-
-fn module_uses_concurrency(module: &Module) -> bool {
-    module.items.iter().any(item_uses_concurrency)
-}
-
-fn item_uses_concurrency(item: &Item) -> bool {
-    match item {
-        Item::Struct(decl) => decl
-            .fields
-            .iter()
-            .any(|field| field.default.as_ref().is_some_and(expr_uses_concurrency)),
-        Item::Function(decl) => block_uses_concurrency(&decl.body),
-        Item::Impl(decl) => decl
-            .methods
-            .iter()
-            .any(|method| block_uses_concurrency(&method.body)),
-        Item::Test(decl) => block_uses_concurrency(&decl.body),
-        Item::Enum(_) | Item::Interface(_) => false,
-    }
-}
-
-fn block_uses_concurrency(block: &Block) -> bool {
-    block.statements.iter().any(stmt_uses_concurrency)
-}
-
-fn stmt_uses_concurrency(stmt: &Stmt) -> bool {
-    match stmt {
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
-            expr_uses_concurrency(value)
-        }
-        Stmt::Return {
-            value: Some(value), ..
-        }
-        | Stmt::Assert { value, .. } => expr_uses_concurrency(value),
-        Stmt::Var { .. } | Stmt::Return { value: None } | Stmt::Break | Stmt::Continue => false,
-    }
-}
-
-fn expr_uses_concurrency(expr: &Expr) -> bool {
-    match expr {
-        Expr::Scope { .. } | Expr::Spawn { .. } => true,
-        Expr::Unary { expr, .. } => expr_uses_concurrency(expr),
-        Expr::Binary { left, right, .. } => {
-            expr_uses_concurrency(left) || expr_uses_concurrency(right)
-        }
-        Expr::Call { callee, args, .. } => {
-            expr_uses_concurrency(callee) || args.iter().any(expr_uses_concurrency)
-        }
-        Expr::Field { target, .. } => expr_uses_concurrency(target),
-        Expr::MethodCall { receiver, args, .. } => {
-            expr_uses_concurrency(receiver) || args.iter().any(expr_uses_concurrency)
-        }
-        Expr::StructLiteral { fields, .. } => {
-            fields.iter().any(|(_, value)| expr_uses_concurrency(value))
-        }
-        Expr::If {
-            condition,
-            then_block,
-            else_block,
-            ..
-        } => {
-            expr_uses_concurrency(condition)
-                || block_uses_concurrency(then_block)
-                || block_uses_concurrency(else_block)
-        }
-        Expr::Match {
-            scrutinee, arms, ..
-        } => {
-            expr_uses_concurrency(scrutinee)
-                || arms.iter().any(|arm| {
-                    arm.guard.as_ref().is_some_and(expr_uses_concurrency)
-                        || expr_uses_concurrency(&arm.value)
-                })
-        }
-        Expr::While { condition, body } => {
-            expr_uses_concurrency(condition) || block_uses_concurrency(body)
-        }
-        Expr::Payload { value, .. } => expr_uses_concurrency(value),
-        Expr::Block(block) => block_uses_concurrency(block),
-        Expr::Return {
-            value: Some(value), ..
-        } => expr_uses_concurrency(value),
-        Expr::Int(_)
-        | Expr::Float(_)
-        | Expr::String(_)
-        | Expr::Char(_)
-        | Expr::Bool(_)
-        | Expr::Name(_)
-        | Expr::Return { value: None } => false,
-    }
-}
-
-fn expr_ty(expr: &Expr) -> TypeInfo {
-    match expr {
-        Expr::Int(_) => TypeInfo::Int,
-        Expr::Float(_) => TypeInfo::Float,
-        Expr::String(_) => TypeInfo::String,
-        Expr::Char(_) => TypeInfo::Char,
-        Expr::Bool(_) => TypeInfo::Bool,
-        Expr::Name(_) => TypeInfo::Unknown,
-        Expr::Unary { ty, .. }
-        | Expr::Binary { ty, .. }
-        | Expr::Call { ty, .. }
-        | Expr::Field { ty, .. }
-        | Expr::MethodCall { ty, .. }
-        | Expr::StructLiteral { ty, .. }
-        | Expr::If { ty, .. }
-        | Expr::Match { ty, .. }
-        | Expr::Payload { ty, .. }
-        | Expr::Scope { ty, .. }
-        | Expr::Spawn { ty, .. } => ty.clone(),
-        Expr::While { .. } | Expr::Return { .. } => TypeInfo::Unit,
-        Expr::Block(block) => block.ty.clone(),
-    }
-}
-
 impl From<fmt::Error> for BackendError {
     fn from(_: fmt::Error) -> Self {
         Self {
             message: "failed to write generated Go source".to_string(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{emit, emit_tests};
-    use keelc_parse::parse;
-    use keelc_span::SourceId;
-
-    #[test]
-    fn emits_test_runner_with_assertion_check() {
-        let source = r#"test "addition holds" {
-    assert 1 + 1 == 2
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit_tests(&kir.module).expect("emission should succeed");
-        assert!(go.contains("import ("));
-        assert!(go.contains("\"fmt\""));
-        assert!(go.contains("\"os\""));
-        assert!(go.contains("func main() {"));
-        assert!(go.contains(r#"fmt.Printf("test %q ... ", "addition holds")"#));
-        assert!(go.contains("fmt.Println(\"ok\")"));
-        assert!(go.contains("if !(((1 + 1) == 2)) {"));
-        assert!(go.contains("fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", 2)"));
-        assert!(go.contains("os.Exit(1)"));
-    }
-
-    #[test]
-    fn test_runner_excludes_user_main() {
-        let source = r#"fn main() {
-    print("hello")
-}
-
-test "example" {
-    assert true
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit_tests(&kir.module).expect("emission should succeed");
-        let matches: Vec<_> = go
-            .lines()
-            .filter(|line| line.starts_with("func main()"))
-            .collect();
-        assert_eq!(
-            matches.len(),
-            1,
-            "test runner must define exactly one main function"
-        );
-    }
-
-    #[test]
-    fn emits_simple_function() {
-        let source = r#"fn main() {
-    print("hello")
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("package main"));
-        assert!(go.contains("import \"fmt\""));
-        assert!(go.contains("func main() {"));
-        assert!(go.contains("fmt.Println(\"hello\")"));
-    }
-
-    #[test]
-    fn emits_struct_decl() {
-        let source = r#"struct Point {
-    x: Int
-    y: Int
-}
-
-fn main() -> Unit {}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("type Point struct {"));
-        assert!(go.contains("x int64"));
-        assert!(go.contains("y int64"));
-    }
-
-    #[test]
-    fn emits_string_interpolation() {
-        let source = r#"fn main() {
-    print("{1 + 2}")
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("fmt.Sprint((1 + 2))"));
-    }
-
-    #[test]
-    fn emits_match_expression() {
-        let source = r#"fn main() {
-    let x = Some(1)
-    match x {
-        Some(n) => print("{n}")
-        other => print("none")
-    }
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("if x.tag == \"Some\" {"));
-        assert!(go.contains("fmt.Println(\"none\")"));
     }
 }

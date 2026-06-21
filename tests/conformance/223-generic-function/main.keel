@@ -12,7 +12,7 @@ impl Boxed for Box {
     }
 }
 
-fn unwrap[T: Boxed](x: T) -> Int {
+fn unwrap<T: Boxed>(x: T) -> Int {
     x.get()
 }
 

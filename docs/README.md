@@ -1,13 +1,7 @@
 # Documentation
 
-Required reading order (from [`AGENTS.md`](../AGENTS.md)):
-
-1. [`vision.md`](vision.md) — language and tooling design rationale
-2. [`spec/keel-core.md`](spec/keel-core.md) — the frozen M0–M4 language subset (normative)
-3. [`spec/07-interfaces.md`](spec/07-interfaces.md) — first post-Core chapter: nominal interfaces (normative)
-4. [`spec/08-generics.md`](spec/08-generics.md) — interface-constrained generics (normative, parser scaffolding complete)
-5. [`kdr/INDEX.md`](kdr/INDEX.md) — decision records (KDRs), accepted and rejected
-6. [`compiler/ARCHITECTURE.md`](../compiler/ARCHITECTURE.md) — compiler pipeline, crate layout, iron rules
+Reading order is defined once in [`AGENTS.md`](../AGENTS.md) ("Required reading
+order") — follow it there. This page is the directory map.
 
 ## Directory map
 
@@ -16,6 +10,9 @@ Required reading order (from [`AGENTS.md`](../AGENTS.md)):
 | [`vision.md`](vision.md) | Design document v0.2 — the "why" behind every feature and decision. Start here. |
 | [`spec/`](spec/) | Normative language specification. `keel-core.md` is the frozen subset; numbered chapters add tested detail. |
 | [`kdr/`](kdr/) | Keel Decision Records — every adopted or rejected design decision, with reopening clauses. |
-| [`milestone-status.md`](milestone-status.md) | Non-normative implementation status per roadmap milestone. |
-| [`generics-implementation.md`](generics-implementation.md) | Implementation tracking for interface-constrained generics (M5). |
 | [`ROADMAP.md`](../ROADMAP.md) | Milestones with exit criteria. |
+
+Non-normative implementation notes live alongside this file as `*-status.md`,
+`*-implementation.md`, and `*-audit.md` (e.g. [`milestone-status.md`](milestone-status.md),
+[`m6-status.md`](m6-status.md)) — browse the [`docs/` listing](.) rather than a
+hand-maintained index, which drifts.

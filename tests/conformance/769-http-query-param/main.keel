@@ -1,0 +1,12 @@
+use std.http
+
+fn handle_list(req: http.Request) -> http.Response {
+    let limit = req.query_param<Int>("limit") ?? 50
+    http.ok("ok")
+}
+
+fn main() {
+    http.serve(8080, http.Router{
+        "GET /users": handle_list,
+    })
+}

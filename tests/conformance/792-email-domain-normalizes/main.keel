@@ -1,0 +1,12 @@
+use std.json
+
+fn quote() -> Char { '"' }
+
+fn main() {
+    let encoded = json.write(
+        json.parse<Email>("{quote()}User.Name@EXAMPLE.COM{quote()}") catch err {
+            other => return print("parse error"),
+        },
+    )
+    print(encoded)
+}

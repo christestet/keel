@@ -1,0 +1,12 @@
+use std.http
+
+fn handle_with_db(db: String, req: http.Request) -> http.Response {
+    http.ok(db)
+}
+
+fn main() {
+    let db = "postgres://localhost/mydb"
+    http.serve(8080, http.Router{
+        "GET /users": fn(req) => handle_with_db(db, req),
+    })
+}

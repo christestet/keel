@@ -1,0 +1,17 @@
+use std.sql
+
+struct User {
+    id: Int
+    name: String
+}
+
+fn main() -> Result<Unit, Error> {
+    let db = sql.connect(":memory:")?
+    db.migrate("create table users (id integer primary key, name text not null)")?
+    db.exec("insert into users (id, name) values ($1, $2)", 1, "Ada")?
+    db.exec("insert into users (id, name) values ($1, $2)", 2, "Bo")?
+    let row = db.query_one("select id, name from users where id = $1", 2)?
+    let u = User.from_row(row)?
+    print(u.name)
+    Ok(())
+}

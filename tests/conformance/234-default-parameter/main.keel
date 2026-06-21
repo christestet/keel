@@ -1,0 +1,8 @@
+fn page(limit: Int = 50) -> Int {
+    limit
+}
+
+fn main() {
+    print("{page()}")
+    print("{page(10)}")
+}

@@ -1,0 +1,19 @@
+use std.time
+
+fn work() -> Int {
+    1
+}
+
+fn label() -> String {
+    let value = scope(deadline: time.milliseconds(0)) {
+        let task = spawn work()
+        task.value
+    } catch err {
+        Cancelled => return "cancelled",
+    }
+    "completed: {value}"
+}
+
+fn main() {
+    print(label())
+}

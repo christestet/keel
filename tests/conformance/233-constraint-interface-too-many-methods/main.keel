@@ -7,6 +7,6 @@ interface Many {
     fn m6(self) -> Unit
 }
 
-fn use_many[T: Many](x: T) {
+fn use_many<T: Many>(x: T) {
     print("hi")
 }

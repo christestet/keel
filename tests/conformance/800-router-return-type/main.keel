@@ -1,0 +1,15 @@
+use std.http
+
+fn home(req: http.Request) -> http.Response {
+    http.ok("home")
+}
+
+fn routes() -> http.Router {
+    http.Router{
+        "GET /": fn(req) => home(req),
+    }
+}
+
+fn main() {
+    http.serve(port: 8080, routes: routes())
+}

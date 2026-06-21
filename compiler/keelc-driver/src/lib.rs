@@ -6,7 +6,7 @@ use keelc_backend_go::{emit, emit_tests};
 use keelc_diag::{Diagnostic, Severity};
 use keelc_kir::lower::lower;
 use keelc_parse::parse_with_milestone;
-use keelc_resolve::{resolve, typecheck};
+use keelc_resolve::{resolve, typecheck, TypecheckOutput};
 use keelc_span::{LineIndex, SourceId};
 use std::env;
 use std::ffi::OsStr;
@@ -66,10 +66,11 @@ pub fn main() -> ExitCode {
 
     let output = parse_with_milestone(SourceId::new(0), &text, milestone);
     let mut diagnostics = output.diagnostics;
+    let checked = typecheck(&output.module);
     if milestone >= 2 && !diagnostics.iter().any(is_error) {
         diagnostics.extend(resolve(&output.module).diagnostics);
         if !diagnostics.iter().any(is_error) {
-            diagnostics.extend(typecheck(&output.module).diagnostics);
+            diagnostics.extend(checked.diagnostics.iter().cloned());
         }
     }
     diagnostics.sort_by(|left, right| {
@@ -91,9 +92,9 @@ pub fn main() -> ExitCode {
     }
 
     match command.as_os_str().to_str() {
-        Some("run") => run_module(&output.module, &text),
-        Some("test") => run_tests(&output.module, &text),
-        Some("build") => build_module(&output.module, path, &text),
+        Some("run") => run_module(&output.module, &text, &checked),
+        Some("test") => run_tests(&output.module, &text, &checked),
+        Some("build") => build_module(&output.module, path, &text, &checked),
         _ => ExitCode::SUCCESS,
     }
 }
@@ -116,18 +117,15 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn build_module(module: &Module, source_path: &Path, source: &str) -> ExitCode {
-    let kir_output = lower(module, source);
-    if !kir_output.diagnostics.is_empty() {
-        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
-        return ExitCode::FAILURE;
-    }
-    let go_source = match emit(&kir_output.module) {
+fn build_module(
+    module: &Module,
+    source_path: &Path,
+    source: &str,
+    checked: &TypecheckOutput,
+) -> ExitCode {
+    let go_source = match emit_go(module, source, checked, false) {
         Ok(source) => source,
-        Err(err) => {
-            eprintln!("backend error: {err}");
-            return ExitCode::FAILURE;
-        }
+        Err(code) => return code,
     };
 
     let temp_dir = env::temp_dir().join(format!("keelc-build-{}", std::process::id()));
@@ -140,14 +138,10 @@ fn build_module(module: &Module, source_path: &Path, source: &str) -> ExitCode {
     }
     let _guard = TempDir(temp_dir.clone());
 
-    let go_file = temp_dir.join("main.go");
-    if let Err(err) = fs::write(&go_file, go_source) {
-        eprintln!(
-            "could not write generated Go source {}: {err}",
-            go_file.display()
-        );
-        return ExitCode::from(2);
-    }
+    let module_mode = match write_go_project(&temp_dir, &go_source) {
+        Ok(module_mode) => module_mode,
+        Err(code) => return code,
+    };
 
     let binary_name = source_path
         .file_stem()
@@ -159,15 +153,19 @@ fn build_module(module: &Module, source_path: &Path, source: &str) -> ExitCode {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let binary_path = output_dir.join(&binary_name);
+    // Absolute so `-o` is correct even when we run `go build` from the module dir.
+    let binary_path = fs::canonicalize(output_dir)
+        .map(|dir| dir.join(&binary_name))
+        .unwrap_or(binary_path);
 
-    let output = match Command::new("go")
-        .arg("build")
-        .arg("-o")
-        .arg(&binary_path)
-        .arg(&go_file)
-        .stdin(Stdio::null())
-        .output()
-    {
+    let mut command = Command::new("go");
+    command.arg("build").arg("-o").arg(&binary_path);
+    if module_mode {
+        command.arg(".").current_dir(&temp_dir);
+    } else {
+        command.arg(temp_dir.join("main.go"));
+    }
+    let output = match command.stdin(Stdio::null()).output() {
         Ok(output) => output,
         Err(err) => {
             eprintln!("could not invoke Go toolchain: {err}");
@@ -214,21 +212,67 @@ impl Drop for TempDir {
     }
 }
 
-fn run_module(module: &Module, source: &str) -> ExitCode {
-    let kir_output = lower(module, source);
-    if !kir_output.diagnostics.is_empty() {
-        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
-        return ExitCode::FAILURE;
-    }
-    let go_source = match emit(&kir_output.module) {
+fn run_module(module: &Module, source: &str, checked: &TypecheckOutput) -> ExitCode {
+    let go_source = match emit_go(module, source, checked, false) {
         Ok(source) => source,
-        Err(err) => {
-            eprintln!("backend error: {err}");
-            return ExitCode::FAILURE;
-        }
+        Err(code) => return code,
+    };
+    run_go(go_source, "keelc-go")
+}
+
+fn run_tests(module: &Module, source: &str, checked: &TypecheckOutput) -> ExitCode {
+    let go_source = match emit_go(module, source, checked, true) {
+        Ok(source) => source,
+        Err(code) => return code,
     };
 
-    let temp_dir = env::temp_dir().join(format!("keelc-go-{}", std::process::id()));
+    run_go(go_source, "keelc-go-tests")
+}
+
+/// Write the generated Go into `temp_dir`. When the program imports an external
+/// module (the SQLite driver, KDR-0042), also emit a `go.mod` and resolve
+/// dependencies so `go build`/`go run` works in module mode. Returns whether the
+/// directory is a Go module (callers then build the package `.` instead of the
+/// lone file).
+fn write_go_project(temp_dir: &Path, go_source: &str) -> Result<bool, ExitCode> {
+    let go_file = temp_dir.join("main.go");
+    if let Err(err) = fs::write(&go_file, go_source) {
+        eprintln!(
+            "could not write generated Go source {}: {err}",
+            go_file.display()
+        );
+        return Err(ExitCode::from(2));
+    }
+    if !go_source.contains("modernc.org/sqlite") {
+        return Ok(false);
+    }
+    if let Err(err) = fs::write(temp_dir.join("go.mod"), "module keelout\n\ngo 1.21\n") {
+        eprintln!("could not write go.mod: {err}");
+        return Err(ExitCode::from(2));
+    }
+    // `go mod tidy` reads main.go's imports, fetches the driver, writes go.sum.
+    let tidy = Command::new("go")
+        .arg("mod")
+        .arg("tidy")
+        .current_dir(temp_dir)
+        .stdin(Stdio::null())
+        .output();
+    match tidy {
+        Ok(output) if output.status.success() => Ok(true),
+        Ok(output) => {
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            eprintln!("could not resolve Go module dependencies (go mod tidy failed)");
+            Err(ExitCode::FAILURE)
+        }
+        Err(err) => {
+            eprintln!("could not invoke Go toolchain: {err}");
+            Err(ExitCode::from(2))
+        }
+    }
+}
+
+fn run_go(go_source: String, temp_prefix: &str) -> ExitCode {
+    let temp_dir = env::temp_dir().join(format!("{temp_prefix}-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
         eprintln!(
             "could not create Go build directory {}: {err}",
@@ -238,21 +282,19 @@ fn run_module(module: &Module, source: &str) -> ExitCode {
     }
     let _guard = TempDir(temp_dir.clone());
 
-    let go_file = temp_dir.join("main.go");
-    if let Err(err) = fs::write(&go_file, go_source) {
-        eprintln!(
-            "could not write generated Go source {}: {err}",
-            go_file.display()
-        );
-        return ExitCode::from(2);
-    }
+    let module_mode = match write_go_project(&temp_dir, &go_source) {
+        Ok(module_mode) => module_mode,
+        Err(code) => return code,
+    };
 
-    let output = match Command::new("go")
-        .arg("run")
-        .arg(&go_file)
-        .stdin(Stdio::null())
-        .output()
-    {
+    let mut command = Command::new("go");
+    command.arg("run");
+    if module_mode {
+        command.arg(".").current_dir(&temp_dir);
+    } else {
+        command.arg(temp_dir.join("main.go"));
+    }
+    let output = match command.stdin(Stdio::null()).output() {
         Ok(output) => output,
         Err(err) => {
             eprintln!("could not invoke Go toolchain: {err}");
@@ -269,59 +311,29 @@ fn run_module(module: &Module, source: &str) -> ExitCode {
     }
 }
 
-fn run_tests(module: &Module, source: &str) -> ExitCode {
-    let kir_output = lower(module, source);
+fn emit_go(
+    module: &Module,
+    source: &str,
+    checked: &TypecheckOutput,
+    tests: bool,
+) -> Result<String, ExitCode> {
+    let kir_output = lower(module, source, &checked.types);
     if !kir_output.diagnostics.is_empty() {
         eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
-        return ExitCode::FAILURE;
+        return Err(ExitCode::FAILURE);
     }
-    let go_source = match emit_tests(&kir_output.module) {
+    let go_source = match if tests {
+        emit_tests(&kir_output.module)
+    } else {
+        emit(&kir_output.module)
+    } {
         Ok(source) => source,
         Err(err) => {
             eprintln!("backend error: {err}");
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
     };
-
-    let temp_dir = env::temp_dir().join(format!("keelc-go-tests-{}", std::process::id()));
-    if let Err(err) = fs::create_dir_all(&temp_dir) {
-        eprintln!(
-            "could not create Go build directory {}: {err}",
-            temp_dir.display()
-        );
-        return ExitCode::from(2);
-    }
-    let _guard = TempDir(temp_dir.clone());
-
-    let go_file = temp_dir.join("main.go");
-    if let Err(err) = fs::write(&go_file, go_source) {
-        eprintln!(
-            "could not write generated Go source {}: {err}",
-            go_file.display()
-        );
-        return ExitCode::from(2);
-    }
-
-    let output = match Command::new("go")
-        .arg("run")
-        .arg(&go_file)
-        .stdin(Stdio::null())
-        .output()
-    {
-        Ok(output) => output,
-        Err(err) => {
-            eprintln!("could not invoke Go toolchain: {err}");
-            return ExitCode::from(2);
-        }
-    };
-
-    print!("{}", String::from_utf8_lossy(&output.stdout));
-    eprint!("{}", String::from_utf8_lossy(&output.stderr));
-    if output.status.success() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    Ok(go_source)
 }
 
 fn file_label(path: &Path) -> String {

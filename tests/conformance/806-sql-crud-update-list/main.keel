@@ -1,0 +1,42 @@
+use std.sql
+use std.json
+
+struct User {
+    id: Int
+    name: String
+}
+
+struct Patch {
+    name: Option<String>
+}
+
+fn insert(db: sql.Pool, id: Int, name: String) -> Result<Unit, sql.Error> {
+    db.exec("insert into users (id, name) values ($1, $2)", id, name)?
+    Ok(())
+}
+
+fn rename(db: sql.Pool, id: Int, patch: Patch) -> Result<User, sql.Error> {
+    let row = db.query_one(
+        "update users set name = coalesce($2, name) where id = $1 returning id, name",
+        id, patch.name,
+    )?
+    Ok(User.from_row(row)?)
+}
+
+fn list(db: sql.Pool) -> Result<List<User>, sql.Error> {
+    let rows = db.query("select id, name from users order by id")?
+    rows.map(User.from_row).collect()
+}
+
+fn main() -> Result<Unit, Error> {
+    let db = sql.connect(":memory:")?
+    db.migrate("create table users (id integer primary key, name text not null)")?
+    insert(db, 1, "Ada")?
+    insert(db, 2, "Bo")?
+    let updated = rename(db, 1, Patch { name: Some("Ada L") })?
+    print(updated.name)
+    let kept = rename(db, 2, Patch { name: None })?
+    print(kept.name)
+    print(json.write(list(db)?))
+    Ok(())
+}

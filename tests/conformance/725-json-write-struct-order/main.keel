@@ -1,0 +1,11 @@
+use std.json
+
+struct User {
+    name: String
+    active: Bool
+}
+
+fn main() {
+    let encoded = json.write(User { name: "Ada", active: true })
+    print(encoded)
+}

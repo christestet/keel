@@ -1,9 +1,10 @@
 //! Recursive-descent parser for Keel Core source files.
 
 use keelc_ast::{
-    BinaryOp, Block, EnumDecl, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl, Item,
-    MatchArm, Module, Param, Pattern, Stmt, StringLiteral as AstStringLiteral, StructDecl,
-    StructLiteralField, TestDecl, Type, TypeParam, UnaryOp, UseDecl, VariantDecl,
+    BinaryOp, Block, CallArg, EnumDecl, Expr, FieldDecl, FunctionDecl, ImplDecl, InterfaceDecl,
+    Item, MatchArm, Module, Param, Pattern, Route, RouteHandler, Stmt,
+    StringLiteral as AstStringLiteral, StructDecl, StructLiteralField, TestDecl, Type, TypeParam,
+    UnaryOp, UseDecl, VariantDecl,
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_lex::{lex, Keyword, LexOutput, Token, TokenKind};
@@ -204,7 +205,7 @@ impl Parser {
                 "type names must be UpperCamelCase",
             ));
         }
-        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
             self.parse_type_params()
         } else {
             Vec::new()
@@ -232,7 +233,7 @@ impl Parser {
             ));
         }
 
-        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
             self.parse_type_params()
         } else {
             Vec::new()
@@ -294,7 +295,7 @@ impl Parser {
             name
         };
 
-        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
+        let type_params = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
             self.parse_type_params()
         } else if self.at_kind(&TokenKind::Less) {
             self.diagnostic_current(
@@ -386,8 +387,8 @@ impl Parser {
                 "type names must be UpperCamelCase",
             ));
         }
-        let type_args = if self.milestone >= 5 && self.at_kind(&TokenKind::LeftBracket) {
-            self.parse_type_args_in_brackets()
+        let type_args = if self.milestone >= 5 && self.at_kind(&TokenKind::Less) {
+            self.parse_type_args_in_angles()
         } else {
             Vec::new()
         };
@@ -490,10 +491,20 @@ impl Parser {
                 ));
                 None
             };
-            let end = ty.as_ref().map_or(name.span, Type::span);
+            let default = if self.eat_kind(&TokenKind::Equal).is_some() {
+                Some(self.parse_expr())
+            } else {
+                None
+            };
+            let end = default
+                .as_ref()
+                .map(Expr::span)
+                .or_else(|| ty.as_ref().map(Type::span))
+                .unwrap_or(name.span);
             params.push(Param {
                 name,
                 ty,
+                default,
                 span: start.join(end),
             });
             if self.eat_kind(&TokenKind::Comma).is_none() {
@@ -508,14 +519,11 @@ impl Parser {
     fn parse_type_params(&mut self) -> Vec<TypeParam> {
         let mut params = Vec::new();
         let bracket_span = self
-            .expect_kind(
-                &TokenKind::LeftBracket,
-                "expected `[` before type parameters",
-            )
+            .expect_kind(&TokenKind::Less, "expected `<` before type parameters")
             .unwrap_or_else(|| self.empty_span());
         self.skip_separators();
         let mut seen_names: Vec<String> = Vec::new();
-        while !self.at_eof() && !self.at_kind(&TokenKind::RightBracket) {
+        while !self.at_eof() && !self.at_kind(&TokenKind::Greater) {
             let start = self.current_span();
             let name = self.expect_identifier("expected type parameter name");
             let bound = if self.eat_kind(&TokenKind::Colon).is_some() {
@@ -574,10 +582,7 @@ impl Parser {
                 "too many type parameters; at most 256 are allowed",
             ));
         }
-        self.expect_kind(
-            &TokenKind::RightBracket,
-            "expected `]` after type parameters",
-        );
+        self.expect_kind(&TokenKind::Greater, "expected `>` after type parameters");
         params
     }
 
@@ -602,7 +607,13 @@ impl Parser {
     }
 
     fn parse_named_type(&mut self) -> Type {
-        let name = self.expect_identifier("expected type name");
+        let mut name = self.expect_identifier("expected type name");
+        while self.eat_kind(&TokenKind::Dot).is_some() {
+            let segment = self.expect_identifier("expected type name after `.`");
+            name.value.push('.');
+            name.value.push_str(&segment.value);
+            name.span = name.span.join(segment.span);
+        }
         let mut args = Vec::new();
         if self.eat_kind(&TokenKind::Less).is_some() {
             self.skip_separators();
@@ -718,7 +729,64 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Expr {
-        self.parse_binary(0)
+        let left = self.parse_binary(0);
+        if self.at_kind(&TokenKind::QuestionQuestion) {
+            let op_span = self
+                .advance()
+                .map_or_else(|| self.empty_span(), |token| token.span);
+            // `a ?? b` defaults an `Option` — right-associative so
+            // `a ?? b ?? c` is `a ?? (b ?? c)` (KDR-0031).
+            let default = self.parse_expr();
+            return self.desugar_coalesce(left, default, op_span);
+        }
+        left
+    }
+
+    /// Desugar `scrutinee ?? default` into `match scrutinee { Some(v) => v,
+    /// None => default }`, reusing the match machinery. A fixed binder name is
+    /// safe: each arm scopes its own binding.
+    fn desugar_coalesce(&self, scrutinee: Expr, default: Expr, span: Span) -> Expr {
+        let binder = Spanned::new("__keel_coalesce".to_string(), span);
+        let some_pattern = Pattern::Name {
+            qualifier: None,
+            name: Spanned::new("Some".to_string(), span),
+            args: vec![Pattern::Name {
+                qualifier: None,
+                name: binder.clone(),
+                args: Vec::new(),
+                ty: None,
+                span,
+            }],
+            ty: None,
+            span,
+        };
+        let none_pattern = Pattern::Name {
+            qualifier: None,
+            name: Spanned::new("None".to_string(), span),
+            args: Vec::new(),
+            ty: None,
+            span,
+        };
+        let full_span = scrutinee.span().join(default.span());
+        let default_span = default.span();
+        Expr::Match {
+            scrutinee: Box::new(scrutinee),
+            arms: vec![
+                MatchArm {
+                    pattern: some_pattern,
+                    guard: None,
+                    value: Expr::Name(binder),
+                    span,
+                },
+                MatchArm {
+                    pattern: none_pattern,
+                    guard: None,
+                    value: default,
+                    span: default_span,
+                },
+            ],
+            span: full_span,
+        }
     }
 
     fn parse_expr_without_struct_literal(&mut self) -> Expr {
@@ -764,7 +832,7 @@ impl Parser {
                 let mut args = Vec::new();
                 self.skip_separators();
                 while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
-                    args.push(self.parse_expr());
+                    args.push(self.parse_call_arg());
                     if self.eat_kind(&TokenKind::Comma).is_none() {
                         break;
                     }
@@ -772,7 +840,10 @@ impl Parser {
                 }
                 let end = self
                     .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
-                    .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                    .unwrap_or_else(|| {
+                        args.last()
+                            .map_or_else(|| expr.span(), |arg| arg.value.span())
+                    });
                 expr = Expr::Call {
                     span: expr.span().join(end),
                     callee: Box::new(expr),
@@ -780,16 +851,17 @@ impl Parser {
                     args,
                 };
             } else if self.milestone >= 5
-                && self.at_kind(&TokenKind::LeftBracket)
-                && matches!(expr, Expr::Name(_))
+                && self.at_kind(&TokenKind::Less)
+                && matches!(expr, Expr::Name(_) | Expr::Field { .. })
+                && self.looks_like_type_args()
             {
-                let type_args = self.parse_type_args_in_brackets();
+                let type_args = self.parse_type_args_in_angles();
                 // After type args, check for call `(args)` or struct literal `{...}`
                 if self.eat_kind(&TokenKind::LeftParen).is_some() {
                     let mut args = Vec::new();
                     self.skip_separators();
                     while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
-                        args.push(self.parse_expr());
+                        args.push(self.parse_call_arg());
                         if self.eat_kind(&TokenKind::Comma).is_none() {
                             break;
                         }
@@ -797,7 +869,10 @@ impl Parser {
                     }
                     let end = self
                         .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
-                        .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                        .unwrap_or_else(|| {
+                            args.last()
+                                .map_or_else(|| expr.span(), |arg| arg.value.span())
+                        });
                     expr = Expr::Call {
                         span: expr.span().join(end),
                         callee: Box::new(expr),
@@ -820,7 +895,7 @@ impl Parser {
                     self.advance();
                     self.skip_separators();
                     while !self.at_eof() && !self.at_kind(&TokenKind::RightParen) {
-                        args.push(self.parse_expr());
+                        args.push(self.parse_call_arg());
                         if self.eat_kind(&TokenKind::Comma).is_none() {
                             break;
                         }
@@ -828,7 +903,10 @@ impl Parser {
                     }
                     let end = self
                         .expect_kind(&TokenKind::RightParen, "expected `)` after arguments")
-                        .unwrap_or_else(|| args.last().map_or_else(|| expr.span(), Expr::span));
+                        .unwrap_or_else(|| {
+                            args.last()
+                                .map_or_else(|| expr.span(), |arg| arg.value.span())
+                        });
                     expr = Expr::MethodCall {
                         span: expr.span().join(end),
                         receiver: Box::new(expr),
@@ -845,22 +923,113 @@ impl Parser {
             } else if self.allow_struct_literals && self.at_kind(&TokenKind::LeftBrace) {
                 if let Expr::Name(name) = expr {
                     expr = self.finish_struct_literal(name, Vec::new());
+                } else if is_http_router(&expr) {
+                    expr = self.finish_router(expr.span());
                 } else {
                     break;
                 }
-            } else if self.eat_kind(&TokenKind::Question).is_some() {
-                let span = expr.span();
+            } else if let Some(question) = self.eat_kind(&TokenKind::Question) {
+                let span = expr.span().join(question);
                 expr = Expr::Question {
                     expr: Box::new(expr),
                     span,
                 };
             } else if self.at_keyword(Keyword::Catch) {
                 expr = self.finish_catch(expr);
+            } else if self.at_separator() && self.next_significant_is_catch() {
+                // `catch` may continue a fallible expression on the next line.
+                // It is a keyword, so this never collides with a new statement.
+                self.skip_separators();
+                expr = self.finish_catch(expr);
             } else {
                 break;
             }
         }
         expr
+    }
+
+    /// Peek past separators for a `catch` keyword (continuation-line catch).
+    fn next_significant_is_catch(&self) -> bool {
+        let mut i = self.pos;
+        while matches!(
+            self.tokens.get(i).map(|token| &token.kind),
+            Some(TokenKind::Newline | TokenKind::Semicolon)
+        ) {
+            i += 1;
+        }
+        matches!(
+            self.tokens.get(i).map(|token| &token.kind),
+            Some(TokenKind::Keyword(Keyword::Catch))
+        )
+    }
+
+    fn parse_call_arg(&mut self) -> CallArg {
+        // Handle the special `mode: .tolerant` syntax for json.parse
+        let is_tolerant = matches!(
+            self.tokens.get(self.pos..self.pos + 4),
+            Some([
+                Token { kind: TokenKind::Identifier(mode), .. },
+                Token { kind: TokenKind::Colon, .. },
+                Token { kind: TokenKind::Dot, .. },
+                Token { kind: TokenKind::Identifier(tolerant), .. },
+            ]) if mode == "mode" && tolerant == "tolerant"
+        );
+        if is_tolerant {
+            let start = self
+                .advance()
+                .map_or_else(|| self.empty_span(), |token| token.span);
+            self.advance();
+            self.advance();
+            let end = self.advance().map_or(start, |token| token.span);
+            return CallArg {
+                name: None,
+                value: Expr::String(Spanned::new(
+                    AstStringLiteral {
+                        text: "__keel_json_tolerant".to_string(),
+                        interpolations: Vec::new(),
+                    },
+                    start.join(end),
+                )),
+                span: start.join(end),
+            };
+        }
+
+        // Named argument: `name: value` inside call parens
+        // In call position, `identifier : expr` is always a named argument.
+        let next_name = self.tokens.get(self.pos).and_then(|tok| match &tok.kind {
+            TokenKind::Identifier(name) => Some((name.clone(), tok.span)),
+            _ => None,
+        });
+        let has_colon = matches!(
+            self.tokens.get(self.pos + 1),
+            Some(Token {
+                kind: TokenKind::Colon,
+                ..
+            })
+        );
+        if let Some((name, name_span)) = next_name {
+            if has_colon {
+                // mode: .tolerant is handled above.
+                // Consume identifier and colon, then parse the value expression.
+                self.advance();
+                self.advance();
+                let value = self.parse_expr();
+                let span = name_span.join(value.span());
+                return CallArg {
+                    name: Some(Spanned::new(name, name_span)),
+                    value,
+                    span,
+                };
+            }
+        }
+
+        let value = self.parse_expr();
+        let span = value.span();
+        CallArg {
+            name: None,
+            value,
+            span,
+        }
     }
 
     fn parse_unary(&mut self) -> Expr {
@@ -890,38 +1059,23 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::Int(value),
                 span,
-            }) => Expr::Int(Spanned::new(value, span)),
+            }) => self.finish_primary_int(value, span),
             Some(Token {
                 kind: TokenKind::Float(value),
                 span,
-            }) => Expr::Float(Spanned::new(value, span)),
+            }) => self.finish_primary_float(value, span),
             Some(Token {
                 kind: TokenKind::String(value),
                 span,
-            }) => Expr::String(Spanned::new(
-                AstStringLiteral {
-                    text: value.text,
-                    interpolations: value.interpolations,
-                },
-                span,
-            )),
+            }) => self.finish_primary_string(value, span),
             Some(Token {
                 kind: TokenKind::Char(value),
                 span,
-            }) => Expr::Char(Spanned::new(value, span)),
+            }) => self.finish_primary_char(value, span),
             Some(Token {
                 kind: TokenKind::Identifier(value),
                 span,
-            }) => {
-                if value == "nil" || value == "null" {
-                    self.diagnostics.push(Diagnostic::error(
-                        registry::K0201,
-                        span,
-                        "Option<T> is the only absence value in Keel Core",
-                    ));
-                }
-                Expr::Name(Spanned::new(value, span))
-            }
+            }) => self.finish_primary_identifier(value, span),
             Some(Token {
                 kind: TokenKind::Underscore,
                 span,
@@ -949,23 +1103,11 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Scope),
                 span,
-            }) => {
-                if self.milestone >= 5 {
-                    self.finish_scope(span)
-                } else {
-                    self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
-                }
-            }
+            }) => self.finish_primary_scope(span),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Spawn),
                 span,
-            }) => {
-                if self.milestone >= 5 {
-                    self.finish_spawn(span)
-                } else {
-                    self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
-                }
-            }
+            }) => self.finish_primary_spawn(span),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Return),
                 span,
@@ -980,19 +1122,12 @@ impl Parser {
             }) => self.banned_expr(span, registry::K0908, "async/await are not in Keel Core"),
             Some(Token {
                 kind: TokenKind::LeftParen,
-                span: _,
-            }) => {
-                let expr = self.parse_expr();
-                self.expect_kind(&TokenKind::RightParen, "expected `)` after expression");
-                expr
-            }
+                span,
+            }) => self.finish_primary_paren(span),
             Some(Token {
                 kind: TokenKind::LeftBrace,
                 span,
-            }) => {
-                self.pos = self.pos.saturating_sub(1);
-                Expr::Block(self.parse_block_from_start(span))
-            }
+            }) => self.finish_primary_block(span),
             Some(token) => {
                 self.diagnostics.push(Diagnostic::error(
                     registry::K0003,
@@ -1003,6 +1138,69 @@ impl Parser {
             }
             None => Expr::Missing(self.empty_span()),
         }
+    }
+
+    fn finish_primary_int(&mut self, value: String, span: Span) -> Expr {
+        Expr::Int(Spanned::new(value, span))
+    }
+
+    fn finish_primary_float(&mut self, value: String, span: Span) -> Expr {
+        Expr::Float(Spanned::new(value, span))
+    }
+
+    fn finish_primary_string(&mut self, value: keelc_lex::StringLiteral, span: Span) -> Expr {
+        Expr::String(Spanned::new(
+            AstStringLiteral {
+                text: value.text,
+                interpolations: value.interpolations,
+            },
+            span,
+        ))
+    }
+
+    fn finish_primary_char(&mut self, value: String, span: Span) -> Expr {
+        Expr::Char(Spanned::new(value, span))
+    }
+
+    fn finish_primary_identifier(&mut self, value: String, span: Span) -> Expr {
+        if value == "nil" || value == "null" {
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0201,
+                span,
+                "Option<T> is the only absence value in Keel Core",
+            ));
+        }
+        Expr::Name(Spanned::new(value, span))
+    }
+
+    fn finish_primary_scope(&mut self, span: Span) -> Expr {
+        if self.milestone >= 5 {
+            self.finish_scope(span)
+        } else {
+            self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
+        }
+    }
+
+    fn finish_primary_spawn(&mut self, span: Span) -> Expr {
+        if self.milestone >= 5 {
+            self.finish_spawn(span)
+        } else {
+            self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
+        }
+    }
+
+    fn finish_primary_paren(&mut self, open: Span) -> Expr {
+        if let Some(close) = self.eat_kind(&TokenKind::RightParen) {
+            return Expr::Unit(open.join(close));
+        }
+        let expr = self.parse_expr();
+        self.expect_kind(&TokenKind::RightParen, "expected `)` after expression");
+        expr
+    }
+
+    fn finish_primary_block(&mut self, span: Span) -> Expr {
+        self.pos = self.pos.saturating_sub(1);
+        Expr::Block(self.parse_block_from_start(span))
     }
 
     fn finish_struct_literal(&mut self, name: Spanned<String>, type_args: Vec<Type>) -> Expr {
@@ -1034,25 +1232,117 @@ impl Parser {
         }
     }
 
-    fn parse_type_args_in_brackets(&mut self) -> Vec<Type> {
-        self.expect_kind(
-            &TokenKind::LeftBracket,
-            "expected `[` before type arguments",
-        );
+    /// Parse the body of `http.Router{ "METHOD /path": handler, ... }`. The
+    /// leading `http.Router` field access has already been parsed; `start` is its
+    /// span and the cursor is at `{`.
+    fn finish_router(&mut self, start: Span) -> Expr {
+        self.expect_kind(&TokenKind::LeftBrace, "expected `{` after `http.Router`");
+        let mut routes = Vec::new();
+        self.skip_separators();
+        while !self.at_eof() && !self.at_kind(&TokenKind::RightBrace) {
+            let pattern = match self.advance() {
+                Some(Token {
+                    kind: TokenKind::String(literal),
+                    span,
+                }) => Spanned::new(literal.text, span),
+                other => {
+                    let span = other.map_or_else(|| self.empty_span(), |t| t.span);
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0003,
+                        span,
+                        "expected route pattern string in `http.Router`",
+                    ));
+                    Spanned::new(String::new(), span)
+                }
+            };
+            self.expect_kind(&TokenKind::Colon, "expected `:` after route pattern");
+            let handler = self.parse_route_handler();
+            let span = pattern.span.join(handler.span());
+            routes.push(Route {
+                pattern,
+                handler,
+                span,
+            });
+            self.eat_kind(&TokenKind::Comma);
+            self.skip_separators();
+        }
+        let end = self
+            .expect_kind(&TokenKind::RightBrace, "expected `}` after `http.Router`")
+            .unwrap_or_else(|| routes.last().map_or(start, |route| route.span));
+        Expr::Router {
+            routes,
+            span: start.join(end),
+        }
+    }
+
+    /// A route handler value: a bare function name or a `fn(req) => expr` closure.
+    fn parse_route_handler(&mut self) -> RouteHandler {
+        if self.at_keyword(Keyword::Fn) {
+            let start = self.advance().map_or_else(|| self.empty_span(), |t| t.span);
+            self.expect_kind(&TokenKind::LeftParen, "expected `(` after `fn`");
+            let param = self.expect_identifier("expected closure parameter name");
+            self.expect_kind(
+                &TokenKind::RightParen,
+                "expected `)` after closure parameter",
+            );
+            self.expect_kind(&TokenKind::FatArrow, "expected `=>` in closure");
+            let body = self.parse_expr();
+            let span = start.join(body.span());
+            RouteHandler::Closure {
+                param,
+                body: Box::new(body),
+                span,
+            }
+        } else {
+            RouteHandler::Expr(Box::new(self.parse_expr()))
+        }
+    }
+
+    fn parse_type_args_in_angles(&mut self) -> Vec<Type> {
+        self.expect_kind(&TokenKind::Less, "expected `<` before type arguments");
         let mut args = Vec::new();
         self.skip_separators();
-        while !self.at_eof() && !self.at_kind(&TokenKind::RightBracket) {
+        while !self.at_eof() && !self.at_kind(&TokenKind::Greater) {
             args.push(self.parse_type());
             if self.eat_kind(&TokenKind::Comma).is_none() {
                 break;
             }
             self.skip_separators();
         }
-        self.expect_kind(
-            &TokenKind::RightBracket,
-            "expected `]` after type arguments",
-        );
+        self.expect_kind(&TokenKind::Greater, "expected `>` after type arguments");
         args
+    }
+
+    /// Pure lookahead: with the current token at `<`, decide whether this opens a
+    /// call-site type-argument list (`name<T, U>(` or `name<T>{`) rather than a
+    /// comparison. Scans a balanced `<…>` over the limited token set a type list
+    /// admits; returns true only if the matching `>` is followed by `(` or `{`.
+    /// Chained comparison is already a parse error (`K0003`), so this shape has
+    /// no competing legal parse (KDR-0032).
+    fn looks_like_type_args(&self) -> bool {
+        let mut depth = 0_u32;
+        let mut i = self.pos;
+        while let Some(token) = self.tokens.get(i) {
+            match token.kind {
+                TokenKind::Less => depth += 1,
+                TokenKind::Greater => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Peek the token after the closing `>`.
+                        return matches!(
+                            self.tokens.get(i + 1).map(|t| &t.kind),
+                            Some(TokenKind::LeftParen | TokenKind::LeftBrace)
+                        );
+                    }
+                }
+                // Tokens that may legally appear inside a type-argument list.
+                TokenKind::Identifier(_) | TokenKind::Dot | TokenKind::Comma | TokenKind::Pipe => {}
+                // Anything else means this `<` is the comparison operator.
+                _ => return false,
+            }
+            i += 1;
+        }
+        false
     }
 
     fn finish_if(&mut self, start: Span) -> Expr {
@@ -1154,9 +1444,40 @@ impl Parser {
     fn finish_catch(&mut self, expr: Expr) -> Expr {
         let start = expr.span();
         self.expect_keyword(Keyword::Catch);
-        let error_name = self.expect_identifier("expected catch error binding");
-        let arms = self.parse_match_arms();
-        let end = arms.last().map_or(error_name.span, |arm| arm.span);
+        // The catch head is a pattern. Three shapes:
+        //   `catch err { arms }`      — `err` binds the error; arms match it.
+        //   `catch err => v`          — catch-all binding, single arm.
+        //   `catch sql.NoRows => v`   — classification arm, no binding; the
+        //                               unmatched rest propagates (KDR-0037).
+        let head = self.parse_pattern();
+        let head_span = head.span();
+        let (error_name, arms) = if self.at_kind(&TokenKind::LeftBrace) {
+            (pattern_binding_name(&head), self.parse_match_arms())
+        } else if self.eat_kind(&TokenKind::FatArrow).is_some() {
+            let value = self.parse_expr();
+            let span = head_span.join(value.span());
+            if is_binding_pattern(&head) {
+                let arm = MatchArm {
+                    pattern: Pattern::Wildcard(head_span),
+                    guard: None,
+                    value,
+                    span,
+                };
+                (pattern_binding_name(&head), vec![arm])
+            } else {
+                let arm = MatchArm {
+                    pattern: head,
+                    guard: None,
+                    value,
+                    span,
+                };
+                (None, vec![arm])
+            }
+        } else {
+            self.expect_kind(&TokenKind::FatArrow, "expected `=>` or `{` after catch");
+            (pattern_binding_name(&head), Vec::new())
+        };
+        let end = arms.last().map_or(head_span, |arm| arm.span);
         Expr::Catch {
             expr: Box::new(expr),
             error_name,
@@ -1196,7 +1517,27 @@ impl Parser {
         if let Some(span) = self.eat_kind(&TokenKind::Underscore) {
             return Pattern::Wildcard(span);
         }
-        let name = self.expect_identifier("expected pattern");
+        // `()` — unit payload pattern (e.g. `Ok(())`).
+        if let Some(open) = self.eat_kind(&TokenKind::LeftParen) {
+            let close = self
+                .expect_kind(&TokenKind::RightParen, "expected `)` in unit pattern")
+                .unwrap_or(open);
+            return Pattern::Unit(open.join(close));
+        }
+        let first = self.expect_identifier("expected pattern");
+        // Qualified classification pattern: `sql.NoRows` (KDR-0037).
+        let (qualifier, name) = if self.eat_kind(&TokenKind::Dot).is_some() {
+            let variant = self.expect_identifier("expected name after `.` in pattern");
+            (Some(first), variant)
+        } else {
+            (None, first)
+        };
+        // Typed binding: `err: sql.Error` (KDR-0038).
+        let ty = if self.eat_kind(&TokenKind::Colon).is_some() {
+            Some(Box::new(self.parse_type()))
+        } else {
+            None
+        };
         let mut args = Vec::new();
         if self.eat_kind(&TokenKind::LeftParen).is_some() {
             self.skip_separators();
@@ -1209,12 +1550,17 @@ impl Parser {
             }
             self.expect_kind(&TokenKind::RightParen, "expected `)` after pattern");
         }
-        let end = args.last().map_or(name.span, Pattern::span);
-        let full_span = name.span.join(end);
+        let start = qualifier.as_ref().map_or(name.span, |q| q.span);
+        let end = args.last().map_or_else(
+            || ty.as_ref().map_or(name.span, |ty| ty.span()),
+            Pattern::span,
+        );
         Pattern::Name {
+            qualifier,
             name,
             args,
-            span: full_span,
+            ty,
+            span: start.join(end),
         }
     }
 
@@ -1223,23 +1569,24 @@ impl Parser {
     }
 
     fn current_binary_op(&self) -> Option<(BinaryOp, u8)> {
-        let (op, prec) = match self.current_kind()? {
-            TokenKind::PipePipe => (BinaryOp::Or, 1),
-            TokenKind::AmpAmp => (BinaryOp::And, 2),
-            TokenKind::EqualEqual => (BinaryOp::Equal, 3),
-            TokenKind::BangEqual => (BinaryOp::NotEqual, 3),
-            TokenKind::Less => (BinaryOp::Less, 4),
-            TokenKind::LessEqual => (BinaryOp::LessEqual, 4),
-            TokenKind::Greater => (BinaryOp::Greater, 4),
-            TokenKind::GreaterEqual => (BinaryOp::GreaterEqual, 4),
-            TokenKind::Plus => (BinaryOp::Add, 5),
-            TokenKind::Minus => (BinaryOp::Subtract, 5),
-            TokenKind::Star => (BinaryOp::Multiply, 6),
-            TokenKind::Slash => (BinaryOp::Divide, 6),
-            TokenKind::Percent => (BinaryOp::Remainder, 6),
-            _ => return None,
-        };
-        Some((op, prec))
+        const TABLE: &[(TokenKind, BinaryOp, u8)] = &[
+            (TokenKind::PipePipe, BinaryOp::Or, 1),
+            (TokenKind::AmpAmp, BinaryOp::And, 2),
+            (TokenKind::EqualEqual, BinaryOp::Equal, 3),
+            (TokenKind::BangEqual, BinaryOp::NotEqual, 3),
+            (TokenKind::Less, BinaryOp::Less, 4),
+            (TokenKind::LessEqual, BinaryOp::LessEqual, 4),
+            (TokenKind::Greater, BinaryOp::Greater, 4),
+            (TokenKind::GreaterEqual, BinaryOp::GreaterEqual, 4),
+            (TokenKind::Plus, BinaryOp::Add, 5),
+            (TokenKind::Minus, BinaryOp::Subtract, 5),
+            (TokenKind::Star, BinaryOp::Multiply, 6),
+            (TokenKind::Slash, BinaryOp::Divide, 6),
+            (TokenKind::Percent, BinaryOp::Remainder, 6),
+        ];
+        let kind = self.current_kind()?;
+        let entry = TABLE.iter().find(|(k, _, _)| *k == *kind)?;
+        Some((entry.1, entry.2))
     }
 
     fn skip_balanced_angle_list(&mut self) {
@@ -1443,6 +1790,34 @@ impl Parser {
         }
         .to_owned()
     }
+}
+
+/// True for the `http.Router` field access, the only `pkg.Type{ ... }` literal
+/// in M6 (KDR-0031). Keeps the route-table literal contained to `http`.
+/// The binding name a catch head introduces (`err` in `catch err { ... }`).
+fn pattern_binding_name(pattern: &Pattern) -> Option<Spanned<String>> {
+    match pattern {
+        Pattern::Name { name, .. } => Some(name.clone()),
+        Pattern::Unit(_) | Pattern::Wildcard(_) => None,
+    }
+}
+
+/// A plain unqualified, un-typed, argument-less name — the catch-all binding
+/// form `catch err => ...`, as opposed to a classification pattern.
+fn is_binding_pattern(pattern: &Pattern) -> bool {
+    matches!(
+        pattern,
+        Pattern::Name { qualifier: None, args, ty: None, .. } if args.is_empty()
+    )
+}
+
+fn is_http_router(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Field { target, field, .. }
+            if field.value == "Router"
+                && matches!(target.as_ref(), Expr::Name(name) if name.value == "http")
+    )
 }
 
 fn is_comparison_op(op: BinaryOp) -> bool {

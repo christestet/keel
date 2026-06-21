@@ -1,0 +1,5 @@
+fn use_uuid(value: Uuid) -> Unit {}
+
+fn main() {
+    use_uuid(Uuid.new())
+}

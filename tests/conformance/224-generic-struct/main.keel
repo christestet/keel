@@ -2,7 +2,7 @@ interface Display {
     fn to_string(self) -> String
 }
 
-struct Pair[A: Display, B: Display] {
+struct Pair<A: Display, B: Display> {
     first: A
     second: B
 }
@@ -20,7 +20,7 @@ impl Display for String {
 }
 
 fn main() {
-    let p = Pair[Int, String] {
+    let p = Pair<Int, String> {
         first: 1,
         second: "two",
     }

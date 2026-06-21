@@ -1,0 +1,4 @@
+fn main() {
+    print("line one
+line two")
+}

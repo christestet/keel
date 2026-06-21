@@ -63,6 +63,7 @@ pub struct FunctionDecl {
 pub struct Param {
     pub name: String,
     pub ty: TypeInfo,
+    pub default: Option<Expr>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -131,6 +132,7 @@ pub enum Expr {
     String(StringLiteral),
     Char(char),
     Bool(bool),
+    Unit,
     Name(String),
     Unary {
         op: UnaryOp,
@@ -145,6 +147,7 @@ pub enum Expr {
     },
     Call {
         callee: Box<Expr>,
+        type_args: Vec<TypeInfo>,
         args: Vec<Expr>,
         ty: TypeInfo,
     },
@@ -157,6 +160,7 @@ pub enum Expr {
         receiver: Box<Expr>,
         method: String,
         args: Vec<Expr>,
+        arg_types: Vec<TypeInfo>,
         ty: TypeInfo,
     },
     StructLiteral {
@@ -198,6 +202,26 @@ pub enum Expr {
     Return {
         value: Option<Box<Expr>>,
     },
+    /// `http.Router{ ... }` route table (KDR-0031). Handlers are lowered to a
+    /// pattern string plus either a named function or an inline closure.
+    Router {
+        routes: Vec<Route>,
+        ty: TypeInfo,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Route {
+    pub pattern: String,
+    pub handler: RouteHandler,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RouteHandler {
+    /// A function name resolving to `fn(http.Request) -> http.Response`.
+    Named(String),
+    /// `fn(param) => body`, capturing the enclosing scope.
+    Closure { param: String, body: Box<Expr> },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,7 +232,7 @@ pub struct StringLiteral {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StringPart {
     Text(String),
-    Expr(Expr),
+    Expr { expr: Box<Expr>, ty: TypeInfo },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -221,10 +245,20 @@ pub struct MatchArm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Pattern {
     Name {
+        /// A variant tag (`Ok`, `NoRows`, an enum variant) when `is_binding` is
+        /// false, or the bound variable name when `is_binding` is true.
         name: String,
         args: Vec<Pattern>,
         payload_types: Vec<TypeInfo>,
+        /// `true`: bind `name` to the matched value (a sub-payload or, at the
+        /// arm head, the whole scrutinee). `false`: match when `tag == name`.
+        is_binding: bool,
+        /// Typed binding `x: T` (KDR-0038): match only when the runtime tag is
+        /// one of these. `None` matches unconditionally.
+        type_test: Option<Vec<String>>,
     },
+    /// `()` — the unit payload; matches always, binds nothing.
+    Unit,
     Wildcard,
 }
 

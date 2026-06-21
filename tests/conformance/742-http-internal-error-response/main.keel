@@ -1,0 +1,6 @@
+use std.http
+
+fn main() {
+    let resp = http.internal_error("database unavailable")
+    print(resp.status)
+}

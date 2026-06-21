@@ -1,0 +1,15 @@
+fn parse(s: String) -> Result<Int, String> {
+    if s == "42" { return Ok(42) }
+    Err("nope")
+}
+
+fn doubled(s: String) -> Result<Int, String> {
+    Ok(parse(s)? + parse(s)?)
+}
+
+fn main() {
+    match doubled("42") {
+        Ok(n)  => print("{n}"),
+        Err(e) => print(e),
+    }
+}

@@ -1,0 +1,6 @@
+use std.json
+
+fn main() {
+    let value = json.parse<Unit>("null")
+    print(value)
+}

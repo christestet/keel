@@ -1,0 +1,9 @@
+use std.json
+
+fn main() {
+    let value = json.parse<Int>("9223372036854775808") catch err {
+        OutOfRange(path) => return print("range {path}"),
+        other => return print("wrong error"),
+    }
+    print(value)
+}

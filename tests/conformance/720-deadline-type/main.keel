@@ -1,0 +1,8 @@
+fn work() -> Unit {}
+
+fn main() {
+    let value = scope(deadline: 1) {
+        let task = spawn work()
+        task.value
+    }
+}

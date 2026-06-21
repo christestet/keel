@@ -1,10 +1,16 @@
 //! Name resolution and early semantic diagnostics for Keel Core.
 
-use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Pattern, Stmt, StringLiteral};
+use keelc_ast::{
+    BinaryOp, Block, CallArg, Expr, Item, MatchArm, Module, Pattern, RouteHandler, Stmt,
+    StringLiteral,
+};
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{Span, Spanned};
-use keelc_types::infer::{is_int_float_pair, type_absorbs, types_compatible, TypeContext};
-use keelc_types::{merge_types, TypeInfo};
+use keelc_types::infer::{
+    is_int_float_pair, task_inner, task_value_type, type_absorbs, types_compatible, TypeContext,
+};
+use keelc_types::{merge_types, reduce_error_types, TypeInfo};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveOutput {
@@ -19,6 +25,7 @@ pub fn resolve(module: &Module) -> ResolveOutput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypecheckOutput {
     pub diagnostics: Vec<Diagnostic>,
+    pub types: BTreeMap<Span, TypeInfo>,
 }
 
 #[must_use]
@@ -146,6 +153,7 @@ impl<'a> Resolver<'a> {
             | Expr::Char(_)
             | Expr::Bool(_)
             | Expr::Name(_)
+            | Expr::Unit(_)
             | Expr::Wildcard(_) => {}
             Expr::Unary { expr, .. } | Expr::Question { expr, .. } => self.resolve_expr(expr),
             Expr::Binary { left, right, .. } => {
@@ -155,14 +163,14 @@ impl<'a> Resolver<'a> {
             Expr::Call { callee, args, .. } => {
                 self.resolve_expr(callee);
                 for arg in args {
-                    self.resolve_expr(arg);
+                    self.resolve_expr(&arg.value);
                 }
             }
             Expr::Field { target, .. } => self.resolve_expr(target),
             Expr::MethodCall { receiver, args, .. } => {
                 self.resolve_expr(receiver);
                 for arg in args {
-                    self.resolve_expr(arg);
+                    self.resolve_expr(&arg.value);
                 }
             }
             Expr::StructLiteral { name, fields, .. } => {
@@ -215,7 +223,9 @@ impl<'a> Resolver<'a> {
             } => {
                 self.resolve_expr(expr);
                 self.push_scope();
-                self.define(error_name, BindingKind::Immutable);
+                if let Some(error_name) = error_name {
+                    self.define(error_name, BindingKind::Immutable);
+                }
                 for arm in arms {
                     self.push_scope();
                     self.resolve_expr(&arm.value);
@@ -226,6 +236,19 @@ impl<'a> Resolver<'a> {
             Expr::Return { value, .. } => {
                 if let Some(value) = value {
                     self.resolve_expr(value);
+                }
+            }
+            Expr::Router { routes, .. } => {
+                for route in routes {
+                    match &route.handler {
+                        RouteHandler::Closure { param, body, .. } => {
+                            self.push_scope();
+                            self.define(param, BindingKind::Immutable);
+                            self.resolve_expr(body);
+                            self.pop_scope();
+                        }
+                        RouteHandler::Expr(expr) => self.resolve_expr(expr),
+                    }
                 }
             }
         }
@@ -324,6 +347,7 @@ struct Typechecker<'a> {
     module: &'a Module,
     ctx: TypeContext,
     diagnostics: Vec<Diagnostic>,
+    types: BTreeMap<Span, TypeInfo>,
     diagnostic_span_override: Option<Span>,
     scope_depth: usize,
     scope_errors: Vec<Vec<TypeInfo>>,
@@ -343,6 +367,7 @@ impl<'a> Typechecker<'a> {
             module,
             ctx: TypeContext::new(module),
             diagnostics: Vec::new(),
+            types: BTreeMap::new(),
             diagnostic_span_override: None,
             scope_depth: 0,
             scope_errors: Vec::new(),
@@ -381,6 +406,7 @@ impl<'a> Typechecker<'a> {
 
         TypecheckOutput {
             diagnostics: self.diagnostics,
+            types: self.types,
         }
     }
 
@@ -643,6 +669,12 @@ impl<'a> Typechecker<'a> {
     }
 
     fn infer_expr(&mut self, expr: &Expr) -> TypeInfo {
+        let ty = self.infer_expr_inner(expr);
+        self.types.insert(expr.span(), ty.clone());
+        ty
+    }
+
+    fn infer_expr_inner(&mut self, expr: &Expr) -> TypeInfo {
         match expr {
             Expr::Missing(_) | Expr::Wildcard(_) => TypeInfo::Unknown,
             Expr::Int(_) => TypeInfo::Int,
@@ -653,6 +685,7 @@ impl<'a> Typechecker<'a> {
             }
             Expr::Char(_) => TypeInfo::Char,
             Expr::Bool(_) => TypeInfo::Bool,
+            Expr::Unit(_) => TypeInfo::Unit,
             Expr::Name(name) => self
                 .value_type(&name.value)
                 .or_else(|| self.builtin_value_type(&name.value))
@@ -665,7 +698,12 @@ impl<'a> Typechecker<'a> {
                 right,
                 span,
             } => self.infer_binary(left, *op, right, *span),
-            Expr::Call { callee, args, .. } => self.infer_call(callee, args),
+            Expr::Call {
+                callee,
+                type_args,
+                args,
+                ..
+            } => self.infer_call(callee, type_args, args),
             Expr::Field { target, field, .. } => {
                 let target_type = self.infer_expr(target);
                 if field.value == "value" {
@@ -711,10 +749,13 @@ impl<'a> Typechecker<'a> {
                 self.check_match_exhaustive(&scrutinee_type, arms, *span);
                 let mut result = TypeInfo::Unknown;
                 for arm in arms {
+                    self.push_scope();
+                    self.bind_pattern(&arm.pattern, &scrutinee_type);
                     if let Some(guard) = &arm.guard {
                         self.infer_expr(guard);
                     }
                     let arm_type = self.infer_expr(&arm.value);
+                    self.pop_scope();
                     if result == TypeInfo::Unknown {
                         result = arm_type;
                     }
@@ -744,9 +785,20 @@ impl<'a> Typechecker<'a> {
                     .map_or((TypeInfo::Unknown, TypeInfo::Unknown), |(ok, err)| {
                         (ok.clone(), err.clone())
                     });
-                self.check_catch_exhaustive(&error_type, arms, *span);
+                if matches!(&error_type, TypeInfo::Named(name) if name == "Error") {
+                    // `Error` is opaque (KDR-0033): it cannot be destructured.
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0504,
+                        self.diagnostic_span(*span),
+                        "cannot `catch` a value of the opaque `Error` type; declare a union to branch on errors".to_string(),
+                    ));
+                } else {
+                    self.check_catch_exhaustive(&error_type, arms, *span);
+                }
                 self.push_scope();
-                self.define_value(error_name, error_type);
+                if let Some(error_name) = error_name {
+                    self.define_value(error_name, error_type);
+                }
                 for arm in arms {
                     self.infer_expr(&arm.value);
                 }
@@ -759,16 +811,130 @@ impl<'a> Typechecker<'a> {
                 }
                 TypeInfo::Unit
             }
+            Expr::Router { routes, span } => self.infer_router(routes, *span),
+        }
+    }
+
+    fn infer_router(&mut self, routes: &[keelc_ast::Route], anchor: Span) -> TypeInfo {
+        for route in routes {
+            self.check_http_handler(&route.handler, anchor);
+        }
+        TypeInfo::Named("http.Router".to_string())
+    }
+
+    /// Methods on the compiler-known `std.sql` value types (KDR-0029): pool
+    /// query/exec/migrate, `QueryResult.map`/`next`, `RowMapper.collect`.
+    fn infer_sql_method(
+        &mut self,
+        receiver: &TypeInfo,
+        method: &Spanned<String>,
+        args: &[CallArg],
+    ) -> Option<TypeInfo> {
+        let sql_error = TypeInfo::Named("sql.Error".to_string());
+        match receiver {
+            TypeInfo::Named(name) if name == "sql.Pool" => {
+                let result =
+                    |ok: TypeInfo| TypeInfo::generic("Result", vec![ok, sql_error.clone()]);
+                Some(match method.value.as_str() {
+                    "query" => result(TypeInfo::Named("sql.QueryResult".to_string())),
+                    "query_one" => result(TypeInfo::Named("sql.Row".to_string())),
+                    "exec" => result(TypeInfo::Int),
+                    "migrate" => result(TypeInfo::Unit),
+                    _ => return None,
+                })
+            }
+            TypeInfo::Named(name) if name == "sql.QueryResult" => match method.value.as_str() {
+                "map" => Some(self.infer_sql_map(args, method.span)),
+                "next" => Some(TypeInfo::generic(
+                    "Option",
+                    vec![TypeInfo::Named("sql.Row".to_string())],
+                )),
+                _ => None,
+            },
+            TypeInfo::Generic { name, args: targs } if name == "sql.RowMapper" => {
+                match method.value.as_str() {
+                    "collect" => {
+                        let item = targs.first().cloned().unwrap_or(TypeInfo::Unknown);
+                        Some(TypeInfo::generic(
+                            "Result",
+                            vec![TypeInfo::generic("List", vec![item]), sql_error],
+                        ))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// `QueryResult.map(f)` — `f` must be a bare function name or
+    /// `Type.from_row` resolving to `fn(sql.Row) -> Struct`; `K1506` otherwise.
+    /// Returns `RowMapper<Struct>`.
+    fn infer_sql_map(&mut self, args: &[CallArg], span: Span) -> TypeInfo {
+        let row = TypeInfo::Named("sql.Row".to_string());
+        let first_arg = args.first().map(|a| &a.value);
+        let item = match first_arg {
+            Some(Expr::Name(name)) => match self.function_info(&name.value) {
+                Some(info) if info.params == vec![row] => info.return_type.clone(),
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1506,
+                        self.diagnostic_span(name.span),
+                        format!(
+                            "`{}` must be a function `fn(sql.Row) -> Struct`",
+                            name.value
+                        ),
+                    ));
+                    TypeInfo::Unknown
+                }
+            },
+            // User.from_row — derived struct method returning Result<Struct, sql.Error>
+            Some(Expr::Field { target, field, .. })
+                if field.value == "from_row"
+                    && matches!(target.as_ref(), Expr::Name(name) if self.ctx.is_struct(&name.value)) =>
+            {
+                let struct_name = match target.as_ref() {
+                    Expr::Name(name) => name.value.clone(),
+                    _ => unreachable!(),
+                };
+                TypeInfo::Named(struct_name)
+            }
+            other => {
+                let arg_span = other.map_or(span, Expr::span);
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K1506,
+                    self.diagnostic_span(arg_span),
+                    "`map` expects a row-mapping function name `fn(sql.Row) -> Struct`",
+                ));
+                TypeInfo::Unknown
+            }
+        };
+        TypeInfo::Generic {
+            name: "sql.RowMapper".to_string(),
+            args: vec![item],
         }
     }
 
     fn infer_scope(&mut self, deadline: Option<&Expr>, body: &Block) -> TypeInfo {
         if let Some(deadline) = deadline {
-            self.infer_expr(deadline);
+            let deadline_type = self.infer_expr(deadline);
+            if deadline_type != TypeInfo::Named("time.Duration".to_string())
+                && deadline_type != TypeInfo::Unknown
+            {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K1502,
+                    self.diagnostic_span(deadline.span()),
+                    format!("scope deadline must be `time.Duration`, found `{deadline_type}`"),
+                ));
+            }
         }
 
         self.scope_depth += 1;
-        self.scope_errors.push(Vec::new());
+        self.scope_errors.push(if deadline.is_some() {
+            vec![TypeInfo::Named("Cancelled".to_string())]
+        } else {
+            Vec::new()
+        });
         self.push_scope();
 
         let mut result = TypeInfo::Unit;
@@ -866,8 +1032,13 @@ impl<'a> Typechecker<'a> {
         }
     }
 
-    fn infer_call(&mut self, callee: &Expr, args: &[Expr]) -> TypeInfo {
-        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
+    fn infer_call(
+        &mut self,
+        callee: &Expr,
+        type_args: &[keelc_ast::Type],
+        args: &[CallArg],
+    ) -> TypeInfo {
+        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(&arg.value)).collect();
 
         match callee {
             Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
@@ -877,6 +1048,10 @@ impl<'a> Typechecker<'a> {
                     args: vec![TypeInfo::Int],
                 }
             }
+            Expr::Name(name) if name.value == "check_cancel" => TypeInfo::generic(
+                "Result",
+                vec![TypeInfo::Unit, TypeInfo::Named("Cancelled".to_string())],
+            ),
             Expr::Name(name) if name.value == "Some" => TypeInfo::Generic {
                 name: "Option".to_string(),
                 args: vec![arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)],
@@ -912,6 +1087,126 @@ impl<'a> Typechecker<'a> {
                 self.check_call_args(&[TypeInfo::Int], args, field.span);
                 TypeInfo::Float
             }
+            Expr::Field { target, field, .. }
+                if matches!(target.as_ref(), Expr::Name(name) if name.value == "json")
+                    && field.value == "parse" =>
+            {
+                self.check_call_args(&[TypeInfo::String], &args[..args.len().min(1)], field.span);
+                let target_type = type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown);
+                if type_args.len() != 1 || !self.ctx.is_json_representable(&target_type) {
+                    let span = type_args.first().map_or(field.span, keelc_ast::Type::span);
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1503,
+                        self.diagnostic_span(span),
+                        format!("type `{target_type}` is not JSON-representable"),
+                    ));
+                }
+                TypeInfo::generic(
+                    "Result",
+                    vec![target_type, TypeInfo::Named("json.Error".to_string())],
+                )
+            }
+            Expr::Field { target, field, .. }
+                if matches!(target.as_ref(), Expr::Name(name) if name.value == "config")
+                    && field.value == "load" =>
+            {
+                let target_type = type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown);
+                let is_struct =
+                    matches!(&target_type, TypeInfo::Named(name) if self.ctx.is_struct(name));
+                if type_args.len() != 1 || !is_struct {
+                    let span = type_args.first().map_or(field.span, keelc_ast::Type::span);
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1507,
+                        self.diagnostic_span(span),
+                        format!(
+                            "`config.load` type argument must be a named struct, found `{target_type}`"
+                        ),
+                    ));
+                }
+                TypeInfo::generic(
+                    "Result",
+                    vec![target_type, TypeInfo::Named("config.Error".to_string())],
+                )
+            }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "http") => {
+                self.infer_http_call(field, args)
+            }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "log") => {
+                match field.value.as_str() {
+                    "info" | "warn" | "error" => {
+                        self.check_call_args(&[TypeInfo::String], args, field.span);
+                        TypeInfo::Unit
+                    }
+                    _ => {
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0606,
+                            self.diagnostic_span(field.span),
+                            format!("method `{}` not found on `std.log`", field.value),
+                        ));
+                        TypeInfo::Unknown
+                    }
+                }
+            }
+            Expr::Field { target, field, .. } if matches!(target.as_ref(), Expr::Name(name) if name.value == "sql") => {
+                match field.value.as_str() {
+                    "connect" => {
+                        self.check_call_args(&[TypeInfo::String], args, field.span);
+                        TypeInfo::generic(
+                            "Result",
+                            vec![
+                                TypeInfo::Named("sql.Pool".to_string()),
+                                TypeInfo::Named("sql.Error".to_string()),
+                            ],
+                        )
+                    }
+                    _ => {
+                        self.diagnostics.push(Diagnostic::error(
+                            registry::K0606,
+                            self.diagnostic_span(field.span),
+                            format!("method `{}` not found on `std.sql`", field.value),
+                        ));
+                        TypeInfo::Unknown
+                    }
+                }
+            }
+            Expr::Field { target, field, .. }
+                if field.value == "get"
+                    && self.infer_expr(target) == TypeInfo::Named("sql.Row".to_string()) =>
+            {
+                self.check_call_args(&[TypeInfo::Int], args, field.span);
+                type_args
+                    .first()
+                    .map(TypeInfo::from_ast)
+                    .map(|ty| self.resolve_type(&ty))
+                    .unwrap_or(TypeInfo::Unknown)
+            }
+            Expr::Field { target, field, .. }
+                if matches!(field.value.as_str(), "path_param" | "query_param") =>
+            {
+                let target_type = self.infer_expr(target);
+                if target_type == TypeInfo::Named("http.Request".to_string()) {
+                    self.check_call_args(&[TypeInfo::String], args, field.span);
+                    let parsed = type_args
+                        .first()
+                        .map(TypeInfo::from_ast)
+                        .map(|ty| self.resolve_type(&ty))
+                        .unwrap_or(TypeInfo::Unknown);
+                    match field.value.as_str() {
+                        "path_param" => TypeInfo::generic("Result", vec![parsed, TypeInfo::String]),
+                        _ => TypeInfo::generic("Option", vec![parsed]),
+                    }
+                } else {
+                    TypeInfo::Unknown
+                }
+            }
             Expr::Field { .. } => {
                 self.infer_expr(callee);
                 TypeInfo::Unknown
@@ -923,11 +1218,10 @@ impl<'a> Typechecker<'a> {
         }
     }
 
-    fn check_call_args(&mut self, params: &[TypeInfo], args: &[Expr], span: Span) {
-        for (index, (param, arg)) in params.iter().zip(args.iter()).enumerate() {
-            let arg_type = self.infer_expr(arg);
-            self.check_assignable(&arg_type, param, arg.span());
-            let _ = index;
+    fn check_call_args(&mut self, params: &[TypeInfo], args: &[CallArg], span: Span) {
+        for (param, arg) in params.iter().zip(args.iter()) {
+            let arg_type = self.infer_expr(&arg.value);
+            self.check_assignable(&arg_type, param, arg.value.span());
         }
         let _ = (params, args, span);
     }
@@ -936,16 +1230,149 @@ impl<'a> Typechecker<'a> {
         &mut self,
         receiver: &Expr,
         method: &Spanned<String>,
-        args: &[Expr],
+        args: &[CallArg],
         span: Span,
     ) -> TypeInfo {
         if matches!(receiver, Expr::Name(name) if name.value == "Float") && method.value == "from" {
             self.check_call_args(&[TypeInfo::Int], args, method.span);
             return TypeInfo::Float;
         }
+        if matches!(receiver, Expr::Name(name) if name.value == "Uuid") && method.value == "new" {
+            self.check_call_args(&[], args, method.span);
+            return TypeInfo::Named("Uuid".to_string());
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "Timestamp")
+            && method.value == "now"
+        {
+            self.check_call_args(&[], args, method.span);
+            return TypeInfo::Named("Timestamp".to_string());
+        }
+        // Derive Struct.from_row(row) -> Result<Struct, sql.Error> for any named struct.
+        if method.value == "from_row" {
+            if let Expr::Name(name) = receiver {
+                let struct_name = &name.value;
+                if self.ctx.is_struct(struct_name) {
+                    self.check_call_args(
+                        &[TypeInfo::Named("sql.Row".to_string())],
+                        args,
+                        method.span,
+                    );
+                    return TypeInfo::generic(
+                        "Result",
+                        vec![
+                            TypeInfo::Named(struct_name.clone()),
+                            TypeInfo::Named("sql.Error".to_string()),
+                        ],
+                    );
+                }
+            }
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "time") {
+            return match method.value.as_str() {
+                "milliseconds" | "seconds" => {
+                    self.check_call_args(&[TypeInfo::Int], args, method.span);
+                    TypeInfo::Named("time.Duration".to_string())
+                }
+                "sleep" => {
+                    self.check_call_args(
+                        &[TypeInfo::Named("time.Duration".to_string())],
+                        args,
+                        method.span,
+                    );
+                    TypeInfo::generic(
+                        "Result",
+                        vec![TypeInfo::Unit, TypeInfo::Named("Cancelled".to_string())],
+                    )
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0606,
+                        self.diagnostic_span(span),
+                        format!("method `{}` not found on `std.time`", method.value),
+                    ));
+                    TypeInfo::Unknown
+                }
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "http") {
+            return self.infer_http_call(method, args);
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "sql") {
+            return match method.value.as_str() {
+                "connect" => {
+                    self.check_call_args(&[TypeInfo::String], args, method.span);
+                    TypeInfo::generic(
+                        "Result",
+                        vec![
+                            TypeInfo::Named("sql.Pool".to_string()),
+                            TypeInfo::Named("sql.Error".to_string()),
+                        ],
+                    )
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0606,
+                        self.diagnostic_span(method.span),
+                        format!("method `{}` not found on `std.sql`", method.value),
+                    ));
+                    TypeInfo::Unknown
+                }
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "log") {
+            return match method.value.as_str() {
+                "info" | "warn" | "error" => {
+                    self.check_call_args(&[TypeInfo::String], args, method.span);
+                    TypeInfo::Unit
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K0606,
+                        self.diagnostic_span(method.span),
+                        format!("method `{}` not found on `std.log`", method.value),
+                    ));
+                    TypeInfo::Unknown
+                }
+            };
+        }
+        if matches!(receiver, Expr::Name(name) if name.value == "json") && method.value == "write" {
+            let value_type = args
+                .first()
+                .map(|arg| self.infer_expr(&arg.value))
+                .unwrap_or(TypeInfo::Unknown);
+            if !self.ctx.is_json_representable(&value_type) {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K1503,
+                    self.diagnostic_span(args.first().map_or(method.span, |arg| arg.value.span())),
+                    format!("type `{value_type}` is not JSON-representable"),
+                ));
+            }
+            // json.write is total for a representable type (KDR-0040).
+            return TypeInfo::String;
+        }
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
-            self.infer_expr(arg);
+            self.infer_expr(&arg.value);
+        }
+        if receiver_type == TypeInfo::Named("Secret".to_string()) && method.value == "unwrap" {
+            self.check_call_args(&[], args, method.span);
+            return TypeInfo::String;
+        }
+        if method.value == "unwrap" {
+            if let TypeInfo::Generic {
+                name,
+                args: type_args,
+            } = &receiver_type
+            {
+                if name == "Option" && type_args.len() == 1 {
+                    let inner = type_args[0].clone();
+                    self.check_call_args(&[], args, method.span);
+                    return inner;
+                }
+            }
+        }
+        if let Some(result) = self.infer_sql_method(&receiver_type, method, args) {
+            return result;
         }
         let method_info = match &receiver_type {
             TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => {
@@ -1018,6 +1445,100 @@ impl<'a> Typechecker<'a> {
             TypeInfo::Unknown
         } else {
             merge_types(&then_type, &else_type)
+        }
+    }
+
+    fn infer_http_call(&mut self, field: &Spanned<String>, args: &[CallArg]) -> TypeInfo {
+        match field.value.as_str() {
+            // The two error-status helpers take the universal Error (KDR-0041);
+            // the rest take a String body.
+            "bad_request" | "internal_error" => {
+                self.check_call_args(&[TypeInfo::Named("Error".to_string())], args, field.span);
+                TypeInfo::Named("http.Response".to_string())
+            }
+            "ok" | "created" | "conflict" => {
+                self.check_call_args(&[TypeInfo::String], args, field.span);
+                TypeInfo::Named("http.Response".to_string())
+            }
+            "no_content" | "not_found" => TypeInfo::Named("http.Response".to_string()),
+            "serve" => {
+                if let Some(port) = args.first() {
+                    let port_type = self.infer_expr(&port.value);
+                    self.check_assignable(&port_type, &TypeInfo::Int, port.value.span());
+                }
+                if let Some(routes) = args.get(1) {
+                    let routes_type = self.infer_expr(&routes.value);
+                    self.check_assignable(
+                        &routes_type,
+                        &TypeInfo::Named("http.Router".to_string()),
+                        routes.value.span(),
+                    );
+                }
+                TypeInfo::generic(
+                    "Result",
+                    vec![TypeInfo::Unit, TypeInfo::Named("http.Error".to_string())],
+                )
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::error(
+                    registry::K0606,
+                    self.diagnostic_span(field.span),
+                    format!("method `{}` not found on `std.http`", field.value),
+                ));
+                TypeInfo::Unknown
+            }
+        }
+    }
+
+    fn check_http_handler(&mut self, handler: &RouteHandler, anchor: Span) {
+        let request = TypeInfo::Named("http.Request".to_string());
+        let response = TypeInfo::Named("http.Response".to_string());
+        match handler {
+            RouteHandler::Closure { param, body, .. } => {
+                self.push_scope();
+                self.define_value(param, request);
+                let body_type = self.infer_expr(body);
+                self.pop_scope();
+                if !types_compatible(&body_type, &response) {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        format!(
+                            "route handler closure returns `{body_type}`, expected `http.Response`"
+                        ),
+                    ));
+                }
+            }
+            RouteHandler::Expr(expr) => {
+                let Expr::Name(name) = expr.as_ref() else {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        "route handler must be a function name `fn(http.Request) -> http.Response` or a `fn(req) => ...` closure",
+                    ));
+                    return;
+                };
+                let Some(info) = self.function_info(&name.value) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        format!("`{}` is not a function", name.value),
+                    ));
+                    return;
+                };
+                if info.params != vec![request] || info.return_type != response {
+                    self.diagnostics.push(Diagnostic::error(
+                        registry::K1504,
+                        self.diagnostic_span(anchor),
+                        format!(
+                            "`{}` has signature `fn({}) -> {}`, expected `fn(http.Request) -> http.Response`",
+                            name.value,
+                            info.params.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "),
+                            info.return_type,
+                        ),
+                    ));
+                }
+            }
         }
     }
 
@@ -1105,6 +1626,16 @@ impl<'a> Typechecker<'a> {
     }
 
     fn check_match_exhaustive(&mut self, scrutinee_type: &TypeInfo, arms: &[MatchArm], span: Span) {
+        if matches!(scrutinee_type, TypeInfo::Named(name) if name == "Error") {
+            // `Error` is opaque (KDR-0033): it has no matchable variants.
+            self.diagnostics.push(Diagnostic::error(
+                registry::K0504,
+                self.diagnostic_span(span),
+                "cannot `match` on the opaque `Error` type; declare a union to branch on errors"
+                    .to_string(),
+            ));
+            return;
+        }
         self.check_exhaustive(
             scrutinee_type,
             arms,
@@ -1159,6 +1690,39 @@ impl<'a> Typechecker<'a> {
         self.ctx.enum_variant_type(variant_name)
     }
 
+    /// Define the variables a match/catch pattern introduces, with the types
+    /// flowing from the scrutinee's variant payloads, so arm bodies see them
+    /// (e.g. `Ok(user)` makes `user` a `User`). A typed binding `x: T` takes
+    /// its declared type (KDR-0038).
+    fn bind_pattern(&mut self, pattern: &Pattern, scrutinee_ty: &TypeInfo) {
+        let Pattern::Name {
+            qualifier,
+            name,
+            args,
+            ty,
+            ..
+        } = pattern
+        else {
+            return;
+        };
+        let is_binding = qualifier.is_none()
+            && args.is_empty()
+            && !matches!(name.value.as_str(), "Ok" | "Err" | "Some" | "None")
+            && self.enum_variant_type(&name.value).is_none();
+        if is_binding {
+            let bind_ty = ty
+                .as_ref()
+                .map_or_else(|| scrutinee_ty.clone(), |ty| TypeInfo::from_ast(ty));
+            self.define_value(name, bind_ty);
+            return;
+        }
+        let payloads = self.ctx.pattern_payload_types(scrutinee_ty, &name.value);
+        for (index, arg) in args.iter().enumerate() {
+            let arg_ty = payloads.get(index).cloned().unwrap_or(TypeInfo::Unknown);
+            self.bind_pattern(arg, &arg_ty);
+        }
+    }
+
     fn check_string_interpolations(&mut self, literal: &Spanned<StringLiteral>) {
         for interpolation in &literal.value.interpolations {
             let Some(expr) = keelc_parse::parse_interpolation_expr(
@@ -1168,8 +1732,9 @@ impl<'a> Typechecker<'a> {
                 continue;
             };
             let previous_override = self.diagnostic_span_override.replace(interpolation.span);
-            self.infer_expr(&expr);
+            let ty = self.infer_expr(&expr);
             self.diagnostic_span_override = previous_override;
+            self.types.insert(interpolation.span, ty);
         }
     }
 
@@ -1199,6 +1764,10 @@ impl<'a> Typechecker<'a> {
             return;
         }
         if expected == actual {
+            return;
+        }
+        // The universal Error absorbs any error value (KDR-0033/0041).
+        if matches!(expected, TypeInfo::Named(name) if name == "Error") {
             return;
         }
         if let TypeInfo::Interface(interface_name) = expected {
@@ -1376,28 +1945,21 @@ fn is_catch_fallback_arm(arm: &MatchArm) -> bool {
     }
     match &arm.pattern {
         Pattern::Wildcard(_) => true,
-        Pattern::Name { name, args, .. } => name.value == "other" && args.is_empty(),
+        Pattern::Name {
+            qualifier: None,
+            name,
+            args,
+            ..
+        } => name.value == "other" && args.is_empty(),
+        Pattern::Name { .. } | Pattern::Unit(_) => false,
     }
 }
 
 fn arm_pattern_name(arm: &MatchArm) -> Option<&str> {
     match &arm.pattern {
         Pattern::Name { name, .. } => Some(name.value.as_str()),
-        Pattern::Wildcard(_) => None,
+        Pattern::Unit(_) | Pattern::Wildcard(_) => None,
     }
-}
-
-fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
-    match ty {
-        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
-        _ => None,
-    }
-}
-
-fn task_value_type(inner: &TypeInfo) -> TypeInfo {
-    inner
-        .result_parts()
-        .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())
 }
 
 fn scope_error_type(errors: Vec<TypeInfo>) -> Option<TypeInfo> {
@@ -1407,11 +1969,7 @@ fn scope_error_type(errors: Vec<TypeInfo>) -> Option<TypeInfo> {
             unique.push(error);
         }
     }
-    match unique.len() {
-        0 => None,
-        1 => unique.into_iter().next(),
-        _ => Some(TypeInfo::Union(unique)),
-    }
+    reduce_error_types(unique)
 }
 
 #[cfg(test)]

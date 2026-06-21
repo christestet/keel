@@ -49,7 +49,11 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 
 **Known failures:** none.
 
-**Done:** `keelc-kir` crate introduced; backend emits from explicitly-typed KIR. Shared `TypeContext` in `keelc-types` supplies type information to both `keelc-resolve` and KIR lowering.
+**Done:** `keelc-kir` crate introduced; backend emits from explicitly-typed KIR.
+The resolver/typechecker is the single expression-inference owner and KIR
+consumes its span-keyed type results. Shared `TypeContext` declaration tables
+remain in `keelc-types`. See
+[`docs/m6-simplification-audit.md`](m6-simplification-audit.md).
 
 ## M4 — Toolchain skeleton: CLI, fmt, test
 
@@ -92,10 +96,10 @@ lowers through KIR, and emits Go with a join barrier, `context.WithCancel`,
 Conformance cases `710`-`715` pass at M5, and `903-no-scope-spawn` is gated
 through M4.
 
-**Remaining concurrency work:** `scope(deadline: ...)` parses and lowers, but Go
-backend deadline emission is intentionally still unsupported until M6 provides
-the time/duration stdlib surface. Explicit cancellation checkpoint APIs such as
-`check_cancel()` are specified but not exposed by the current stdlib slice.
+**Concurrency:** `scope(deadline: ...)` is fully wired — the Go backend emits
+`context.WithTimeout` and returns `Cancelled` on expiry — and `check_cancel()`
+lowers to a runtime cancellation checkpoint. Cases `716`–`723` (deadline
+cancellation, nested deadline tightening, `check_cancel`, zero-deadline) pass.
 
 **Generics parser (done):** `TypeParam` AST node with `name`, `bound`, `span`;
 `type_params` on `FunctionDecl`, `StructDecl`, `EnumDecl`; `type_args` on `Expr::Call`,
@@ -106,6 +110,25 @@ K0802/K0803 by the typechecker; K0807 is subsumed by K0601. Pretty printer round
 all generic syntax.
 
 **Known limitations:** interfaces are limited to ≤5 methods (KDR-0003); no default methods, inheritance, or structural subtyping.
+
+## M6 — Stdlib slice (in progress)
+
+| Area | State |
+|---|---|
+| `std.time` / deadline / `check_cancel` | Done. `time.Duration`, `time.milliseconds`, `time.seconds`, `time.sleep`, `check_cancel()`, `scope(deadline: …)`. Conformance cases `716`–`723` pass. See [`docs/spec/15-stdlib-core.md §15.1–15.4`](spec/15-stdlib-core.md). |
+| `std.json` | Done. `json.parse[T]`, `json.write(value)`, strict and tolerant modes, struct/enum/Option/primitive codecs, formatter round-trip, `K1503` compile-time guard. Cases `724`–`735` pass. See [`docs/m6-status.md`](m6-status.md#stdjson). |
+| `std.http` | Done. Router model (`http.Router`, closure handlers, typed `path_param`/`query_param`), `http.serve`, `http.Request`/`Response`, response constructors, `K1504`/`K1505`. Cases `736`–`745`, `767`–`769` pass. See [`KDR-0031`](kdr/0031-http-router-and-params.md) (supersedes 0028) and [`m6-status.md`](m6-status.md). |
+| `std.sql` | Done. `sql.connect`, `pool.query`/`query_one`/`exec`/`migrate`, `RowMapper`, `sql.Error` variants, `K1506`. Cases `770`–`775` pass. See [`KDR-0029`](kdr/0029-sql-database-access.md). |
+| `std.log` | Done. `log.info`, `log.warn`, `log.error` — simple string messages to stdout. Cases `746`–`748` pass. See [`docs/spec/15-stdlib-core.md §15.25–15.27`](spec/15-stdlib-core.md). |
+| `std.config` | Done. `config.load<T>()`, `Secret`/`secret.unwrap`, `config.Error` variants, env-var mapping + typed parsing, `K1507`. Cases `776`–`778` pass. See [`KDR-0030`](kdr/0030-config-loading-surface.md). |
+| Core scalars | Done. `Uuid`/`Timestamp`/`Email` + constructors, JSON/HTTP parsing, canonical interpolation. Cases `779`–`793` pass. See [`KDR-0034`](kdr/0034-core-boundary-scalars.md). |
+| Universal `Error` | Done. Opaque error type absorbing any propagated error at `?`/return; `catch`/`match` on it is `K0504`. Cases `511`/`512`. See [`KDR-0033`](kdr/0033-universal-error-type.md). |
+| Multi-line strings | Done. Literal newlines inside `"..."`. See [`KDR-0035`](kdr/0035-multiline-string-literals.md). |
+| `Struct.from_row` + error classification | Done. Auto-derived `from_row`, qualified `sql.NoRows`/`sql.UniqueViolation` patterns, union narrowing. Cases `794`–`796`. See [`KDR-0037`](kdr/0037-sql-error-classification-patterns.md)/[`KDR-0038`](kdr/0038-union-narrowing-patterns.md). |
+| `examples/users-service/main.keel` | Parses + typechecks fully. Four remaining gaps before the exit gate (`json.write` ergonomics, http error helpers, `Option.unwrap`, the SQLite test harness) — see [`m6-status.md`](m6-status.md#remaining-gaps). M6 exit criterion. |
+
+**Conformance score:** 185 / 185 passed at M6, 3 skipped. The live planning note
+with the step-by-step exit sequence is [`docs/m6-status.md`](m6-status.md).
 
 ## Future: LSP server (M7+)
 
@@ -154,6 +177,15 @@ validate with:
 ```sh
 KEEL_MILESTONE=M5 scripts/preflight.sh
 # → 119 passed, 0 failed, 2 skipped
+```
+
+M6 adds the stdlib slice (`std.time`/`json`/`http`/`sql`/`log`/`config`), Core
+scalars, the universal `Error` type, multi-line strings, and error-classification
+patterns; validate with:
+
+```sh
+KEEL_MILESTONE=M6 scripts/preflight.sh
+# → 185 passed, 0 failed, 3 skipped
 ```
 
 ## Dependency chain

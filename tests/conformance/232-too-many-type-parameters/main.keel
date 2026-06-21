@@ -1,4 +1,4 @@
-fn many[
+fn many<
     A0: Foo, A1: Foo, A2: Foo, A3: Foo, A4: Foo,
     A5: Foo, A6: Foo, A7: Foo, A8: Foo, A9: Foo,
     A10: Foo, A11: Foo, A12: Foo, A13: Foo, A14: Foo,
@@ -51,4 +51,4 @@ fn many[
     A245: Foo, A246: Foo, A247: Foo, A248: Foo, A249: Foo,
     A250: Foo, A251: Foo, A252: Foo, A253: Foo, A254: Foo,
     A255: Foo, A256: Foo,
-](x: A0) -> A0 { x }
+>(x: A0) -> A0 { x }

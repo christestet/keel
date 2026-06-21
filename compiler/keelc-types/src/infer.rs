@@ -1,13 +1,10 @@
-//! Shared, diagnostic-free type-inference helpers for the Keel pipeline.
+//! Shared type information and symbol tables for the Keel pipeline.
 //!
 //! [`TypeContext`] captures the module-level symbol tables and local binding
-//! scopes needed to infer expression types.  It is intentionally agnostic to
-//! diagnostics so that both `keelc-resolve` (which adds diagnostics) and
-//! `keelc-kir` lowering (which needs typed KIR) can share the same inference
-//! logic.
+//! scopes used by resolution, plus declarations queried during KIR lowering.
 
-use crate::{merge_types, substitute_type_params, type_param_bounds, TypeInfo};
-use keelc_ast::{BinaryOp, Block, Expr, Item, MatchArm, Module, Stmt, UnaryOp};
+use crate::{substitute_type_params, type_param_bounds, TypeInfo};
+use keelc_ast::{Item, Module};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StructInfo {
@@ -72,7 +69,7 @@ pub struct TypedBinding {
     pub ty: TypeInfo,
 }
 
-/// Type-inference context shared by resolution and KIR lowering.
+/// Shared type context for resolution and KIR lowering.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypeContext {
     functions: Vec<FunctionInfo>,
@@ -140,357 +137,21 @@ impl TypeContext {
     }
 
     #[must_use]
-    pub fn infer_expr(&self, expr: &Expr) -> TypeInfo {
-        match expr {
-            Expr::Missing(_) | Expr::Wildcard(_) => TypeInfo::Unknown,
-            Expr::Int(_) => TypeInfo::Int,
-            Expr::Float(_) => TypeInfo::Float,
-            Expr::String(_) => TypeInfo::String,
-            Expr::Char(_) => TypeInfo::Char,
-            Expr::Bool(_) => TypeInfo::Bool,
-            Expr::Name(name) => self
-                .value_type(&name.value)
-                .or_else(|| self.builtin_value_type(&name.value))
-                .or_else(|| self.enum_variant_type(&name.value))
-                .unwrap_or(TypeInfo::Unknown),
-            Expr::Unary { op, expr, .. } => self.infer_unary(*op, expr),
-            Expr::Binary {
-                left, op, right, ..
-            } => self.infer_binary(left, *op, right),
-            Expr::Call { callee, args, .. } => self.infer_call(callee, args),
-            Expr::Field { target, field, .. } => self
-                .field_type(&self.infer_expr(target), &field.value)
-                .unwrap_or(TypeInfo::Unknown),
-            Expr::MethodCall {
-                receiver,
-                method,
-                args,
-                ..
-            } => self.infer_method_call(receiver, &method.value, args),
-            Expr::StructLiteral { name, .. } => TypeInfo::Named(name.value.clone()),
-            Expr::If {
-                then_block,
-                else_branch,
-                ..
-            } => else_branch
-                .as_deref()
-                .map_or(TypeInfo::Unit, |else_branch| {
-                    merge_types(
-                        &self.infer_block_type(then_block),
-                        &self.infer_expr(else_branch),
-                    )
-                }),
-            Expr::Match { arms, .. } => self.infer_match_result(arms),
-            Expr::While { .. } => TypeInfo::Unit,
-            Expr::Scope { deadline, body, .. } => self.infer_scope(deadline.as_deref(), body),
-            Expr::Spawn { expr, .. } => TypeInfo::generic("Task", vec![self.infer_expr(expr)]),
-            Expr::Block(block) => self.infer_block_type(block),
-            Expr::Question { expr, .. } => self.infer_question(expr),
-            Expr::Catch { expr, .. } => self
-                .infer_expr(expr)
-                .result_parts()
-                .map(|(ok, _)| ok)
-                .cloned()
-                .unwrap_or(TypeInfo::Unknown),
-            Expr::Return { .. } => TypeInfo::Unit,
-        }
-    }
-
-    #[must_use]
-    pub fn infer_unary(&self, op: UnaryOp, expr: &Expr) -> TypeInfo {
-        let operand_type = self.infer_expr(expr);
-        match op {
-            UnaryOp::Negate if operand_type.is_numeric() => operand_type,
-            UnaryOp::Not => TypeInfo::Bool,
-            UnaryOp::Negate => TypeInfo::Unknown,
-        }
-    }
-
-    #[must_use]
-    pub fn infer_binary(&self, left: &Expr, op: BinaryOp, right: &Expr) -> TypeInfo {
-        let left_type = self.infer_expr(left);
-        let right_type = self.infer_expr(right);
-        match op {
-            BinaryOp::Add
-            | BinaryOp::Subtract
-            | BinaryOp::Multiply
-            | BinaryOp::Divide
-            | BinaryOp::Remainder => {
-                if left_type == right_type && left_type.is_numeric() {
-                    left_type
-                } else {
-                    TypeInfo::Unknown
-                }
-            }
-            BinaryOp::Equal
-            | BinaryOp::NotEqual
-            | BinaryOp::Less
-            | BinaryOp::LessEqual
-            | BinaryOp::Greater
-            | BinaryOp::GreaterEqual
-            | BinaryOp::And
-            | BinaryOp::Or => TypeInfo::Bool,
-        }
-    }
-
-    #[must_use]
-    pub fn infer_call(&self, callee: &Expr, args: &[Expr]) -> TypeInfo {
-        let arg_types: Vec<TypeInfo> = args.iter().map(|arg| self.infer_expr(arg)).collect();
-        match callee {
-            Expr::Name(name) if name.value == "print" => TypeInfo::Unit,
-            Expr::Name(name) if name.value == "checked_div" || name.value == "checked_rem" => {
-                TypeInfo::generic("Option", vec![TypeInfo::Int])
-            }
-            Expr::Name(name) if name.value == "Some" => TypeInfo::generic(
-                "Option",
-                vec![arg_types.first().cloned().unwrap_or(TypeInfo::Unknown)],
-            ),
-            Expr::Name(name) if name.value == "Ok" => TypeInfo::generic(
-                "Result",
-                vec![
-                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
-                    TypeInfo::Unknown,
-                ],
-            ),
-            Expr::Name(name) if name.value == "Err" => TypeInfo::generic(
-                "Result",
-                vec![
-                    TypeInfo::Unknown,
-                    arg_types.first().cloned().unwrap_or(TypeInfo::Unknown),
-                ],
-            ),
-            Expr::Name(name) => self
-                .function_return_type(&name.value)
-                .or_else(|| self.enum_variant_type(&name.value))
-                .unwrap_or(TypeInfo::Unknown),
-            Expr::Field { target, field, .. }
-                if matches!(target.as_ref(), Expr::Name(name) if name.value == "Float")
-                    && field.value == "from" =>
-            {
-                TypeInfo::Float
-            }
-            _ => TypeInfo::Unknown,
-        }
-    }
-
-    #[must_use]
-    pub fn infer_method_call(&self, receiver: &Expr, method: &str, args: &[Expr]) -> TypeInfo {
-        if matches!(receiver, Expr::Name(name) if name.value == "Float") && method == "from" {
-            return TypeInfo::Float;
-        }
-        let receiver_type = self.infer_expr(receiver);
-        for arg in args {
-            let _ = self.infer_expr(arg);
-        }
-        let method_info = match &receiver_type {
-            TypeInfo::Interface(name) | TypeInfo::TypeParam { bound: name, .. } => self
-                .interface_info(name)
-                .and_then(|interface| interface.methods.iter().find(|m| m.name == method).cloned()),
-            TypeInfo::Named(type_name) => self
-                .impls
-                .iter()
-                .filter(|info| info.type_name == *type_name)
-                .flat_map(|info| info.methods.iter())
-                .find(|m| m.name == method)
-                .cloned(),
-            _ => None,
-        };
-        method_info
-            .map(|info| info.return_type)
-            .unwrap_or(TypeInfo::Unknown)
-    }
-
-    #[must_use]
-    pub fn infer_block_type(&self, block: &Block) -> TypeInfo {
-        block
-            .statements
-            .last()
-            .map_or(TypeInfo::Unit, |statement| match statement {
-                Stmt::Expr(expr) => self.infer_expr(expr),
-                Stmt::Return {
-                    value: Some(expr), ..
-                } => self.infer_expr(expr),
-                _ => TypeInfo::Unit,
-            })
-    }
-
-    #[must_use]
-    pub fn infer_scope(&self, deadline: Option<&Expr>, block: &Block) -> TypeInfo {
-        if let Some(deadline) = deadline {
-            let _ = self.infer_expr(deadline);
-        }
-        let tail_type = self.infer_block_type(block);
-        let error_type = self.scope_error_type(block);
-        error_type.map_or(tail_type.clone(), |err| {
-            TypeInfo::generic("Result", vec![tail_type, err])
-        })
-    }
-
-    fn scope_error_type(&self, block: &Block) -> Option<TypeInfo> {
-        let mut errors = Vec::new();
-        self.collect_scope_errors(block, &mut errors);
-        match errors.len() {
-            0 => None,
-            1 => errors.into_iter().next(),
-            _ => Some(TypeInfo::Union(errors)),
-        }
-    }
-
-    fn collect_scope_errors(&self, block: &Block, errors: &mut Vec<TypeInfo>) {
-        for statement in &block.statements {
-            match statement {
-                Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Expr(value) => {
-                    self.collect_expr_scope_errors(value, errors);
-                }
-                Stmt::Return {
-                    value: Some(value), ..
-                }
-                | Stmt::Assert { value, .. } => self.collect_expr_scope_errors(value, errors),
-                Stmt::Return { value: None, .. } | Stmt::Break(_) | Stmt::Continue(_) => {}
-            }
-        }
-    }
-
-    fn collect_expr_scope_errors(&self, expr: &Expr, errors: &mut Vec<TypeInfo>) {
-        match expr {
-            Expr::Spawn { expr, .. } => {
-                if let Some((_, error)) = self.infer_expr(expr).result_parts() {
-                    if !errors.iter().any(|seen| seen == error) {
-                        errors.push(error.clone());
-                    }
-                }
-            }
-            Expr::Unary { expr, .. } | Expr::Question { expr, .. } => {
-                self.collect_expr_scope_errors(expr, errors);
-            }
-            Expr::Binary { left, right, .. } => {
-                self.collect_expr_scope_errors(left, errors);
-                self.collect_expr_scope_errors(right, errors);
-            }
-            Expr::Call { callee, args, .. } => {
-                self.collect_expr_scope_errors(callee, errors);
-                for arg in args {
-                    self.collect_expr_scope_errors(arg, errors);
-                }
-            }
-            Expr::Field { target, .. } => self.collect_expr_scope_errors(target, errors),
-            Expr::MethodCall { receiver, args, .. } => {
-                self.collect_expr_scope_errors(receiver, errors);
-                for arg in args {
-                    self.collect_expr_scope_errors(arg, errors);
-                }
-            }
-            Expr::StructLiteral { fields, .. } => {
-                for field in fields {
-                    self.collect_expr_scope_errors(&field.value, errors);
-                }
-            }
-            Expr::If {
-                condition,
-                then_block,
-                else_branch,
-                ..
-            } => {
-                self.collect_expr_scope_errors(condition, errors);
-                self.collect_scope_errors(then_block, errors);
-                if let Some(else_branch) = else_branch {
-                    self.collect_expr_scope_errors(else_branch, errors);
-                }
-            }
-            Expr::Match {
-                scrutinee, arms, ..
-            } => {
-                self.collect_expr_scope_errors(scrutinee, errors);
-                for arm in arms {
-                    if let Some(guard) = &arm.guard {
-                        self.collect_expr_scope_errors(guard, errors);
-                    }
-                    self.collect_expr_scope_errors(&arm.value, errors);
-                }
-            }
-            Expr::While {
-                condition, body, ..
-            } => {
-                self.collect_expr_scope_errors(condition, errors);
-                self.collect_scope_errors(body, errors);
-            }
-            Expr::Scope { .. } => {}
-            Expr::Catch { expr, arms, .. } => {
-                self.collect_expr_scope_errors(expr, errors);
-                for arm in arms {
-                    self.collect_expr_scope_errors(&arm.value, errors);
-                }
-            }
-            Expr::Return {
-                value: Some(value), ..
-            } => self.collect_expr_scope_errors(value, errors),
-            Expr::Block(block) => self.collect_scope_errors(block, errors),
-            Expr::Missing(_)
-            | Expr::Int(_)
-            | Expr::Float(_)
-            | Expr::String(_)
-            | Expr::Char(_)
-            | Expr::Bool(_)
-            | Expr::Name(_)
-            | Expr::Wildcard(_)
-            | Expr::Return { value: None, .. } => {}
-        }
-    }
-
-    #[must_use]
-    pub fn infer_match_result(&self, arms: &[MatchArm]) -> TypeInfo {
-        let mut result = TypeInfo::Unknown;
-        for arm in arms {
-            let arm_type = self.infer_expr(&arm.value);
-            result = merge_types(&result, &arm_type);
-        }
-        result
-    }
-
-    #[must_use]
-    pub fn infer_question(&self, expr: &Expr) -> TypeInfo {
-        let expr_type = self.infer_expr(expr);
-        match &expr_type {
-            TypeInfo::Generic { name, args } if name == "Result" && args.len() == 2 => {
-                let (Some(success_type), Some(error_type)) = (args.first(), args.get(1)) else {
-                    return TypeInfo::Unknown;
-                };
-                let can_absorb = self
-                    .current_return_type
-                    .as_ref()
-                    .and_then(|ty| ty.result_parts())
-                    .is_some_and(|(_, return_error)| type_absorbs(return_error, error_type));
-                if can_absorb {
-                    success_type.clone()
-                } else {
-                    TypeInfo::Unknown
-                }
-            }
-            TypeInfo::Generic { name, args } if name == "Option" && args.len() == 1 => {
-                let Some(success_type) = args.first() else {
-                    return TypeInfo::Unknown;
-                };
-                let can_absorb = self
-                    .current_return_type
-                    .as_ref()
-                    .and_then(|ty| ty.option_inner())
-                    .is_some();
-                if can_absorb {
-                    success_type.clone()
-                } else {
-                    TypeInfo::Unknown
-                }
-            }
-            _ => TypeInfo::Unknown,
-        }
-    }
-
-    #[must_use]
     pub fn pattern_payload_types(
         &self,
         scrutinee_ty: &TypeInfo,
         pattern_name: &str,
     ) -> Vec<TypeInfo> {
+        // A union member carries the variant: try each member in turn.
+        if let TypeInfo::Union(members) = scrutinee_ty {
+            for member in members {
+                let payloads = self.pattern_payload_types(member, pattern_name);
+                if !payloads.is_empty() {
+                    return payloads;
+                }
+            }
+            return Vec::new();
+        }
         if pattern_name == "Some" {
             if let Some(inner) = scrutinee_ty.option_inner() {
                 return vec![inner.clone()];
@@ -504,6 +165,22 @@ impl TypeContext {
                     err.clone()
                 }];
             }
+        }
+        if scrutinee_ty == &TypeInfo::Named("json.Error".to_string()) {
+            return match pattern_name {
+                "Syntax" => vec![TypeInfo::Int],
+                "TypeMismatch" => vec![TypeInfo::String, TypeInfo::String],
+                "MissingField" | "UnknownField" | "DuplicateField" | "OutOfRange" | "NonFinite" => {
+                    vec![TypeInfo::String]
+                }
+                _ => Vec::new(),
+            };
+        }
+        if scrutinee_ty == &TypeInfo::Named("http.Error".to_string()) {
+            return match pattern_name {
+                "BindFailed" => vec![TypeInfo::String],
+                _ => Vec::new(),
+            };
         }
         if let TypeInfo::Named(name) = scrutinee_ty {
             return self
@@ -531,6 +208,10 @@ impl TypeContext {
     pub fn builtin_value_type(&self, name: &str) -> Option<TypeInfo> {
         match name {
             "None" => Some(TypeInfo::generic("Option", vec![TypeInfo::Unknown])),
+            "Cancelled" => Some(TypeInfo::Named("Cancelled".to_string())),
+            "Syntax" | "TypeMismatch" | "MissingField" | "UnknownField" | "DuplicateField"
+            | "OutOfRange" | "NonFinite" => Some(TypeInfo::Named("json.Error".to_string())),
+            "BindFailed" => Some(TypeInfo::Named("http.Error".to_string())),
             _ => None,
         }
     }
@@ -562,6 +243,21 @@ impl TypeContext {
                 return Some(task_value_type(inner));
             }
         }
+        if let TypeInfo::Named(name) = target_ty {
+            if name == "http.Response" {
+                return match field_name {
+                    "status" => Some(TypeInfo::Int),
+                    "body" => Some(TypeInfo::String),
+                    _ => None,
+                };
+            }
+            if name == "http.Request" {
+                return match field_name {
+                    "body" | "method" | "path" => Some(TypeInfo::String),
+                    _ => None,
+                };
+            }
+        }
         let TypeInfo::Named(name) = target_ty else {
             return None;
         };
@@ -572,6 +268,11 @@ impl TypeContext {
             .iter()
             .find(|field| field.name == field_name)
             .map(|field| field.ty.clone())
+    }
+
+    #[must_use]
+    pub fn is_struct(&self, name: &str) -> bool {
+        self.structs.iter().any(|info| info.name == name)
     }
 
     #[must_use]
@@ -587,6 +288,17 @@ impl TypeContext {
     #[must_use]
     pub fn exhaustive_variants(&self, ty: &TypeInfo) -> Option<Vec<String>> {
         match ty {
+            TypeInfo::Named(name) if name == "Cancelled" => Some(vec!["Cancelled".to_string()]),
+            TypeInfo::Named(name) if name == "json.Error" => Some(vec![
+                "Syntax".to_string(),
+                "TypeMismatch".to_string(),
+                "MissingField".to_string(),
+                "UnknownField".to_string(),
+                "DuplicateField".to_string(),
+                "OutOfRange".to_string(),
+                "NonFinite".to_string(),
+            ]),
+            TypeInfo::Named(name) if name == "http.Error" => Some(vec!["BindFailed".to_string()]),
             TypeInfo::Named(name) => {
                 self.enums
                     .iter()
@@ -633,6 +345,38 @@ impl TypeContext {
                 name: name.to_string(),
                 ty: resolved,
             });
+        }
+    }
+
+    #[must_use]
+    pub fn is_json_representable(&self, ty: &TypeInfo) -> bool {
+        match ty {
+            TypeInfo::Int
+            | TypeInfo::Float
+            | TypeInfo::Bool
+            | TypeInfo::String
+            | TypeInfo::Char => true,
+            TypeInfo::Named(name) if matches!(name.as_str(), "Uuid" | "Timestamp" | "Email") => {
+                true
+            }
+            TypeInfo::Generic { name, args } if name == "Option" || name == "List" => {
+                args.len() == 1 && self.is_json_representable(&args[0])
+            }
+            TypeInfo::Generic { name, args } if name == "Map" => {
+                args.len() == 2
+                    && args[0] == TypeInfo::String
+                    && self.is_json_representable(&args[1])
+            }
+            TypeInfo::Named(name) => {
+                self.structs.iter().any(|info| info.name == *name)
+                    || self.enums.iter().any(|info| info.name == *name)
+            }
+            TypeInfo::Unit
+            | TypeInfo::Interface(_)
+            | TypeInfo::TypeParam { .. }
+            | TypeInfo::Union(_)
+            | TypeInfo::Unknown
+            | TypeInfo::Generic { .. } => false,
         }
     }
 
@@ -888,6 +632,9 @@ pub fn types_compatible(left: &TypeInfo, right: &TypeInfo) -> bool {
 pub fn type_absorbs(target: &TypeInfo, source: &TypeInfo) -> bool {
     target == source
         || matches!(source, TypeInfo::Unknown)
+        // The universal `Error` (KDR-0033) is the one type that absorbs every
+        // error: any propagated `E` coerces into a `Result<_, Error>` context.
+        || matches!(target, TypeInfo::Named(name) if name == "Error")
         || match (target, source) {
             (TypeInfo::Union(_), TypeInfo::Union(sources)) => {
                 sources.iter().all(|source| type_absorbs(target, source))
@@ -912,14 +659,14 @@ pub fn question_success_type(ty: &TypeInfo) -> Option<TypeInfo> {
         .cloned()
 }
 
-fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
+pub fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
     match ty {
         TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
         _ => None,
     }
 }
 
-fn task_value_type(inner: &TypeInfo) -> TypeInfo {
+pub fn task_value_type(inner: &TypeInfo) -> TypeInfo {
     inner
         .result_parts()
         .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())

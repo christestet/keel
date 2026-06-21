@@ -33,10 +33,15 @@ use std::process::{Command, ExitCode, Stdio};
 
 // ---------- case model ----------
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Expectation {
     Stdout(String),
-    Error { code: String, line: Option<u32> },
+    Error {
+        code: String,
+        line: Option<u32>,
+    },
+    /// Build-only: compilation must succeed; no binary execution or stdout check.
+    BuildOnly,
 }
 
 #[derive(Debug)]
@@ -130,6 +135,19 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             continue;
         }
 
+        // optional case.toml — `milestone = "MN"`, `until = "MN"`, and
+        // `mode = "run|test|build"` are recognized; hand-parsed to keep the
+        // runner dependency-free.
+        let (milestone, until, mode) = match parse_case_toml(&dir.join("case.toml")) {
+            Ok(triple) => triple,
+            Err(p) => {
+                err(format!("case.toml: {p}"));
+                continue;
+            }
+        };
+
+        let is_build_mode_no_stdout = mode == RunMode::Build;
+
         let stdout_p = dir.join("expected.stdout");
         let error_p = dir.join("expected.error");
         let warning_p = dir.join("expected.warning");
@@ -145,11 +163,17 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
                 continue;
             }
             (false, false) => {
-                err(
-                    "has NEITHER expected.stdout nor expected.error — exactly one is required"
-                        .into(),
-                );
-                continue;
+                if is_build_mode_no_stdout {
+                    // Build-mode tests can omit expected output —
+                    // they only verify that compilation succeeds.
+                    Expectation::BuildOnly
+                } else {
+                    err(
+                        "has NEITHER expected.stdout nor expected.error — exactly one is required"
+                            .into(),
+                    );
+                    continue;
+                }
             }
             (true, false) => Expectation::Stdout(normalize(&read(&stdout_p))),
             (false, true) => match parse_diagnostic_code(&read(&error_p)) {
@@ -174,17 +198,6 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             }
         } else {
             None
-        };
-
-        // optional case.toml — `milestone = "MN"`, `until = "MN"`, and
-        // `mode = "run|test|build"` are recognized; hand-parsed to keep the
-        // runner dependency-free.
-        let (milestone, until, mode) = match parse_case_toml(&dir.join("case.toml")) {
-            Ok(triple) => triple,
-            Err(p) => {
-                err(format!("case.toml: {p}"));
-                continue;
-            }
         };
 
         cases.push(Case {
@@ -371,44 +384,54 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
     };
 
     // In build mode we compare the stdout of the *produced binary*, not the
-    // compiler itself.
-    let (out, stdout, stderr) = if case.mode == RunMode::Build {
-        if !out.status.success() {
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            return Outcome::Fail(format!(
-                "expected successful build, keelc exited {:?}\n--- stderr ---\n{stderr}",
-                out.status.code()
-            ));
-        }
-        let binary = case
-            .dir
-            .join(format!("main{}", std::env::consts::EXE_SUFFIX));
-        let binary = fs::canonicalize(&binary).unwrap_or_else(|_| binary.clone());
-        let run = match Command::new(&binary)
-            .current_dir(&case.dir)
-            .stdin(Stdio::null())
-            .output()
-        {
-            Ok(o) => o,
-            Err(e) => {
-                let _ = fs::remove_file(&binary);
+    // compiler itself — unless the expectation is BuildOnly.
+    let (out, stdout, stderr) =
+        if case.mode == RunMode::Build && case.expectation != Expectation::BuildOnly {
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                 return Outcome::Fail(format!(
-                    "could not run built binary `{}`: {e}",
-                    binary.display()
+                    "expected successful build, keelc exited {:?}\n--- stderr ---\n{stderr}",
+                    out.status.code()
                 ));
             }
+            let binary = case
+                .dir
+                .join(format!("main{}", std::env::consts::EXE_SUFFIX));
+            let binary = fs::canonicalize(&binary).unwrap_or_else(|_| binary.clone());
+            let run = match Command::new(&binary)
+                .current_dir(&case.dir)
+                .stdin(Stdio::null())
+                .output()
+            {
+                Ok(o) => o,
+                Err(e) => {
+                    let _ = fs::remove_file(&binary);
+                    return Outcome::Fail(format!(
+                        "could not run built binary `{}`: {e}",
+                        binary.display()
+                    ));
+                }
+            };
+            let _ = fs::remove_file(&binary);
+            let stdout = normalize(&String::from_utf8_lossy(&run.stdout));
+            let stderr = String::from_utf8_lossy(&run.stderr).to_string();
+            (run, stdout, stderr)
+        } else {
+            let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            (out, stdout, stderr)
         };
-        let _ = fs::remove_file(&binary);
-        let stdout = normalize(&String::from_utf8_lossy(&run.stdout));
-        let stderr = String::from_utf8_lossy(&run.stderr).to_string();
-        (run, stdout, stderr)
-    } else {
-        let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
-        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-        (out, stdout, stderr)
-    };
 
     match &case.expectation {
+        Expectation::BuildOnly => {
+            if !out.status.success() {
+                return Outcome::Fail(format!(
+                    "expected successful build, keelc exited {:?}\n--- stderr ---\n{stderr}",
+                    out.status.code()
+                ));
+            }
+            Outcome::Pass
+        }
         Expectation::Stdout(want) => {
             if !out.status.success() {
                 return Outcome::Fail(format!(
@@ -444,7 +467,7 @@ fn check_m2_semantics(case: &Case, keelc: &str, current_milestone: Option<u32>) 
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
 
     match &case.expectation {
-        Expectation::Stdout(_) => {
+        Expectation::BuildOnly | Expectation::Stdout(_) => {
             if out.status.success() {
                 if let Some(warning) = &case.expected_warning {
                     if let Some(fail) = check_warning(&stderr, warning) {
@@ -477,7 +500,7 @@ fn check_m1_syntax(case: &Case, keelc: &str, current_milestone: Option<u32>) -> 
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
 
     match &case.expectation {
-        Expectation::Stdout(_) => {
+        Expectation::BuildOnly | Expectation::Stdout(_) => {
             if out.status.success() {
                 Outcome::Pass
             } else {

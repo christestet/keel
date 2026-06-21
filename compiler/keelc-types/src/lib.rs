@@ -135,6 +135,21 @@ fn write_type_list(f: &mut fmt::Formatter<'_>, types: &[TypeInfo], separator: &s
     Ok(())
 }
 
+/// Reduce a collected list of error types into a single optional type.
+///
+/// Returns `None` for an empty list, the sole type for a single error, and
+/// `Some(TypeInfo::Union(errors))` when multiple distinct error types are
+/// present.  Callers are responsible for deduplication — this function does
+/// not sort or deduplicate.
+#[must_use]
+pub fn reduce_error_types(errors: Vec<TypeInfo>) -> Option<TypeInfo> {
+    match errors.len() {
+        0 => None,
+        1 => errors.into_iter().next(),
+        _ => Some(TypeInfo::Union(errors)),
+    }
+}
+
 /// Extract `(name, bound-interface)` pairs from a declaration's type parameters.
 /// An unbound parameter (already reported as `K0801` by the parser) yields an
 /// empty bound string.

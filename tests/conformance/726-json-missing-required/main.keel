@@ -1,0 +1,13 @@
+use std.json
+
+struct User {
+    name: String
+}
+
+fn main() {
+    let label = json.parse<User>("{{}}") catch err {
+        MissingField(path) => return print("missing {path}"),
+        other => return print("wrong error"),
+    }
+    print(label.name)
+}

@@ -1,0 +1,13 @@
+use std.config
+
+struct AppConfig {
+    database_url: Secret
+    port: Int
+}
+
+fn main() -> Result<Unit, config.Error> {
+    let cfg = config.load<AppConfig>()?
+    let url = cfg.database_url.unwrap()
+    let port = cfg.port
+    Ok(())
+}

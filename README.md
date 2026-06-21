@@ -3,7 +3,8 @@
 > A typed, compiled, garbage-collected language for backend services that should
 > still be readable, reviewable, and deployable after five years of team churn.
 
-**Status: M5 interfaces complete; generics and `scope`/`spawn` remain.** Start with
+**Status: M6 in progress — stdlib slice + demo service. M5 (interfaces, generics)
+complete; `scope`/`spawn` remain.** Start with
 [`docs/vision.md`](docs/vision.md) and [`ROADMAP.md`](ROADMAP.md).
 
 ## What Keel is
@@ -50,7 +51,7 @@ Milestone 0 is not code. It is freezing **Keel Core** (`docs/spec/keel-core.md`)
 minimal subset — and writing conformance tests for it. Every subsequent PR makes one
 more conformance test pass. See `ROADMAP.md`.
 
-## Current CLI (M5 snapshot)
+## Current CLI (M6 snapshot)
 
 The compiler builds two binaries from `compiler/keelc-driver`:
 

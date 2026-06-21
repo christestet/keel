@@ -154,7 +154,7 @@ impl Printer {
                 .map(|arg| self.type_(arg))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("[{inner}]")
+            format!("<{inner}>")
         };
         self.line(&format!(
             "impl {} for {type_args}{} {{",
@@ -188,15 +188,19 @@ impl Printer {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        format!("[{inner}]")
+        format!("<{inner}>")
     }
 
     fn param(&self, param: &Param) -> String {
         let name = param.name.value.as_str();
-        match &param.ty {
+        let mut result = match &param.ty {
             Some(ty) => format!("{name}: {}", self.type_(ty)),
             None => name.to_string(),
+        };
+        if let Some(default) = &param.default {
+            result.push_str(&format!(" = {}", self.expr(default, 0, 0)));
         }
+        result
     }
 
     fn type_(&self, ty: &Type) -> String {
@@ -315,6 +319,12 @@ impl Printer {
                 args,
                 ..
             } => {
+                let is_json_parse = matches!(
+                    callee.as_ref(),
+                    Expr::Field { target, field, .. }
+                        if field.value == "parse"
+                            && matches!(target.as_ref(), Expr::Name(name) if name.value == "json")
+                );
                 let callee = self.expr(callee, 100, base_indent);
                 let type_args = if type_args.is_empty() {
                     String::new()
@@ -324,11 +334,29 @@ impl Printer {
                         .map(|arg| self.type_(arg))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    format!("[{inner}]")
+                    format!("<{inner}>")
                 };
                 let args = args
                     .iter()
-                    .map(|arg| self.expr(arg, 0, base_indent))
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        let arg_str = if is_json_parse
+                            && index == 1
+                            && matches!(
+                                &arg.value,
+                                Expr::String(literal)
+                                    if literal.value.text == "__keel_json_tolerant"
+                            ) {
+                            "mode: .tolerant".to_string()
+                        } else {
+                            self.expr(&arg.value, 0, base_indent)
+                        };
+                        if let Some(name) = &arg.name {
+                            format!("{}: {arg_str}", name.value)
+                        } else {
+                            arg_str
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 (format!("{callee}{type_args}({args})"), 100)
@@ -346,7 +374,14 @@ impl Printer {
                 let receiver = self.expr(receiver, 100, base_indent);
                 let args = args
                     .iter()
-                    .map(|arg| self.expr(arg, 0, base_indent))
+                    .map(|arg| {
+                        let arg_str = self.expr(&arg.value, 0, base_indent);
+                        if let Some(name) = &arg.name {
+                            format!("{}: {arg_str}", name.value)
+                        } else {
+                            arg_str
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 (format!("{receiver}.{}({args})", method.value), 100)
@@ -365,7 +400,7 @@ impl Printer {
                         .map(|arg| self.type_(arg))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    format!("[{inner}]")
+                    format!("<{inner}>")
                 };
                 let fields = fields
                     .iter()
@@ -440,23 +475,60 @@ impl Printer {
                 arms,
                 ..
             } => {
-                let arms = arms
+                let head = self.expr(expr, 0, base_indent);
+                // Arrow form round-trips when there is a single arm that is
+                // either a binding catch-all (`catch err => v`) or a qualified
+                // classification pattern (`catch sql.NoRows => v`).
+                let arrow_head = match (error_name, arms.as_slice()) {
+                    (Some(name), [arm])
+                        if arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard(_)) =>
+                    {
+                        Some(name.value.clone())
+                    }
+                    (None, [arm]) if arm.guard.is_none() => Some(self.pattern(&arm.pattern)),
+                    _ => None,
+                };
+                if let Some(arrow_head) = arrow_head {
+                    let value = self.expr(&arms[0].value, 0, base_indent);
+                    return (format!("{head} catch {arrow_head} => {value}"), 10);
+                }
+                let arm_lines = arms
                     .iter()
                     .map(|arm| self.match_arm(arm, base_indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
                 let close = self.indent_line("}", base_indent);
-                let result = format!(
-                    "{} catch {} {{\n{arms}\n{close}",
-                    self.expr(expr, 0, base_indent),
-                    error_name.value
-                );
+                let binding = error_name
+                    .as_ref()
+                    .map_or_else(String::new, |name| format!("{} ", name.value));
+                let result = format!("{head} catch {binding}{{\n{arm_lines}\n{close}");
                 (result, 10)
             }
             Expr::Return {
                 value: Some(value), ..
             } => (format!("return {}", self.expr(value, 0, base_indent)), 10),
             Expr::Return { value: None, .. } => ("return".to_string(), 10),
+            Expr::Unit(_) => ("()".to_string(), 100),
+            Expr::Router { routes, .. } => {
+                let entries = routes
+                    .iter()
+                    .map(|route| {
+                        let handler = match &route.handler {
+                            crate::RouteHandler::Expr(expr) => self.expr(expr, 0, base_indent + 1),
+                            crate::RouteHandler::Closure { param, body, .. } => format!(
+                                "fn({}) => {}",
+                                param.value,
+                                self.expr(body, 0, base_indent + 1)
+                            ),
+                        };
+                        let line = format!("\"{}\": {handler},", route.pattern.value);
+                        self.indent_line(&line, base_indent + 1)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let close = self.indent_line("}", base_indent);
+                (format!("http.Router{{\n{entries}\n{close}"), 100)
+            }
         }
     }
 
@@ -511,8 +583,23 @@ impl Printer {
     fn pattern(&self, pattern: &Pattern) -> String {
         match pattern {
             Pattern::Wildcard(_) => "_".to_string(),
-            Pattern::Name { name, args, .. } => {
-                let mut result = name.value.clone();
+            Pattern::Unit(_) => "()".to_string(),
+            Pattern::Name {
+                qualifier,
+                name,
+                args,
+                ty,
+                ..
+            } => {
+                let mut result = String::new();
+                if let Some(qualifier) = qualifier {
+                    result.push_str(&qualifier.value);
+                    result.push('.');
+                }
+                result.push_str(&name.value);
+                if let Some(ty) = ty {
+                    result.push_str(&format!(": {}", self.type_(ty)));
+                }
                 if !args.is_empty() {
                     let args = args
                         .iter()

@@ -71,8 +71,3 @@ impl Diagnostic {
         self
     }
 }
-
-#[must_use]
-pub fn is_registered(code: Code) -> bool {
-    registry::ALL_CODES.iter().any(|entry| entry.code == code)
-}

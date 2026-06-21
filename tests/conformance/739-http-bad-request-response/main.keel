@@ -1,0 +1,6 @@
+use std.http
+
+fn main() {
+    let resp = http.bad_request("invalid input")
+    print(resp.status)
+}

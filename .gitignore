@@ -7,3 +7,6 @@ Cargo.lock.orig
 ._*
 .AppleDouble
 .LSOverride
+
+# Conformance build-mode artifacts (compiled test binaries)
+tests/conformance/*/main
