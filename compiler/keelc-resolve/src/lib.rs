@@ -6,7 +6,9 @@ use keelc_ast::{
 };
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{Span, Spanned};
-use keelc_types::infer::{is_int_float_pair, type_absorbs, types_compatible, TypeContext};
+use keelc_types::infer::{
+    is_int_float_pair, task_inner, task_value_type, type_absorbs, types_compatible, TypeContext,
+};
 use keelc_types::{merge_types, reduce_error_types, TypeInfo};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1925,19 +1927,6 @@ fn arm_pattern_name(arm: &MatchArm) -> Option<&str> {
         Pattern::Name { name, .. } => Some(name.value.as_str()),
         Pattern::Unit(_) | Pattern::Wildcard(_) => None,
     }
-}
-
-fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
-    match ty {
-        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
-        _ => None,
-    }
-}
-
-fn task_value_type(inner: &TypeInfo) -> TypeInfo {
-    inner
-        .result_parts()
-        .map_or_else(|| inner.clone(), |(ok, _)| ok.clone())
 }
 
 fn scope_error_type(errors: Vec<TypeInfo>) -> Option<TypeInfo> {

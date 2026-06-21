@@ -15,7 +15,7 @@ use crate::{
 use keelc_ast::{Item as AstItem, StringLiteral as AstStringLiteral};
 use keelc_diag::{registry, Diagnostic};
 use keelc_span::{LineIndex, Span, Spanned};
-use keelc_types::infer::{question_success_type, TypeContext};
+use keelc_types::infer::{question_success_type, task_inner, TypeContext};
 use keelc_types::{reduce_error_types, TypeInfo};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1119,12 +1119,5 @@ fn collect_expr_scope_errors(expr: &Expr, errors: &mut Vec<TypeInfo>) {
         | Expr::Unit
         | Expr::Name(_)
         | Expr::Return { value: None } => {}
-    }
-}
-
-fn task_inner(ty: &TypeInfo) -> Option<&TypeInfo> {
-    match ty {
-        TypeInfo::Generic { name, args } if name == "Task" && args.len() == 1 => args.first(),
-        _ => None,
     }
 }
