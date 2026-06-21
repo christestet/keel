@@ -1,0 +1,21 @@
+use std.http
+use std.json
+
+struct Input {
+    name: String
+}
+
+fn handle(req: http.Request) -> http.Response {
+    let input = json.parse<Input>(req.body) catch err {
+        other => return http.bad_request(err),
+    }
+    http.ok(input.name)
+}
+
+fn boom(e: Error) -> http.Response {
+    http.internal_error(e)
+}
+
+fn main() {
+    print("ok")
+}
