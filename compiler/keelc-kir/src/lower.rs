@@ -43,6 +43,9 @@ struct Lowerer<'a> {
     ctx: TypeContext,
     diagnostics: Vec<Diagnostic>,
     temp_index: usize,
+    /// Statements hoisted out of expression position (`?`/`catch` nested inside
+    /// a larger expression). Drained at each statement boundary in `lower_block`.
+    pending: Vec<Stmt>,
 }
 
 impl<'a> Lowerer<'a> {
@@ -58,7 +61,17 @@ impl<'a> Lowerer<'a> {
             ctx: TypeContext::new(module),
             diagnostics: Vec::new(),
             temp_index: 0,
+            pending: Vec::new(),
         }
+    }
+
+    /// Lower `expr`, capturing any statements it hoists (from nested `?`/`catch`)
+    /// so the caller can place them before the statement that uses the result.
+    fn lower_expr_hoisted(&mut self, expr: &keelc_ast::Expr) -> (Vec<Stmt>, Expr) {
+        let base = self.pending.len();
+        let lowered = self.lower_expr(expr);
+        let hoisted = self.pending.split_off(base);
+        (hoisted, lowered)
     }
 
     fn lower(mut self) -> LowerOutput {
@@ -241,10 +254,18 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_block(&mut self, block: &keelc_ast::Block) -> Block {
+        // Isolate this block's hoist buffer so a pending statement from an
+        // enclosing expression (e.g. a `?` in an `if` condition) is not spliced
+        // into this inner block.
+        let outer_pending = std::mem::take(&mut self.pending);
         let mut statements = Vec::new();
         for statement in &block.statements {
-            statements.extend(self.lower_stmt(statement));
+            let lowered = self.lower_stmt(statement);
+            // Splice in any statements hoisted out of expression position first.
+            statements.append(&mut self.pending);
+            statements.extend(lowered);
         }
+        self.pending = outer_pending;
         let ty = statements
             .last()
             .map_or(TypeInfo::Unit, |statement| match statement {
@@ -488,13 +509,11 @@ impl<'a> Lowerer<'a> {
             },
             keelc_ast::Expr::Block(block) => Expr::Block(self.lower_block(block)),
             keelc_ast::Expr::Question { expr, .. } => {
-                let (mut stmts, result) = self.desugar_question_expr(expr);
-                let result_ty = expr_ty(&result);
-                stmts.push(Stmt::Expr(result));
-                Expr::Block(Block {
-                    statements: stmts,
-                    ty: result_ty,
-                })
+                // Hoist the propagating match/return to statement position so its
+                // `return` escapes the enclosing function, not an IIFE.
+                let (stmts, result) = self.desugar_question_expr(expr);
+                self.pending.extend(stmts);
+                result
             }
             keelc_ast::Expr::Catch {
                 expr,
@@ -502,13 +521,10 @@ impl<'a> Lowerer<'a> {
                 arms,
                 ..
             } => {
-                let (mut stmts, result, result_ty) =
+                let (stmts, result, _result_ty) =
                     self.desugar_catch_expr(expr, error_name, arms);
-                stmts.push(Stmt::Expr(result));
-                Expr::Block(Block {
-                    statements: stmts,
-                    ty: result_ty,
-                })
+                self.pending.extend(stmts);
+                result
             }
             keelc_ast::Expr::Return { value, .. } => Expr::Return {
                 value: value.as_ref().map(|expr| Box::new(self.lower_expr(expr))),
@@ -674,11 +690,13 @@ impl<'a> Lowerer<'a> {
         let expr_type = self.type_of(expr);
         let success_type = question_success_type(&expr_type).unwrap_or(TypeInfo::Unknown);
         let temp = self.next_temp();
-        let mut stmts = vec![Stmt::Let {
+        // Capture any statements the inner expression itself hoists (nested `?`).
+        let (mut stmts, value) = self.lower_expr_hoisted(expr);
+        stmts.push(Stmt::Let {
             name: temp.clone(),
             ty: expr_type.clone(),
-            value: self.lower_expr(expr),
-        }];
+            value,
+        });
 
         if let Some((_, error_type)) = expr_type.result_parts() {
             stmts.push(Stmt::Expr(Expr::If {
@@ -787,12 +805,13 @@ impl<'a> Lowerer<'a> {
             .map_or_else(|| self.next_temp(), |name| name.value.clone());
         let result_name = self.next_temp();
         let temp = self.next_temp();
-        let mut stmts = Vec::new();
+        // Capture any statements the inner expression itself hoists (nested `?`).
+        let (mut stmts, scrutinee_value) = self.lower_expr_hoisted(expr);
 
         stmts.push(Stmt::Let {
             name: temp.clone(),
             ty: expr_type.clone(),
-            value: self.lower_expr(expr),
+            value: scrutinee_value,
         });
 
         stmts.push(Stmt::Var {
