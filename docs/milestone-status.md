@@ -116,7 +116,7 @@ all generic syntax.
 | Area | State |
 |---|---|
 | `std.time` / deadline / `check_cancel` | Done. `time.Duration`, `time.milliseconds`, `time.seconds`, `time.sleep`, `check_cancel()`, `scope(deadline: …)`. Conformance cases `716`–`723` pass. See [`docs/spec/15-stdlib-core.md §15.1–15.4`](spec/15-stdlib-core.md). |
-| `std.json` | Done. `json.parse[T]`, `json.write(value)`, strict and tolerant modes, struct/enum/Option/primitive codecs, formatter round-trip, `K1503` compile-time guard. Cases `724`–`735` pass. See [`docs/m6-json-implementation.md`](m6-json-implementation.md). |
+| `std.json` | Done. `json.parse[T]`, `json.write(value)`, strict and tolerant modes, struct/enum/Option/primitive codecs, formatter round-trip, `K1503` compile-time guard. Cases `724`–`735` pass. See [`docs/m6-status.md`](m6-status.md#stdjson). |
 | `std.http` | Done. `http.serve`, `http.Request`/`Response`, 7 response constructors, `http.Error(BindFailed)`, `K1504`/`K1505`. Cases `736`–`745` pass. See [`docs/spec/15-stdlib-core.md §15.17–15.24`](spec/15-stdlib-core.md) and [`KDR-0028`](kdr/0028-http-server-surface.md). |
 | `std.sql` | Not started. |
 | `std.log` | Done. `log.info`, `log.warn`, `log.error` — simple string messages to stdout. Cases `746`–`748` pass. See [`docs/spec/15-stdlib-core.md §15.25–15.27`](spec/15-stdlib-core.md). |
