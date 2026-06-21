@@ -579,7 +579,29 @@ impl<'a> Lowerer<'a> {
     fn lower_pattern(&mut self, pattern: &keelc_ast::Pattern, scrutinee_ty: &TypeInfo) -> Pattern {
         match pattern {
             keelc_ast::Pattern::Wildcard(_) => Pattern::Wildcard,
-            keelc_ast::Pattern::Name { name, args, .. } => {
+            keelc_ast::Pattern::Unit(_) => Pattern::Unit,
+            keelc_ast::Pattern::Name {
+                qualifier,
+                name,
+                args,
+                ty,
+                ..
+            } => {
+                // A bare, unqualified, argument-less name that is not a known
+                // variant is a binding (`user`, `other`, or a typed `err: T`);
+                // everything else is a variant tag check.
+                let is_binding =
+                    qualifier.is_none() && args.is_empty() && !self.is_variant_name(&name.value);
+                if is_binding {
+                    let type_test = ty.as_ref().and_then(|ty| self.pattern_type_test(ty));
+                    return Pattern::Name {
+                        name: name.value.clone(),
+                        args: Vec::new(),
+                        payload_types: Vec::new(),
+                        is_binding: true,
+                        type_test,
+                    };
+                }
                 let payload_types = self.ctx.pattern_payload_types(scrutinee_ty, &name.value);
                 Pattern::Name {
                     name: name.value.clone(),
@@ -595,27 +617,49 @@ impl<'a> Lowerer<'a> {
                         })
                         .collect(),
                     payload_types,
+                    is_binding: false,
+                    type_test: None,
                 }
             }
         }
     }
 
-    fn define_pattern_bindings(&mut self, pattern: &Pattern, _scrutinee_ty: &TypeInfo) {
-        if let Pattern::Name {
-            args,
-            payload_types,
-            ..
-        } = pattern
-        {
-            for (index, arg) in args.iter().enumerate() {
-                let ty = payload_types
-                    .get(index)
-                    .cloned()
-                    .unwrap_or(TypeInfo::Unknown);
-                if let Pattern::Name { name, .. } = arg {
-                    self.ctx.define_value(name, ty);
+    /// Whether `name` names a known constructor rather than a fresh binding.
+    fn is_variant_name(&self, name: &str) -> bool {
+        matches!(name, "Ok" | "Err" | "Some" | "None") || self.ctx.enum_variant_type(name).is_some()
+    }
+
+    /// The runtime tag set a typed binding `x: T` admits (KDR-0038): the
+    /// closed `sql.Error` classifications or an enum's variants. `None` (the
+    /// opaque `Error`, or anything unbounded) matches every tag.
+    fn pattern_type_test(&self, ty: &keelc_ast::Type) -> Option<Vec<String>> {
+        let info = TypeInfo::from_ast(ty);
+        self.ctx.exhaustive_variants(&info)
+    }
+
+    /// Define every binding a (KIR) pattern introduces, recursing into args.
+    fn define_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_ty: &TypeInfo) {
+        match pattern {
+            Pattern::Name {
+                name,
+                is_binding: true,
+                ..
+            } => self.ctx.define_value(name, scrutinee_ty.clone()),
+            Pattern::Name {
+                args,
+                payload_types,
+                is_binding: false,
+                ..
+            } => {
+                for (index, arg) in args.iter().enumerate() {
+                    let ty = payload_types
+                        .get(index)
+                        .cloned()
+                        .unwrap_or(TypeInfo::Unknown);
+                    self.define_pattern_bindings(arg, &ty);
                 }
             }
+            Pattern::Unit | Pattern::Wildcard => {}
         }
     }
 
@@ -757,7 +801,7 @@ impl<'a> Lowerer<'a> {
         &mut self,
         name: &str,
         expr: &keelc_ast::Expr,
-        error_name: &Spanned<String>,
+        error_name: &Option<Spanned<String>>,
         arms: &[keelc_ast::MatchArm],
     ) -> Vec<Stmt> {
         let (mut stmts, result_expr, result_ty) = self.desugar_catch_expr(expr, error_name, arms);
@@ -773,7 +817,7 @@ impl<'a> Lowerer<'a> {
     fn desugar_catch_expr(
         &mut self,
         expr: &keelc_ast::Expr,
-        error_name: &Spanned<String>,
+        error_name: &Option<Spanned<String>>,
         arms: &[keelc_ast::MatchArm],
     ) -> (Vec<Stmt>, Expr, TypeInfo) {
         let expr_type = self.ctx.infer_expr(expr);
@@ -781,6 +825,11 @@ impl<'a> Lowerer<'a> {
             .result_parts()
             .map(|(ok, err)| (ok.clone(), err.clone()))
             .unwrap_or((TypeInfo::Unknown, TypeInfo::Unknown));
+        // The error binding the inner match scrutinizes. The arrow form
+        // `catch sql.NoRows => ...` has no user binding, so synthesize one.
+        let err_binding = error_name
+            .as_ref()
+            .map_or_else(|| self.next_temp(), |name| name.value.clone());
         let result_name = self.next_temp();
         let temp = self.next_temp();
         let mut stmts = Vec::new();
@@ -797,15 +846,11 @@ impl<'a> Lowerer<'a> {
         });
 
         let ok_arm = MatchArm {
-            pattern: Pattern::Name {
-                name: "Ok".to_string(),
-                args: vec![Pattern::Name {
-                    name: "__keel_ok_value".to_string(),
-                    args: Vec::new(),
-                    payload_types: Vec::new(),
-                }],
-                payload_types: vec![success_type.clone()],
-            },
+            pattern: variant_pattern(
+                "Ok",
+                vec![binding_pattern("__keel_ok_value")],
+                vec![success_type.clone()],
+            ),
             guard: None,
             value: Expr::Block(Block {
                 statements: vec![Stmt::Assign {
@@ -817,19 +862,19 @@ impl<'a> Lowerer<'a> {
         };
 
         self.ctx.push_scope();
-        self.ctx.define_value(&error_name.value, error_type.clone());
-        let catch_arms: Vec<_> = arms
+        self.ctx.define_value(&err_binding, error_type.clone());
+        let mut has_fallback = false;
+        let mut catch_arms: Vec<_> = arms
             .iter()
             .map(|arm| {
                 self.ctx.push_scope();
-                let (pattern, binding) =
-                    self.lower_catch_pattern(&arm.pattern, &error_type, &error_name.value);
-                if let Some((name, ty)) = &binding {
-                    self.ctx.define_value(name, ty.clone());
+                let pattern = self.lower_pattern(&arm.pattern, &error_type);
+                if is_fallback_pattern(&pattern) {
+                    has_fallback = true;
                 }
                 self.define_pattern_bindings(&pattern, &error_type);
                 let guard = arm.guard.as_ref().map(|guard| self.lower_expr(guard));
-                let mut value = match &arm.value {
+                let value = match &arm.value {
                     keelc_ast::Expr::Return { value, .. } => Expr::Return {
                         value: value.as_ref().map(|v| Box::new(self.lower_expr(v))),
                     },
@@ -841,24 +886,6 @@ impl<'a> Lowerer<'a> {
                         ty: TypeInfo::Unit,
                     }),
                 };
-                if let Some((name, ty)) = binding {
-                    let binding_name = name.clone();
-                    value = Expr::Block(Block {
-                        statements: vec![
-                            Stmt::Let {
-                                name,
-                                ty,
-                                value: Expr::Name(error_name.value.clone()),
-                            },
-                            Stmt::Assign {
-                                target: Expr::Name("_".to_string()),
-                                value: Expr::Name(binding_name),
-                            },
-                            Stmt::Expr(value),
-                        ],
-                        ty: TypeInfo::Unit,
-                    });
-                }
                 self.ctx.pop_scope();
                 MatchArm {
                     pattern,
@@ -869,20 +896,36 @@ impl<'a> Lowerer<'a> {
             .collect();
         self.ctx.pop_scope();
 
+        // Unmatched errors propagate through the enclosing `... | E` return
+        // (KDR-0037): re-wrap and return the original error. Only for opaque
+        // error types (`sql.Error`, or a union containing one) — a closed enum
+        // catch is exhaustiveness-checked upstream and needs no fallback.
+        let opaque_error = self.ctx.exhaustive_variants(&error_type).is_none();
+        if !has_fallback && opaque_error {
+            catch_arms.push(MatchArm {
+                pattern: Pattern::Wildcard,
+                guard: None,
+                value: Expr::Return {
+                    value: Some(Box::new(Expr::Call {
+                        callee: Box::new(Expr::Name("Err".to_string())),
+                        type_args: Vec::new(),
+                        args: vec![Expr::Name(err_binding.clone())],
+                        ty: error_type.clone(),
+                    })),
+                },
+            });
+        }
+
         let err_arm = MatchArm {
-            pattern: Pattern::Name {
-                name: "Err".to_string(),
-                args: vec![Pattern::Name {
-                    name: error_name.value.clone(),
-                    args: Vec::new(),
-                    payload_types: Vec::new(),
-                }],
-                payload_types: vec![error_type.clone()],
-            },
+            pattern: variant_pattern(
+                "Err",
+                vec![binding_pattern(&err_binding)],
+                vec![error_type.clone()],
+            ),
             guard: None,
             value: Expr::Block(Block {
                 statements: vec![Stmt::Expr(Expr::Match {
-                    scrutinee: Box::new(Expr::Name(error_name.value.clone())),
+                    scrutinee: Box::new(Expr::Name(err_binding.clone())),
                     arms: catch_arms,
                     ty: TypeInfo::Unit,
                 })],
@@ -900,25 +943,6 @@ impl<'a> Lowerer<'a> {
         (stmts, result, success_type)
     }
 
-    fn lower_catch_pattern(
-        &mut self,
-        pattern: &keelc_ast::Pattern,
-        error_type: &TypeInfo,
-        _error_name: &str,
-    ) -> (Pattern, Option<(String, TypeInfo)>) {
-        if let keelc_ast::Pattern::Name { name, args, .. } = pattern {
-            if args.is_empty() && self.ctx.enum_variant_type(&name.value).is_none() {
-                let ty = if name.value == "other" {
-                    error_type.clone()
-                } else {
-                    TypeInfo::Unknown
-                };
-                return (Pattern::Wildcard, Some((name.value.clone(), ty)));
-            }
-        }
-        (self.lower_pattern(pattern, error_type), None)
-    }
-
     fn next_temp(&mut self) -> String {
         let temp = format!("__keel_tmp_{}", self.temp_index);
         self.temp_index += 1;
@@ -930,6 +954,40 @@ fn string_expr(text: &str) -> Expr {
     Expr::String(StringLiteral {
         parts: vec![StringPart::Text(text.to_string())],
     })
+}
+
+fn variant_pattern(tag: &str, args: Vec<Pattern>, payload_types: Vec<TypeInfo>) -> Pattern {
+    Pattern::Name {
+        name: tag.to_string(),
+        args,
+        payload_types,
+        is_binding: false,
+        type_test: None,
+    }
+}
+
+fn binding_pattern(name: &str) -> Pattern {
+    Pattern::Name {
+        name: name.to_string(),
+        args: Vec::new(),
+        payload_types: Vec::new(),
+        is_binding: true,
+        type_test: None,
+    }
+}
+
+/// A catch arm that matches every remaining error (so no propagation arm is
+/// needed): a wildcard or an untyped catch-all binding.
+fn is_fallback_pattern(pattern: &Pattern) -> bool {
+    matches!(
+        pattern,
+        Pattern::Wildcard
+            | Pattern::Name {
+                is_binding: true,
+                type_test: None,
+                ..
+            }
+    )
 }
 
 fn expr_ty(expr: &Expr) -> TypeInfo {

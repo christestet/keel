@@ -245,10 +245,20 @@ pub struct MatchArm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Pattern {
     Name {
+        /// A variant tag (`Ok`, `NoRows`, an enum variant) when `is_binding` is
+        /// false, or the bound variable name when `is_binding` is true.
         name: String,
         args: Vec<Pattern>,
         payload_types: Vec<TypeInfo>,
+        /// `true`: bind `name` to the matched value (a sub-payload or, at the
+        /// arm head, the whole scrutinee). `false`: match when `tag == name`.
+        is_binding: bool,
+        /// Typed binding `x: T` (KDR-0038): match only when the runtime tag is
+        /// one of these. `None` matches unconditionally.
+        type_test: Option<Vec<String>>,
     },
+    /// `()` — the unit payload; matches always, binds nothing.
+    Unit,
     Wildcard,
 }
 

@@ -475,17 +475,33 @@ impl Printer {
                 arms,
                 ..
             } => {
-                let arms = arms
+                let head = self.expr(expr, 0, base_indent);
+                // Arrow form round-trips when there is a single arm that is
+                // either a binding catch-all (`catch err => v`) or a qualified
+                // classification pattern (`catch sql.NoRows => v`).
+                let arrow_head = match (error_name, arms.as_slice()) {
+                    (Some(name), [arm])
+                        if arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard(_)) =>
+                    {
+                        Some(name.value.clone())
+                    }
+                    (None, [arm]) if arm.guard.is_none() => Some(self.pattern(&arm.pattern)),
+                    _ => None,
+                };
+                if let Some(arrow_head) = arrow_head {
+                    let value = self.expr(&arms[0].value, 0, base_indent);
+                    return (format!("{head} catch {arrow_head} => {value}"), 10);
+                }
+                let arm_lines = arms
                     .iter()
                     .map(|arm| self.match_arm(arm, base_indent + 1))
                     .collect::<Vec<_>>()
                     .join("\n");
                 let close = self.indent_line("}", base_indent);
-                let result = format!(
-                    "{} catch {} {{\n{arms}\n{close}",
-                    self.expr(expr, 0, base_indent),
-                    error_name.value
-                );
+                let binding = error_name
+                    .as_ref()
+                    .map_or_else(String::new, |name| format!("{} ", name.value));
+                let result = format!("{head} catch {binding}{{\n{arm_lines}\n{close}");
                 (result, 10)
             }
             Expr::Return {
@@ -567,8 +583,23 @@ impl Printer {
     fn pattern(&self, pattern: &Pattern) -> String {
         match pattern {
             Pattern::Wildcard(_) => "_".to_string(),
-            Pattern::Name { name, args, .. } => {
-                let mut result = name.value.clone();
+            Pattern::Unit(_) => "()".to_string(),
+            Pattern::Name {
+                qualifier,
+                name,
+                args,
+                ty,
+                ..
+            } => {
+                let mut result = String::new();
+                if let Some(qualifier) = qualifier {
+                    result.push_str(&qualifier.value);
+                    result.push('.');
+                }
+                result.push_str(&name.value);
+                if let Some(ty) = ty {
+                    result.push_str(&format!(": {}", self.type_(ty)));
+                }
                 if !args.is_empty() {
                     let args = args
                         .iter()

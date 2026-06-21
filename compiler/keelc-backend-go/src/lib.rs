@@ -60,6 +60,29 @@ fn is_result_type(ty: &TypeInfo) -> bool {
     matches!(ty, TypeInfo::Generic { name, .. } if name == "Result")
 }
 
+/// Conjoin pattern conditions; an empty set always matches.
+fn join_conditions(conds: &[String]) -> String {
+    if conds.is_empty() {
+        "true".to_string()
+    } else {
+        conds.join(" && ")
+    }
+}
+
+/// `(access.tag == "A" || access.tag == "B" ...)` — a typed binding's tag-set
+/// membership test (KDR-0038).
+fn tag_membership(access: &str, tags: &[String]) -> String {
+    if tags.is_empty() {
+        return "true".to_string();
+    }
+    let checks = tags
+        .iter()
+        .map(|tag| format!("{access}.tag == {tag:?}"))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    format!("({checks})")
+}
+
 fn request_param_suffix(ty: &TypeInfo) -> Result<&'static str, BackendError> {
     match ty {
         TypeInfo::String => Ok("String"),
@@ -1463,14 +1486,14 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_match_arm_stmt(&mut self, temp: &str, arm: &MatchArm) -> Result<(), BackendError> {
-        match &arm.pattern {
-            Pattern::Wildcard => self.line("if true {")?,
-            Pattern::Name { name, .. } => {
-                self.line_fmt(format_args!("if {temp}.tag == {:?} {{", name))?;
-            }
-        }
+        let (conds, bindings) = self.pattern_match_parts(temp, &arm.pattern);
+        let cond = join_conditions(&conds);
+        self.line_fmt(format_args!("if {cond} {{"))?;
         self.indent += 1;
-        self.emit_pattern_bindings(temp, &arm.pattern)?;
+        for (name, value) in bindings {
+            self.line_fmt(format_args!("{name} := {value}"))?;
+            self.line_fmt(format_args!("_ = {name}"))?;
+        }
         if let Some(guard) = &arm.guard {
             let guard = self.emit_expr(guard)?;
             self.line_fmt(format_args!("if {guard} {{"))?;
@@ -1485,30 +1508,54 @@ impl<'a> Emitter<'a> {
         self.line("}")
     }
 
-    fn emit_pattern_bindings(&mut self, temp: &str, pattern: &Pattern) -> Result<(), BackendError> {
-        if let Pattern::Name {
-            args,
-            payload_types,
-            ..
-        } = pattern
-        {
-            for (index, arg) in args.iter().enumerate() {
-                let ty = payload_types
-                    .get(index)
-                    .cloned()
-                    .unwrap_or(TypeInfo::Unknown);
-                if let Pattern::Name { name, .. } = arg {
-                    let payload = if ty == TypeInfo::Unit {
+    /// Recursively lower a pattern into Go boolean conditions (tag checks and
+    /// typed-binding membership tests) and `name := accessor` bindings, both
+    /// keyed off `access` (a Go expression evaluating to the matched value).
+    fn pattern_match_parts(
+        &self,
+        access: &str,
+        pattern: &Pattern,
+    ) -> (Vec<String>, Vec<(String, String)>) {
+        match pattern {
+            Pattern::Wildcard | Pattern::Unit => (Vec::new(), Vec::new()),
+            Pattern::Name {
+                name,
+                is_binding: true,
+                type_test,
+                ..
+            } => {
+                let conds = type_test
+                    .as_ref()
+                    .map(|tags| vec![tag_membership(access, tags)])
+                    .unwrap_or_default();
+                (conds, vec![(name.clone(), access.to_string())])
+            }
+            Pattern::Name {
+                name,
+                args,
+                payload_types,
+                is_binding: false,
+                ..
+            } => {
+                let mut conds = vec![format!("{access}.tag == {name:?}")];
+                let mut bindings = Vec::new();
+                for (index, arg) in args.iter().enumerate() {
+                    let ty = payload_types
+                        .get(index)
+                        .cloned()
+                        .unwrap_or(TypeInfo::Unknown);
+                    let sub_access = if ty == TypeInfo::Unit {
                         "struct{}{}".to_string()
                     } else {
-                        format!("{}.values[{}].({})", temp, index, self.go_type(&ty))
+                        format!("{access}.values[{index}].({})", self.go_type(&ty))
                     };
-                    self.line_fmt(format_args!("{} := {payload}", name))?;
-                    self.line_fmt(format_args!("_ = {}", name))?;
+                    let (sub_conds, sub_binds) = self.pattern_match_parts(&sub_access, arg);
+                    conds.extend(sub_conds);
+                    bindings.extend(sub_binds);
                 }
+                (conds, bindings)
             }
         }
-        Ok(())
     }
 
     fn emit_if_expr(
@@ -1593,33 +1640,10 @@ impl<'a> Emitter<'a> {
         result_ty: &TypeInfo,
         arm: &MatchArm,
     ) -> Result<(), BackendError> {
-        match &arm.pattern {
-            Pattern::Wildcard => out.push_str("if true { "),
-            Pattern::Name { name, .. } => {
-                write!(out, "if {temp}.tag == {:?} {{ ", name)?;
-            }
-        }
-
-        if let Pattern::Name {
-            args,
-            payload_types,
-            ..
-        } = &arm.pattern
-        {
-            for (index, arg) in args.iter().enumerate() {
-                let ty = payload_types
-                    .get(index)
-                    .cloned()
-                    .unwrap_or(TypeInfo::Unknown);
-                if let Pattern::Name { name, .. } = arg {
-                    let payload = if ty == TypeInfo::Unit {
-                        "struct{}{}".to_string()
-                    } else {
-                        format!("{}.values[{}].({})", temp, index, self.go_type(&ty))
-                    };
-                    write!(out, "{} := {}; _ = {}; ", name, payload, name)?;
-                }
-            }
+        let (conds, bindings) = self.pattern_match_parts(temp, &arm.pattern);
+        write!(out, "if {} {{ ", join_conditions(&conds))?;
+        for (name, value) in bindings {
+            write!(out, "{name} := {value}; _ = {name}; ")?;
         }
 
         if let Some(guard) = &arm.guard {

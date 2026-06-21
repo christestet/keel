@@ -748,17 +748,23 @@ impl Parser {
     fn desugar_coalesce(&self, scrutinee: Expr, default: Expr, span: Span) -> Expr {
         let binder = Spanned::new("__keel_coalesce".to_string(), span);
         let some_pattern = Pattern::Name {
+            qualifier: None,
             name: Spanned::new("Some".to_string(), span),
             args: vec![Pattern::Name {
+                qualifier: None,
                 name: binder.clone(),
                 args: Vec::new(),
+                ty: None,
                 span,
             }],
+            ty: None,
             span,
         };
         let none_pattern = Pattern::Name {
+            qualifier: None,
             name: Spanned::new("None".to_string(), span),
             args: Vec::new(),
+            ty: None,
             span,
         };
         let full_span = scrutinee.span().join(default.span());
@@ -1438,23 +1444,40 @@ impl Parser {
     fn finish_catch(&mut self, expr: Expr) -> Expr {
         let start = expr.span();
         self.expect_keyword(Keyword::Catch);
-        let error_name = self.expect_identifier("expected catch error binding");
-        // `catch err => expr` is a single catch-all arm binding the error to
-        // `err`; `catch err { ... }` matches the error against explicit arms.
-        let arms = if self.at_kind(&TokenKind::FatArrow) {
-            self.advance();
+        // The catch head is a pattern. Three shapes:
+        //   `catch err { arms }`      — `err` binds the error; arms match it.
+        //   `catch err => v`          — catch-all binding, single arm.
+        //   `catch sql.NoRows => v`   — classification arm, no binding; the
+        //                               unmatched rest propagates (KDR-0037).
+        let head = self.parse_pattern();
+        let head_span = head.span();
+        let (error_name, arms) = if self.at_kind(&TokenKind::LeftBrace) {
+            (pattern_binding_name(&head), self.parse_match_arms())
+        } else if self.eat_kind(&TokenKind::FatArrow).is_some() {
             let value = self.parse_expr();
-            let span = error_name.span.join(value.span());
-            vec![MatchArm {
-                pattern: Pattern::Wildcard(error_name.span),
-                guard: None,
-                value,
-                span,
-            }]
+            let span = head_span.join(value.span());
+            if is_binding_pattern(&head) {
+                let arm = MatchArm {
+                    pattern: Pattern::Wildcard(head_span),
+                    guard: None,
+                    value,
+                    span,
+                };
+                (pattern_binding_name(&head), vec![arm])
+            } else {
+                let arm = MatchArm {
+                    pattern: head,
+                    guard: None,
+                    value,
+                    span,
+                };
+                (None, vec![arm])
+            }
         } else {
-            self.parse_match_arms()
+            self.expect_kind(&TokenKind::FatArrow, "expected `=>` or `{` after catch");
+            (pattern_binding_name(&head), Vec::new())
         };
-        let end = arms.last().map_or(error_name.span, |arm| arm.span);
+        let end = arms.last().map_or(head_span, |arm| arm.span);
         Expr::Catch {
             expr: Box::new(expr),
             error_name,
@@ -1494,7 +1517,27 @@ impl Parser {
         if let Some(span) = self.eat_kind(&TokenKind::Underscore) {
             return Pattern::Wildcard(span);
         }
-        let name = self.expect_identifier("expected pattern");
+        // `()` — unit payload pattern (e.g. `Ok(())`).
+        if let Some(open) = self.eat_kind(&TokenKind::LeftParen) {
+            let close = self
+                .expect_kind(&TokenKind::RightParen, "expected `)` in unit pattern")
+                .unwrap_or(open);
+            return Pattern::Unit(open.join(close));
+        }
+        let first = self.expect_identifier("expected pattern");
+        // Qualified classification pattern: `sql.NoRows` (KDR-0037).
+        let (qualifier, name) = if self.eat_kind(&TokenKind::Dot).is_some() {
+            let variant = self.expect_identifier("expected name after `.` in pattern");
+            (Some(first), variant)
+        } else {
+            (None, first)
+        };
+        // Typed binding: `err: sql.Error` (KDR-0038).
+        let ty = if self.eat_kind(&TokenKind::Colon).is_some() {
+            Some(Box::new(self.parse_type()))
+        } else {
+            None
+        };
         let mut args = Vec::new();
         if self.eat_kind(&TokenKind::LeftParen).is_some() {
             self.skip_separators();
@@ -1507,12 +1550,17 @@ impl Parser {
             }
             self.expect_kind(&TokenKind::RightParen, "expected `)` after pattern");
         }
-        let end = args.last().map_or(name.span, Pattern::span);
-        let full_span = name.span.join(end);
+        let start = qualifier.as_ref().map_or(name.span, |q| q.span);
+        let end = args.last().map_or_else(
+            || ty.as_ref().map_or(name.span, |ty| ty.span()),
+            Pattern::span,
+        );
         Pattern::Name {
+            qualifier,
             name,
             args,
-            span: full_span,
+            ty,
+            span: start.join(end),
         }
     }
 
@@ -1746,6 +1794,23 @@ impl Parser {
 
 /// True for the `http.Router` field access, the only `pkg.Type{ ... }` literal
 /// in M6 (KDR-0031). Keeps the route-table literal contained to `http`.
+/// The binding name a catch head introduces (`err` in `catch err { ... }`).
+fn pattern_binding_name(pattern: &Pattern) -> Option<Spanned<String>> {
+    match pattern {
+        Pattern::Name { name, .. } => Some(name.clone()),
+        Pattern::Unit(_) | Pattern::Wildcard(_) => None,
+    }
+}
+
+/// A plain unqualified, un-typed, argument-less name — the catch-all binding
+/// form `catch err => ...`, as opposed to a classification pattern.
+fn is_binding_pattern(pattern: &Pattern) -> bool {
+    matches!(
+        pattern,
+        Pattern::Name { qualifier: None, args, ty: None, .. } if args.is_empty()
+    )
+}
+
 fn is_http_router(expr: &Expr) -> bool {
     matches!(
         expr,

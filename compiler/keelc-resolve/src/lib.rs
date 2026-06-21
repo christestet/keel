@@ -219,7 +219,9 @@ impl<'a> Resolver<'a> {
             } => {
                 self.resolve_expr(expr);
                 self.push_scope();
-                self.define(error_name, BindingKind::Immutable);
+                if let Some(error_name) = error_name {
+                    self.define(error_name, BindingKind::Immutable);
+                }
                 for arm in arms {
                     self.push_scope();
                     self.resolve_expr(&arm.value);
@@ -734,10 +736,13 @@ impl<'a> Typechecker<'a> {
                 self.check_match_exhaustive(&scrutinee_type, arms, *span);
                 let mut result = TypeInfo::Unknown;
                 for arm in arms {
+                    self.push_scope();
+                    self.bind_pattern(&arm.pattern, &scrutinee_type);
                     if let Some(guard) = &arm.guard {
                         self.infer_expr(guard);
                     }
                     let arm_type = self.infer_expr(&arm.value);
+                    self.pop_scope();
                     if result == TypeInfo::Unknown {
                         result = arm_type;
                     }
@@ -778,7 +783,9 @@ impl<'a> Typechecker<'a> {
                     self.check_catch_exhaustive(&error_type, arms, *span);
                 }
                 self.push_scope();
-                self.define_value(error_name, error_type);
+                if let Some(error_name) = error_name {
+                    self.define_value(error_name, error_type);
+                }
                 for arm in arms {
                     self.infer_expr(&arm.value);
                 }
@@ -1653,6 +1660,39 @@ impl<'a> Typechecker<'a> {
         self.ctx.enum_variant_type(variant_name)
     }
 
+    /// Define the variables a match/catch pattern introduces, with the types
+    /// flowing from the scrutinee's variant payloads, so arm bodies see them
+    /// (e.g. `Ok(user)` makes `user` a `User`). A typed binding `x: T` takes
+    /// its declared type (KDR-0038).
+    fn bind_pattern(&mut self, pattern: &Pattern, scrutinee_ty: &TypeInfo) {
+        let Pattern::Name {
+            qualifier,
+            name,
+            args,
+            ty,
+            ..
+        } = pattern
+        else {
+            return;
+        };
+        let is_binding = qualifier.is_none()
+            && args.is_empty()
+            && !matches!(name.value.as_str(), "Ok" | "Err" | "Some" | "None")
+            && self.enum_variant_type(&name.value).is_none();
+        if is_binding {
+            let bind_ty = ty
+                .as_ref()
+                .map_or_else(|| scrutinee_ty.clone(), |ty| TypeInfo::from_ast(ty));
+            self.define_value(name, bind_ty);
+            return;
+        }
+        let payloads = self.ctx.pattern_payload_types(scrutinee_ty, &name.value);
+        for (index, arg) in args.iter().enumerate() {
+            let arg_ty = payloads.get(index).cloned().unwrap_or(TypeInfo::Unknown);
+            self.bind_pattern(arg, &arg_ty);
+        }
+    }
+
     fn check_string_interpolations(&mut self, literal: &Spanned<StringLiteral>) {
         for interpolation in &literal.value.interpolations {
             let Some(expr) = keelc_parse::parse_interpolation_expr(
@@ -1870,14 +1910,20 @@ fn is_catch_fallback_arm(arm: &MatchArm) -> bool {
     }
     match &arm.pattern {
         Pattern::Wildcard(_) => true,
-        Pattern::Name { name, args, .. } => name.value == "other" && args.is_empty(),
+        Pattern::Name {
+            qualifier: None,
+            name,
+            args,
+            ..
+        } => name.value == "other" && args.is_empty(),
+        Pattern::Name { .. } | Pattern::Unit(_) => false,
     }
 }
 
 fn arm_pattern_name(arm: &MatchArm) -> Option<&str> {
     match &arm.pattern {
         Pattern::Name { name, .. } => Some(name.value.as_str()),
-        Pattern::Wildcard(_) => None,
+        Pattern::Unit(_) | Pattern::Wildcard(_) => None,
     }
 }
 

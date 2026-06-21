@@ -271,7 +271,10 @@ pub enum Expr {
     },
     Catch {
         expr: Box<Expr>,
-        error_name: Spanned<String>,
+        /// The error binding, e.g. `err` in `catch err { ... }`. `None` for the
+        /// arrow form whose head is a classification pattern (`catch sql.NoRows
+        /// => ...`), which binds nothing (KDR-0037).
+        error_name: Option<Spanned<String>>,
         arms: Vec<MatchArm>,
         span: Span,
     },
@@ -395,10 +398,19 @@ pub struct MatchArm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Pattern {
     Name {
+        /// Module qualifier for classification patterns, e.g. `sql` in
+        /// `sql.NoRows` (KDR-0037). `None` for plain variants and bindings.
+        qualifier: Option<Spanned<String>>,
         name: Spanned<String>,
         args: Vec<Pattern>,
+        /// Type annotation for a typed binding, e.g. `sql.Error` in
+        /// `Err(err: sql.Error)` (KDR-0038). Narrows a union member. Boxed to
+        /// keep the enum's variants close in size.
+        ty: Option<Box<Type>>,
         span: Span,
     },
+    /// `()` — matches the unit payload, binds nothing.
+    Unit(Span),
     Wildcard(Span),
 }
 
@@ -406,7 +418,7 @@ impl Pattern {
     #[must_use]
     pub const fn span(&self) -> Span {
         match self {
-            Pattern::Name { span, .. } | Pattern::Wildcard(span) => *span,
+            Pattern::Name { span, .. } | Pattern::Unit(span) | Pattern::Wildcard(span) => *span,
         }
     }
 }

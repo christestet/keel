@@ -748,6 +748,16 @@ impl TypeContext {
         scrutinee_ty: &TypeInfo,
         pattern_name: &str,
     ) -> Vec<TypeInfo> {
+        // A union member carries the variant: try each member in turn.
+        if let TypeInfo::Union(members) = scrutinee_ty {
+            for member in members {
+                let payloads = self.pattern_payload_types(member, pattern_name);
+                if !payloads.is_empty() {
+                    return payloads;
+                }
+            }
+            return Vec::new();
+        }
         if pattern_name == "Some" {
             if let Some(inner) = scrutinee_ty.option_inner() {
                 return vec![inner.clone()];
