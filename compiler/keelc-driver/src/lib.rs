@@ -211,45 +211,7 @@ fn run_module(module: &Module, source: &str) -> ExitCode {
         Ok(source) => source,
         Err(code) => return code,
     };
-    let temp_dir = env::temp_dir().join(format!("keelc-go-{}", std::process::id()));
-    if let Err(err) = fs::create_dir_all(&temp_dir) {
-        eprintln!(
-            "could not create Go build directory {}: {err}",
-            temp_dir.display()
-        );
-        return ExitCode::from(2);
-    }
-    let _guard = TempDir(temp_dir.clone());
-
-    let go_file = temp_dir.join("main.go");
-    if let Err(err) = fs::write(&go_file, go_source) {
-        eprintln!(
-            "could not write generated Go source {}: {err}",
-            go_file.display()
-        );
-        return ExitCode::from(2);
-    }
-
-    let output = match Command::new("go")
-        .arg("run")
-        .arg(&go_file)
-        .stdin(Stdio::null())
-        .output()
-    {
-        Ok(output) => output,
-        Err(err) => {
-            eprintln!("could not invoke Go toolchain: {err}");
-            return ExitCode::from(2);
-        }
-    };
-
-    print!("{}", String::from_utf8_lossy(&output.stdout));
-    eprint!("{}", String::from_utf8_lossy(&output.stderr));
-    if output.status.success() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    run_go(go_source, "keelc-go")
 }
 
 fn run_tests(module: &Module, source: &str) -> ExitCode {
@@ -258,7 +220,11 @@ fn run_tests(module: &Module, source: &str) -> ExitCode {
         Err(code) => return code,
     };
 
-    let temp_dir = env::temp_dir().join(format!("keelc-go-tests-{}", std::process::id()));
+    run_go(go_source, "keelc-go-tests")
+}
+
+fn run_go(go_source: String, temp_prefix: &str) -> ExitCode {
+    let temp_dir = env::temp_dir().join(format!("{temp_prefix}-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
         eprintln!(
             "could not create Go build directory {}: {err}",
