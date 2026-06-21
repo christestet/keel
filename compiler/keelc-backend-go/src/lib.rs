@@ -111,7 +111,7 @@ pub fn emit(module: &Module) -> Result<String, BackendError> {
 }
 
 pub fn emit_tests(module: &Module) -> Result<String, BackendError> {
-    Emitter::new_for_tests(module).emit_test_runner()
+    Emitter::new(module).emit_test_runner()
 }
 
 struct Emitter<'a> {
@@ -194,10 +194,6 @@ impl<'a> Emitter<'a> {
             indent: 0,
             temp_index: 0,
         }
-    }
-
-    fn new_for_tests(module: &'a Module) -> Self {
-        Self::new(module)
     }
 
     fn go_type(&self, ty: &TypeInfo) -> String {
