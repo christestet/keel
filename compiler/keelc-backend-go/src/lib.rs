@@ -976,8 +976,10 @@ impl<'a> Emitter<'a> {
             let value_type = arg_types.first().cloned().unwrap_or_else(|| expr_ty(value));
             self.register_json_type(&value_type);
             let value = self.emit_expr(value)?;
+            // Encoding a representable type is total (KDR-0040); the encoder
+            // always returns Ok(string), so unwrap the payload directly.
             return Ok(format!(
-                "keelJSONEncode_{}({}, \"$\")",
+                "keelJSONEncode_{}({}, \"$\").values[0].(string)",
                 json_type_name(&value_type),
                 value
             ));

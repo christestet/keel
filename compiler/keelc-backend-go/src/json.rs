@@ -347,7 +347,8 @@ impl<'a> Emitter<'a> {
         match ty {
             TypeInfo::Int => self.line("return Ok(strconv.FormatInt(value, 10))")?,
             TypeInfo::Float => {
-                self.line("if keelJSONNonFinite(value) { return Err(keelJSONError(\"NonFinite\", path)) }")?;
+                // JSON has no token for NaN/±Inf; serialise as null (KDR-0040).
+                self.line("if keelJSONNonFinite(value) { return Ok(\"null\") }")?;
                 self.line("return Ok(strconv.FormatFloat(value, 'g', -1, 64))")?;
             }
             TypeInfo::Bool => self.line("return Ok(strconv.FormatBool(value))")?,

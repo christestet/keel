@@ -1347,10 +1347,8 @@ impl<'a> Typechecker<'a> {
                     format!("type `{value_type}` is not JSON-representable"),
                 ));
             }
-            return TypeInfo::generic(
-                "Result",
-                vec![TypeInfo::String, TypeInfo::Named("json.Error".to_string())],
-            );
+            // json.write is total for a representable type (KDR-0040).
+            return TypeInfo::String;
         }
         let receiver_type = self.infer_expr(receiver);
         for arg in args {
