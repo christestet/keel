@@ -334,7 +334,14 @@ impl<'a> Emitter<'a> {
         }
         imports.sort();
         imports.dedup();
-        if imports.len() == 1 {
+        // Blank-import the SQLite driver so database/sql can resolve the
+        // "sqlite" driver name at runtime (KDR-0042).
+        let blank_imports: &[&str] = if self.uses_sql {
+            &["modernc.org/sqlite"]
+        } else {
+            &[]
+        };
+        if imports.len() == 1 && blank_imports.is_empty() {
             self.line_fmt(format_args!("import {:?}", imports[0]))?;
             return Ok(());
         }
@@ -342,6 +349,9 @@ impl<'a> Emitter<'a> {
         self.indent += 1;
         for import in imports {
             self.line_fmt(format_args!("{import:?}"))?;
+        }
+        for blank in blank_imports {
+            self.line_fmt(format_args!("_ {blank:?}"))?;
         }
         self.indent -= 1;
         self.line(")")
@@ -919,12 +929,18 @@ impl<'a> Emitter<'a> {
         if method == "collect" {
             return Ok(Some(format!("{func}({recv})")));
         }
-        let arg = args
-            .first()
+        // migrate takes only the statement text; query/query_one/exec take the
+        // query string followed by its bound parameters ($1, $2, ...).
+        let emitted = args
+            .iter()
             .map(|a| self.emit_expr(a))
-            .transpose()?
-            .unwrap_or_default();
-        Ok(Some(format!("{func}({recv}, {arg})")))
+            .collect::<Result<Vec<_>, _>>()?;
+        if method == "migrate" {
+            let stmt = emitted.first().cloned().unwrap_or_default();
+            return Ok(Some(format!("{func}({recv}, {stmt})")));
+        }
+        let call_args = std::iter::once(recv).chain(emitted).collect::<Vec<_>>();
+        Ok(Some(format!("{func}({})", call_args.join(", "))))
     }
 
     fn emit_method_call(

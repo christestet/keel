@@ -32,6 +32,11 @@ func keelSQLConnect(conn string) KeelEnum {
 	if err != nil {
 		return Err(keelSQLErr("ConnectionFailed", err.Error()))
 	}
+	// An in-memory SQLite database lives in its connection; pin the pool to one
+	// so migrate/query/exec all see the same database.
+	if strings.Contains(conn, ":memory:") {
+		db.SetMaxOpenConns(1)
+	}
 	return Ok(keelSQLPool{db: db})
 }
 
@@ -67,9 +72,49 @@ func keelSQLMigrate(pool any, statements string) KeelEnum {
 	return Ok(struct{}{})
 }
 
-func keelSQLQuery(pool any, query string) KeelEnum {
+// Keel uses $1, $2 placeholders (KDR-0029); SQLite reads $N as a named param,
+// so rewrite to its numbered-positional ?N form.
+func keelSQLRewriteParams(query string) string {
+	var b strings.Builder
+	for i := 0; i < len(query); i++ {
+		if query[i] == '$' && i+1 < len(query) && query[i+1] >= '0' && query[i+1] <= '9' {
+			b.WriteByte('?')
+		} else {
+			b.WriteByte(query[i])
+		}
+	}
+	return b.String()
+}
+
+// Coerce Keel runtime values into types database/sql can bind.
+func keelSQLArg(v any) any {
+	switch x := v.(type) {
+	case keelTimestamp:
+		return keelTimestampFormat(x)
+	case KeelEnum:
+		if x.tag == "None" {
+			return nil
+		}
+		if x.tag == "Some" {
+			return keelSQLArg(x.values[0])
+		}
+		return v
+	default:
+		return v
+	}
+}
+
+func keelSQLArgs(args []any) []any {
+	out := make([]any, len(args))
+	for i, a := range args {
+		out[i] = keelSQLArg(a)
+	}
+	return out
+}
+
+func keelSQLQuery(pool any, query string, args ...any) KeelEnum {
 	p := pool.(keelSQLPool)
-	rows, err := p.db.Query(query)
+	rows, err := p.db.Query(keelSQLRewriteParams(query), keelSQLArgs(args)...)
 	if err != nil {
 		return Err(keelSQLError(err))
 	}
@@ -93,8 +138,8 @@ func keelSQLQuery(pool any, query string) KeelEnum {
 	return Ok(keelSQLQueryResult{cols: cols, rows: data})
 }
 
-func keelSQLQueryOne(pool any, query string) KeelEnum {
-	res := keelSQLQuery(pool, query)
+func keelSQLQueryOne(pool any, query string, args ...any) KeelEnum {
+	res := keelSQLQuery(pool, query, args...)
 	if res.tag == "Err" {
 		return res
 	}
@@ -108,9 +153,9 @@ func keelSQLQueryOne(pool any, query string) KeelEnum {
 	return Ok(keelSQLRow{cols: qr.cols, values: qr.rows[0]})
 }
 
-func keelSQLExec(pool any, query string) KeelEnum {
+func keelSQLExec(pool any, query string, args ...any) KeelEnum {
 	p := pool.(keelSQLPool)
-	res, err := p.db.Exec(query)
+	res, err := p.db.Exec(keelSQLRewriteParams(query), keelSQLArgs(args)...)
 	if err != nil {
 		return Err(keelSQLError(err))
 	}
@@ -129,7 +174,19 @@ func keelSQLCollect(mapper any) KeelEnum {
 	m := mapper.(keelSQLRowMapper)
 	out := []any{}
 	for _, values := range m.result.rows {
-		out = append(out, m.mapper(keelSQLRow{cols: m.result.cols, values: values}))
+		item := m.mapper(keelSQLRow{cols: m.result.cols, values: values})
+		// A mapper like Type.from_row returns Result<T, sql.Error>; unwrap Ok and
+		// propagate Err so collect yields a List<T>. (Ok/Err tags never collide
+		// with user enum variants.)
+		if e, ok := item.(KeelEnum); ok {
+			if e.tag == "Err" {
+				return e
+			}
+			if e.tag == "Ok" {
+				item = e.values[0]
+			}
+		}
+		out = append(out, item)
 	}
 	return Ok(out)
 }

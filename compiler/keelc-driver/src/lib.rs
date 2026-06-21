@@ -138,14 +138,10 @@ fn build_module(
     }
     let _guard = TempDir(temp_dir.clone());
 
-    let go_file = temp_dir.join("main.go");
-    if let Err(err) = fs::write(&go_file, go_source) {
-        eprintln!(
-            "could not write generated Go source {}: {err}",
-            go_file.display()
-        );
-        return ExitCode::from(2);
-    }
+    let module_mode = match write_go_project(&temp_dir, &go_source) {
+        Ok(module_mode) => module_mode,
+        Err(code) => return code,
+    };
 
     let binary_name = source_path
         .file_stem()
@@ -157,15 +153,19 @@ fn build_module(
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let binary_path = output_dir.join(&binary_name);
+    // Absolute so `-o` is correct even when we run `go build` from the module dir.
+    let binary_path = fs::canonicalize(output_dir)
+        .map(|dir| dir.join(&binary_name))
+        .unwrap_or(binary_path);
 
-    let output = match Command::new("go")
-        .arg("build")
-        .arg("-o")
-        .arg(&binary_path)
-        .arg(&go_file)
-        .stdin(Stdio::null())
-        .output()
-    {
+    let mut command = Command::new("go");
+    command.arg("build").arg("-o").arg(&binary_path);
+    if module_mode {
+        command.arg(".").current_dir(&temp_dir);
+    } else {
+        command.arg(temp_dir.join("main.go"));
+    }
+    let output = match command.stdin(Stdio::null()).output() {
         Ok(output) => output,
         Err(err) => {
             eprintln!("could not invoke Go toolchain: {err}");
@@ -229,6 +229,48 @@ fn run_tests(module: &Module, source: &str, checked: &TypecheckOutput) -> ExitCo
     run_go(go_source, "keelc-go-tests")
 }
 
+/// Write the generated Go into `temp_dir`. When the program imports an external
+/// module (the SQLite driver, KDR-0042), also emit a `go.mod` and resolve
+/// dependencies so `go build`/`go run` works in module mode. Returns whether the
+/// directory is a Go module (callers then build the package `.` instead of the
+/// lone file).
+fn write_go_project(temp_dir: &Path, go_source: &str) -> Result<bool, ExitCode> {
+    let go_file = temp_dir.join("main.go");
+    if let Err(err) = fs::write(&go_file, go_source) {
+        eprintln!(
+            "could not write generated Go source {}: {err}",
+            go_file.display()
+        );
+        return Err(ExitCode::from(2));
+    }
+    if !go_source.contains("modernc.org/sqlite") {
+        return Ok(false);
+    }
+    if let Err(err) = fs::write(temp_dir.join("go.mod"), "module keelout\n\ngo 1.21\n") {
+        eprintln!("could not write go.mod: {err}");
+        return Err(ExitCode::from(2));
+    }
+    // `go mod tidy` reads main.go's imports, fetches the driver, writes go.sum.
+    let tidy = Command::new("go")
+        .arg("mod")
+        .arg("tidy")
+        .current_dir(temp_dir)
+        .stdin(Stdio::null())
+        .output();
+    match tidy {
+        Ok(output) if output.status.success() => Ok(true),
+        Ok(output) => {
+            eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            eprintln!("could not resolve Go module dependencies (go mod tidy failed)");
+            Err(ExitCode::FAILURE)
+        }
+        Err(err) => {
+            eprintln!("could not invoke Go toolchain: {err}");
+            Err(ExitCode::from(2))
+        }
+    }
+}
+
 fn run_go(go_source: String, temp_prefix: &str) -> ExitCode {
     let temp_dir = env::temp_dir().join(format!("{temp_prefix}-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
@@ -240,21 +282,19 @@ fn run_go(go_source: String, temp_prefix: &str) -> ExitCode {
     }
     let _guard = TempDir(temp_dir.clone());
 
-    let go_file = temp_dir.join("main.go");
-    if let Err(err) = fs::write(&go_file, go_source) {
-        eprintln!(
-            "could not write generated Go source {}: {err}",
-            go_file.display()
-        );
-        return ExitCode::from(2);
-    }
+    let module_mode = match write_go_project(&temp_dir, &go_source) {
+        Ok(module_mode) => module_mode,
+        Err(code) => return code,
+    };
 
-    let output = match Command::new("go")
-        .arg("run")
-        .arg(&go_file)
-        .stdin(Stdio::null())
-        .output()
-    {
+    let mut command = Command::new("go");
+    command.arg("run");
+    if module_mode {
+        command.arg(".").current_dir(&temp_dir);
+    } else {
+        command.arg(temp_dir.join("main.go"));
+    }
+    let output = match command.stdin(Stdio::null()).output() {
         Ok(output) => output,
         Err(err) => {
             eprintln!("could not invoke Go toolchain: {err}");
