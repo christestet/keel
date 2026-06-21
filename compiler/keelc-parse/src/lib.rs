@@ -928,8 +928,8 @@ impl Parser {
                 } else {
                     break;
                 }
-            } else if self.eat_kind(&TokenKind::Question).is_some() {
-                let span = expr.span();
+            } else if let Some(question) = self.eat_kind(&TokenKind::Question) {
+                let span = expr.span().join(question);
                 expr = Expr::Question {
                     expr: Box::new(expr),
                     span,
