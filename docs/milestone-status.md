@@ -96,10 +96,10 @@ lowers through KIR, and emits Go with a join barrier, `context.WithCancel`,
 Conformance cases `710`-`715` pass at M5, and `903-no-scope-spawn` is gated
 through M4.
 
-**Remaining concurrency work:** `scope(deadline: ...)` parses and lowers. M6 now
-provides the `std.time` surface, but Go backend deadline emission is still not
-wired, and explicit cancellation checkpoint APIs such as `check_cancel()` remain
-specified but not exposed.
+**Concurrency:** `scope(deadline: ...)` is fully wired — the Go backend emits
+`context.WithTimeout` and returns `Cancelled` on expiry — and `check_cancel()`
+lowers to a runtime cancellation checkpoint. Cases `716`–`723` (deadline
+cancellation, nested deadline tightening, `check_cancel`, zero-deadline) pass.
 
 **Generics parser (done):** `TypeParam` AST node with `name`, `bound`, `span`;
 `type_params` on `FunctionDecl`, `StructDecl`, `EnumDecl`; `type_args` on `Expr::Call`,
