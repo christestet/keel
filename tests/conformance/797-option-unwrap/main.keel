@@ -1,0 +1,8 @@
+struct Box {
+    value: Option<Int>
+}
+
+fn main() {
+    let b = Box { value: Some(42) }
+    print(b.value.unwrap())
+}
