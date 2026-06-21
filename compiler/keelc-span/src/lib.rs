@@ -14,7 +14,7 @@ impl SourceId {
 }
 
 /// Half-open byte span within one source file.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Span {
     pub source: SourceId,
     pub start: usize,
