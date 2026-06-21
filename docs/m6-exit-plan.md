@@ -82,9 +82,13 @@ Auto-derive `Type.from_row(row) -> Result<Type, sql.Error>` for column-mappable
 structs, usable both directly and as a first-class value in `rows.map(...)`,
 reusing the existing `Type.method` call path.
 
-**Step 5 — `sql.UniqueViolation` classification.** Map driver constraint errors
-to a catchable `UniqueViolation` variant (`NoRows` already emitted). DoD:
-`catch sql.UniqueViolation` / `sql.NoRows`.
+**Step 5 — `sql.UniqueViolation` classification. ✅ DONE** (KDR-0037; case
+796-sql-classification-catch, build-mode). Qualified classification patterns
+`sql.NoRows`/`sql.UniqueViolation` in catch/match arms, catch propagation of
+unmatched opaque errors, and the typed `Err(err: sql.Error)` match pattern.
+Bundled with the union-narrowing patterns (KDR-0038; case
+795-union-narrowing-patterns): nested destructuring, typed bindings `x: T`, and
+the `()` unit pattern. Match arm bindings now carry their payload type.
 
 **Step 0 (newly surfaced) — Multi-line string literals.** The example's SQL
 queries span multiple physical lines inside one `"..."`. The lexer currently
@@ -119,17 +123,25 @@ The final gate (Step 6) additionally runs the example end-to-end on SQLite.
 
 ## Next work
 
-Steps 1, 2, 4 done. **Step 0** (multi-line strings, KDR-0035, case 018) and
-**default function parameters** (KDR-0036, case 234) are now done too; call-site
-named arguments and router closures already parsed, so **Step 3 is effectively
-complete** at the parse layer. Conformance green, **183/0/3**.
+Steps 0–5 done. The pattern/narrowing set (Step 5 + union narrowing, KDR-0037 /
+KDR-0038, cases 795/796) landed; `main.keel` now parses and typechecks all the
+way through — the parser no longer halts. Conformance green, **185/0/3**.
 
-Remaining blockers in `main.keel` (parser halts at the first, line 43):
-**qualified patterns** `sql.NoRows`/`sql.UniqueViolation` in match/catch arms;
-**typed/union patterns** `Err(err: sql.Error)` (needs union narrowing in the
-typechecker); **Step 5** the `sql.Error` catchable-variant surface + runtime
-driver-error classification; and **Step 6** the test harness + SQLite run (the
-gate). The qualified/typed patterns and Step 5 are one coherent KDR-0029
-amendment. See
+The example no longer fails on patterns. It surfaces four remaining gaps, each a
+**separate concern** (own KDR → spec → tests → impl), not pattern work:
+
+1. **`json.write(v)` ergonomics.** It returns `Result<String, json.Error>`, but
+   the example uses it bare (`http.ok(json.write(user))`). Either it returns
+   `String` (serializing a statically JSON-representable value cannot fail), or
+   the http helpers accept the Result. Decide in a KDR.
+2. **http error helpers accept an error value.** `http.bad_request(err)` /
+   `http.internal_error(err)` are typed `(String)`; the example passes a
+   `json.Error` / `sql.Error`. Widen them to render an error (how it stringifies
+   is the spec decision).
+3. **`Option<T>.unwrap()`** — `input.email.unwrap()` (K0606); only `Secret.unwrap`
+   exists today.
+4. **Step 6** — the test harness + SQLite end-to-end run, the literal exit gate.
+
+(1)–(3) are small but each is a real semantic decision; (4) is the gate. See
 [`docs/M6-implementation-handoff.md`](M6-implementation-handoff.md) §4 for the
 original aspirational-feature list this plan expands.
