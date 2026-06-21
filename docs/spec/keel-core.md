@@ -81,6 +81,14 @@ Guards (`Active if user.verified =>`) are in Core. Wildcard `_` is permitted but
 lints `K0403` (warning) when matching an enum from the same module — prefer
 naming variants so additions break loudly.
 
+Patterns nest and narrow (KDR-0038). A pattern argument may itself be a pattern
+(`Err(NotFound(id))`, `Ok(Some(x))`); a bound name carries its payload type into
+the arm (`Ok(user)` makes `user` a `User`). A typed binding `x: T` binds and
+matches only when the value's runtime type is the union member `T`
+(`Err(err: sql.Error)`); `()` matches the unit payload and binds nothing
+(`Ok(())`). Exhaustiveness is checked at the outer constructor, not driven into
+a union payload; arms are tried top to bottom.
+
 ## 5. Errors
 
 - `Result<T, E>` + the `?` operator: `?` unwraps `Ok`/`Some` or returns the
@@ -98,6 +106,14 @@ let row = db.get(id) catch err {
 
 - Union error types in signatures: `-> Result<User, DbError | ParseError>`.
   Matching on a union must cover every member type (`K0503`).
+- An **opaque** error type (`sql.Error`, KDR-0037) has no enumerable variants:
+  it is *classified*, not destructured, by qualified patterns (`sql.NoRows`,
+  `sql.UniqueViolation`). A `catch` over an opaque error needs no exhaustive
+  cover and no `other` arm; an error matching no arm **propagates** — it is
+  re-wrapped and returned through the enclosing function, whose return type must
+  absorb it (an `... | sql.Error` union, or `Error`). This is `catch`'s analogue
+  of `?`. The arrow form takes a classification head and binds nothing:
+  `... catch sql.NoRows => return Err(NotFound(id))`.
 - `Error` is the universal, opaque boundary error type (KDR-0033). Any error
   type coerces into `Error` at `?` and at tail/`return` position in a function
   declaring `-> Result<T, Error>`; `Error` is the only type that absorbs all
