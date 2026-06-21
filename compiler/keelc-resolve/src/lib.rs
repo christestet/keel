@@ -10,6 +10,7 @@ use keelc_types::infer::{
     is_int_float_pair, task_inner, task_value_type, type_absorbs, types_compatible, TypeContext,
 };
 use keelc_types::{merge_types, reduce_error_types, TypeInfo};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveOutput {
@@ -24,6 +25,7 @@ pub fn resolve(module: &Module) -> ResolveOutput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypecheckOutput {
     pub diagnostics: Vec<Diagnostic>,
+    pub types: BTreeMap<Span, TypeInfo>,
 }
 
 #[must_use]
@@ -345,6 +347,7 @@ struct Typechecker<'a> {
     module: &'a Module,
     ctx: TypeContext,
     diagnostics: Vec<Diagnostic>,
+    types: BTreeMap<Span, TypeInfo>,
     diagnostic_span_override: Option<Span>,
     scope_depth: usize,
     scope_errors: Vec<Vec<TypeInfo>>,
@@ -364,6 +367,7 @@ impl<'a> Typechecker<'a> {
             module,
             ctx: TypeContext::new(module),
             diagnostics: Vec::new(),
+            types: BTreeMap::new(),
             diagnostic_span_override: None,
             scope_depth: 0,
             scope_errors: Vec::new(),
@@ -402,6 +406,7 @@ impl<'a> Typechecker<'a> {
 
         TypecheckOutput {
             diagnostics: self.diagnostics,
+            types: self.types,
         }
     }
 
@@ -664,6 +669,12 @@ impl<'a> Typechecker<'a> {
     }
 
     fn infer_expr(&mut self, expr: &Expr) -> TypeInfo {
+        let ty = self.infer_expr_inner(expr);
+        self.types.insert(expr.span(), ty.clone());
+        ty
+    }
+
+    fn infer_expr_inner(&mut self, expr: &Expr) -> TypeInfo {
         match expr {
             Expr::Missing(_) | Expr::Wildcard(_) => TypeInfo::Unknown,
             Expr::Int(_) => TypeInfo::Int,
@@ -1704,8 +1715,9 @@ impl<'a> Typechecker<'a> {
                 continue;
             };
             let previous_override = self.diagnostic_span_override.replace(interpolation.span);
-            self.infer_expr(&expr);
+            let ty = self.infer_expr(&expr);
             self.diagnostic_span_override = previous_override;
+            self.types.insert(interpolation.span, ty);
         }
     }
 

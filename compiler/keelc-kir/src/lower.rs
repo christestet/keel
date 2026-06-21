@@ -3,7 +3,7 @@
 //! The lowerer is responsible for:
 //!
 //! * stripping AST spans and producing a compact, explicitly-typed KIR tree;
-//! * resolving the type of every expression via [`TypeContext`];
+//! * attaching expression types computed by the typechecker;
 //! * desugaring `?` and `catch` into explicit match/return sequences;
 //! * parsing string interpolations so backends see complete expressions.
 
@@ -17,6 +17,7 @@ use keelc_diag::{registry, Diagnostic};
 use keelc_span::{LineIndex, Span, Spanned};
 use keelc_types::infer::{question_success_type, task_inner, TypeContext};
 use keelc_types::{reduce_error_types, TypeInfo};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LowerOutput {
@@ -27,12 +28,17 @@ pub struct LowerOutput {
 /// Lower an AST module to KIR.  The source text is required to compute source
 /// line numbers for `assert` statements.
 #[must_use]
-pub fn lower(module: &keelc_ast::Module, source: &str) -> LowerOutput {
-    Lowerer::new(module, source).lower()
+pub fn lower(
+    module: &keelc_ast::Module,
+    source: &str,
+    types: &BTreeMap<Span, TypeInfo>,
+) -> LowerOutput {
+    Lowerer::new(module, source, types).lower()
 }
 
 struct Lowerer<'a> {
     module: &'a keelc_ast::Module,
+    types: &'a BTreeMap<Span, TypeInfo>,
     line_index: LineIndex,
     ctx: TypeContext,
     diagnostics: Vec<Diagnostic>,
@@ -40,9 +46,14 @@ struct Lowerer<'a> {
 }
 
 impl<'a> Lowerer<'a> {
-    fn new(module: &'a keelc_ast::Module, source: &'a str) -> Self {
+    fn new(
+        module: &'a keelc_ast::Module,
+        source: &'a str,
+        types: &'a BTreeMap<Span, TypeInfo>,
+    ) -> Self {
         Self {
             module,
+            types,
             line_index: LineIndex::new(source),
             ctx: TypeContext::new(module),
             diagnostics: Vec::new(),
@@ -141,7 +152,6 @@ impl<'a> Lowerer<'a> {
         );
 
         let mut params = Vec::new();
-        self.ctx.push_scope();
         for param in &decl.params {
             let ty = keelc_types::substitute_type_params(
                 &param
@@ -163,17 +173,9 @@ impl<'a> Lowerer<'a> {
                 ty: ty.clone(),
                 default,
             });
-            self.ctx.define_value(&param.name.value, ty);
         }
 
-        let previous_return = self.ctx.current_return_type().cloned();
-        self.ctx.set_current_return_type(return_type.clone());
         let body = self.lower_block(body);
-        self.ctx.clear_current_return_type();
-        if let Some(previous) = previous_return {
-            self.ctx.set_current_return_type(previous);
-        }
-        self.ctx.pop_scope();
 
         Some(FunctionDecl {
             name: decl.name.value.clone(),
@@ -231,15 +233,7 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_test_decl(&mut self, decl: &keelc_ast::TestDecl) -> TestDecl {
-        self.ctx.push_scope();
-        let previous_return = self.ctx.current_return_type().cloned();
-        self.ctx.set_current_return_type(TypeInfo::Unit);
         let body = self.lower_block(&decl.body);
-        self.ctx.clear_current_return_type();
-        if let Some(previous) = previous_return {
-            self.ctx.set_current_return_type(previous);
-        }
-        self.ctx.pop_scope();
         TestDecl {
             name: decl.name.value.clone(),
             body,
@@ -247,7 +241,6 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_block(&mut self, block: &keelc_ast::Block) -> Block {
-        self.ctx.push_scope();
         let mut statements = Vec::new();
         for statement in &block.statements {
             statements.extend(self.lower_stmt(statement));
@@ -259,7 +252,6 @@ impl<'a> Lowerer<'a> {
                 Stmt::Return { value: Some(expr) } => expr_ty(expr),
                 _ => TypeInfo::Unit,
             });
-        self.ctx.pop_scope();
         Block { statements, ty }
     }
 
@@ -271,12 +263,11 @@ impl<'a> Lowerer<'a> {
                 let value_ty = ty
                     .as_ref()
                     .map(TypeInfo::from_ast)
-                    .unwrap_or_else(|| self.ctx.infer_expr(value));
+                    .unwrap_or_else(|| self.type_of(value));
 
                 match value {
                     keelc_ast::Expr::Question { expr, .. } => {
                         let (mut stmts, result) = self.desugar_question_expr(expr);
-                        self.ctx.define_value(&name.value, value_ty.clone());
                         stmts.push(Stmt::Let {
                             name: name.value.clone(),
                             ty: value_ty,
@@ -292,7 +283,6 @@ impl<'a> Lowerer<'a> {
                     } => self.desugar_catch_stmt(&name.value, expr, error_name, arms),
                     _ => {
                         let value = self.lower_expr(value);
-                        self.ctx.define_value(&name.value, value_ty.clone());
                         vec![Stmt::Let {
                             name: name.value.clone(),
                             ty: value_ty,
@@ -325,7 +315,7 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_expr(&mut self, expr: &keelc_ast::Expr) -> Expr {
-        let ty = self.ctx.infer_expr(expr);
+        let ty = self.type_of(expr);
         match expr {
             keelc_ast::Expr::Int(value) => Expr::Int(value.value.replace('_', "")),
             keelc_ast::Expr::Float(value) => Expr::Float(value.value.replace('_', "")),
@@ -407,10 +397,7 @@ impl<'a> Lowerer<'a> {
                 args,
                 ..
             } => {
-                let arg_types = args
-                    .iter()
-                    .map(|arg| self.ctx.infer_expr(&arg.value))
-                    .collect();
+                let arg_types = args.iter().map(|arg| self.type_of(&arg.value)).collect();
                 Expr::MethodCall {
                     receiver: Box::new(self.lower_expr(receiver)),
                     method: method.value.clone(),
@@ -461,7 +448,7 @@ impl<'a> Lowerer<'a> {
                 scrutinee, arms, ..
             } => {
                 let scrutinee_expr = self.lower_expr(scrutinee);
-                let scrutinee_ty = self.ctx.infer_expr(scrutinee);
+                let scrutinee_ty = self.type_of(scrutinee);
                 let arms = arms
                     .iter()
                     .map(|arm| self.lower_match_arm(arm, &scrutinee_ty))
@@ -532,13 +519,7 @@ impl<'a> Lowerer<'a> {
                     .map(|route| {
                         let handler = match &route.handler {
                             keelc_ast::RouteHandler::Closure { param, body, .. } => {
-                                self.ctx.push_scope();
-                                self.ctx.define_value(
-                                    &param.value,
-                                    TypeInfo::Named("http.Request".to_string()),
-                                );
                                 let body = Box::new(self.lower_expr(body));
-                                self.ctx.pop_scope();
                                 RouteHandler::Closure {
                                     param: param.value.clone(),
                                     body,
@@ -563,12 +544,9 @@ impl<'a> Lowerer<'a> {
     }
 
     fn lower_match_arm(&mut self, arm: &keelc_ast::MatchArm, scrutinee_ty: &TypeInfo) -> MatchArm {
-        self.ctx.push_scope();
         let pattern = self.lower_pattern(&arm.pattern, scrutinee_ty);
-        self.define_pattern_bindings(&pattern, scrutinee_ty);
         let guard = arm.guard.as_ref().map(|guard| self.lower_expr(guard));
         let value = self.lower_expr(&arm.value);
-        self.ctx.pop_scope();
         MatchArm {
             pattern,
             guard,
@@ -637,32 +615,6 @@ impl<'a> Lowerer<'a> {
         self.ctx.exhaustive_variants(&info)
     }
 
-    /// Define every binding a (KIR) pattern introduces, recursing into args.
-    fn define_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_ty: &TypeInfo) {
-        match pattern {
-            Pattern::Name {
-                name,
-                is_binding: true,
-                ..
-            } => self.ctx.define_value(name, scrutinee_ty.clone()),
-            Pattern::Name {
-                args,
-                payload_types,
-                is_binding: false,
-                ..
-            } => {
-                for (index, arg) in args.iter().enumerate() {
-                    let ty = payload_types
-                        .get(index)
-                        .cloned()
-                        .unwrap_or(TypeInfo::Unknown);
-                    self.define_pattern_bindings(arg, &ty);
-                }
-            }
-            Pattern::Unit | Pattern::Wildcard => {}
-        }
-    }
-
     fn lower_string_literal(&mut self, literal: &AstStringLiteral, span: Span) -> StringLiteral {
         let mut parts = Vec::new();
         let mut cursor = 0usize;
@@ -685,7 +637,11 @@ impl<'a> Lowerer<'a> {
                 &interpolation.value,
             ) {
                 Some(expr) => {
-                    let ty = self.ctx.infer_expr(&expr);
+                    let ty = self
+                        .types
+                        .get(&interpolation.span)
+                        .cloned()
+                        .unwrap_or(TypeInfo::Unknown);
                     parts.push(StringPart::Expr {
                         expr: Box::new(self.lower_expr(&expr)),
                         ty,
@@ -715,7 +671,7 @@ impl<'a> Lowerer<'a> {
     }
 
     fn desugar_question_expr(&mut self, expr: &keelc_ast::Expr) -> (Vec<Stmt>, Expr) {
-        let expr_type = self.ctx.infer_expr(expr);
+        let expr_type = self.type_of(expr);
         let success_type = question_success_type(&expr_type).unwrap_or(TypeInfo::Unknown);
         let temp = self.next_temp();
         let mut stmts = vec![Stmt::Let {
@@ -805,7 +761,6 @@ impl<'a> Lowerer<'a> {
         arms: &[keelc_ast::MatchArm],
     ) -> Vec<Stmt> {
         let (mut stmts, result_expr, result_ty) = self.desugar_catch_expr(expr, error_name, arms);
-        self.ctx.define_value(name, result_ty.clone());
         stmts.push(Stmt::Let {
             name: name.to_string(),
             ty: result_ty,
@@ -820,7 +775,7 @@ impl<'a> Lowerer<'a> {
         error_name: &Option<Spanned<String>>,
         arms: &[keelc_ast::MatchArm],
     ) -> (Vec<Stmt>, Expr, TypeInfo) {
-        let expr_type = self.ctx.infer_expr(expr);
+        let expr_type = self.type_of(expr);
         let (success_type, error_type) = expr_type
             .result_parts()
             .map(|(ok, err)| (ok.clone(), err.clone()))
@@ -861,18 +816,14 @@ impl<'a> Lowerer<'a> {
             }),
         };
 
-        self.ctx.push_scope();
-        self.ctx.define_value(&err_binding, error_type.clone());
         let mut has_fallback = false;
         let mut catch_arms: Vec<_> = arms
             .iter()
             .map(|arm| {
-                self.ctx.push_scope();
                 let pattern = self.lower_pattern(&arm.pattern, &error_type);
                 if is_fallback_pattern(&pattern) {
                     has_fallback = true;
                 }
-                self.define_pattern_bindings(&pattern, &error_type);
                 let guard = arm.guard.as_ref().map(|guard| self.lower_expr(guard));
                 let value = match &arm.value {
                     keelc_ast::Expr::Return { value, .. } => Expr::Return {
@@ -886,7 +837,6 @@ impl<'a> Lowerer<'a> {
                         ty: TypeInfo::Unit,
                     }),
                 };
-                self.ctx.pop_scope();
                 MatchArm {
                     pattern,
                     guard,
@@ -894,7 +844,6 @@ impl<'a> Lowerer<'a> {
                 }
             })
             .collect();
-        self.ctx.pop_scope();
 
         // Unmatched errors propagate through the enclosing `... | E` return
         // (KDR-0037): re-wrap and return the original error. Only for opaque
@@ -947,6 +896,13 @@ impl<'a> Lowerer<'a> {
         let temp = format!("__keel_tmp_{}", self.temp_index);
         self.temp_index += 1;
         temp
+    }
+
+    fn type_of(&self, expr: &keelc_ast::Expr) -> TypeInfo {
+        self.types
+            .get(&expr.span())
+            .cloned()
+            .unwrap_or(TypeInfo::Unknown)
     }
 }
 

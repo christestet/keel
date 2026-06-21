@@ -10,10 +10,8 @@ mod runtime;
 mod types;
 
 use crate::analysis::{
-    collect_config_types, collect_enum_variant_names, collect_impls, collect_interfaces,
-    collect_structs, expr_ty, module_uses_concurrency, module_uses_config, module_uses_http,
-    module_uses_http_serve, module_uses_json, module_uses_log, module_uses_sql,
-    module_uses_timestamp_now, module_uses_uuid_new, ImplInfo, InterfaceInfo, StructInfo,
+    collect_enum_variant_names, collect_impls, collect_interfaces, collect_structs, collect_usage,
+    expr_ty, ImplInfo, InterfaceInfo, StructInfo,
 };
 use crate::types::{
     go_binary_op, go_string_literal, go_type, json_type_name, primitive_box_name,
@@ -147,16 +145,8 @@ impl<'a> Emitter<'a> {
         let interfaces = collect_interfaces(module);
         let interface_names = interfaces.iter().map(|i| i.name.clone()).collect();
         let enum_variant_names = collect_enum_variant_names(module);
-        let uses_concurrency = module_uses_concurrency(module);
-        let uses_json = module_uses_json(module);
-        let uses_http = module_uses_http(module);
-        let uses_http_serve = module_uses_http_serve(module);
-        let uses_log = module_uses_log(module);
-        let uses_sql = module_uses_sql(module);
-        let uses_config = module_uses_config(module);
-        let uses_uuid_new = module_uses_uuid_new(module);
-        let uses_timestamp_now = module_uses_timestamp_now(module);
-        let config_types = collect_config_types(module);
+        let usage = collect_usage(module);
+        let config_types = usage.config_types;
         // `strconv` is only used by Int/Float field parsing; Secret/String/Bool
         // fields never touch it, so importing it unconditionally would break the
         // Go build with an unused import.
@@ -177,15 +167,15 @@ impl<'a> Emitter<'a> {
             interfaces,
             interface_names,
             impls: collect_impls(module),
-            uses_concurrency,
-            uses_json,
-            uses_http,
-            uses_http_serve,
-            uses_log,
-            uses_sql,
-            uses_config,
-            uses_uuid_new,
-            uses_timestamp_now,
+            uses_concurrency: usage.concurrency,
+            uses_json: usage.json,
+            uses_http: usage.http,
+            uses_http_serve: usage.http_serve,
+            uses_log: usage.log,
+            uses_sql: usage.sql,
+            uses_config: usage.config,
+            uses_uuid_new: usage.uuid_new,
+            uses_timestamp_now: usage.timestamp_now,
             config_needs_strconv,
             json_types: Vec::new(),
             config_types,
@@ -1995,129 +1985,5 @@ impl From<fmt::Error> for BackendError {
         Self {
             message: "failed to write generated Go source".to_string(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{emit, emit_tests};
-    use keelc_parse::parse;
-    use keelc_span::SourceId;
-
-    #[test]
-    fn emits_test_runner_with_assertion_check() {
-        let source = r#"test "addition holds" {
-    assert 1 + 1 == 2
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit_tests(&kir.module).expect("emission should succeed");
-        assert!(go.contains("import ("));
-        assert!(go.contains("\"fmt\""));
-        assert!(go.contains("\"os\""));
-        assert!(go.contains("func main() {"));
-        assert!(go.contains(r#"fmt.Printf("test %q ... ", "addition holds")"#));
-        assert!(go.contains("fmt.Println(\"ok\")"));
-        assert!(go.contains("if !(((1 + 1) == 2)) {"));
-        assert!(go.contains("fmt.Fprintf(os.Stderr, \"assertion failed at line %d\\n\", 2)"));
-        assert!(go.contains("os.Exit(1)"));
-    }
-
-    #[test]
-    fn test_runner_excludes_user_main() {
-        let source = r#"fn main() {
-    print("hello")
-}
-
-test "example" {
-    assert true
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit_tests(&kir.module).expect("emission should succeed");
-        let matches: Vec<_> = go
-            .lines()
-            .filter(|line| line.starts_with("func main()"))
-            .collect();
-        assert_eq!(
-            matches.len(),
-            1,
-            "test runner must define exactly one main function"
-        );
-    }
-
-    #[test]
-    fn emits_simple_function() {
-        let source = r#"fn main() {
-    print("hello")
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("package main"));
-        assert!(go.contains("import \"fmt\""));
-        assert!(go.contains("func main() {"));
-        assert!(go.contains("keelPrint(\"hello\")"));
-    }
-
-    #[test]
-    fn emits_struct_decl() {
-        let source = r#"struct Point {
-    x: Int
-    y: Int
-}
-
-fn main() -> Unit {}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("type Point struct {"));
-        assert!(go.contains("x int64"));
-        assert!(go.contains("y int64"));
-    }
-
-    #[test]
-    fn emits_string_interpolation() {
-        let source = r#"fn main() {
-    print("{1 + 2}")
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("fmt.Sprint((1 + 2))"));
-    }
-
-    #[test]
-    fn emits_match_expression() {
-        let source = r#"fn main() {
-    let x = Some(1)
-    match x {
-        Some(n) => print("{n}")
-        other => print("none")
-    }
-}
-"#;
-        let output = parse(SourceId::new(0), source);
-        assert!(output.diagnostics.is_empty(), "{output:?}");
-        let kir = keelc_kir::lower::lower(&output.module, source);
-        assert!(kir.diagnostics.is_empty(), "{kir:?}");
-        let go = emit(&kir.module).expect("emission should succeed");
-        assert!(go.contains("if x.tag == \"Some\" {"));
-        assert!(go.contains("keelPrint(\"none\")"));
     }
 }

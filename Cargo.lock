@@ -18,8 +18,6 @@ name = "keelc-backend-go"
 version = "0.1.0"
 dependencies = [
  "keelc-kir",
- "keelc-parse",
- "keelc-span",
  "keelc-types",
 ]
 

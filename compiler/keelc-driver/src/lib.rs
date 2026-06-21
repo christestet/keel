@@ -6,7 +6,7 @@ use keelc_backend_go::{emit, emit_tests};
 use keelc_diag::{Diagnostic, Severity};
 use keelc_kir::lower::lower;
 use keelc_parse::parse_with_milestone;
-use keelc_resolve::{resolve, typecheck};
+use keelc_resolve::{resolve, typecheck, TypecheckOutput};
 use keelc_span::{LineIndex, SourceId};
 use std::env;
 use std::ffi::OsStr;
@@ -66,10 +66,11 @@ pub fn main() -> ExitCode {
 
     let output = parse_with_milestone(SourceId::new(0), &text, milestone);
     let mut diagnostics = output.diagnostics;
+    let checked = typecheck(&output.module);
     if milestone >= 2 && !diagnostics.iter().any(is_error) {
         diagnostics.extend(resolve(&output.module).diagnostics);
         if !diagnostics.iter().any(is_error) {
-            diagnostics.extend(typecheck(&output.module).diagnostics);
+            diagnostics.extend(checked.diagnostics.iter().cloned());
         }
     }
     diagnostics.sort_by(|left, right| {
@@ -91,9 +92,9 @@ pub fn main() -> ExitCode {
     }
 
     match command.as_os_str().to_str() {
-        Some("run") => run_module(&output.module, &text),
-        Some("test") => run_tests(&output.module, &text),
-        Some("build") => build_module(&output.module, path, &text),
+        Some("run") => run_module(&output.module, &text, &checked),
+        Some("test") => run_tests(&output.module, &text, &checked),
+        Some("build") => build_module(&output.module, path, &text, &checked),
         _ => ExitCode::SUCCESS,
     }
 }
@@ -116,8 +117,13 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn build_module(module: &Module, source_path: &Path, source: &str) -> ExitCode {
-    let go_source = match emit_go(module, source, false) {
+fn build_module(
+    module: &Module,
+    source_path: &Path,
+    source: &str,
+    checked: &TypecheckOutput,
+) -> ExitCode {
+    let go_source = match emit_go(module, source, checked, false) {
         Ok(source) => source,
         Err(code) => return code,
     };
@@ -206,16 +212,16 @@ impl Drop for TempDir {
     }
 }
 
-fn run_module(module: &Module, source: &str) -> ExitCode {
-    let go_source = match emit_go(module, source, false) {
+fn run_module(module: &Module, source: &str, checked: &TypecheckOutput) -> ExitCode {
+    let go_source = match emit_go(module, source, checked, false) {
         Ok(source) => source,
         Err(code) => return code,
     };
     run_go(go_source, "keelc-go")
 }
 
-fn run_tests(module: &Module, source: &str) -> ExitCode {
-    let go_source = match emit_go(module, source, true) {
+fn run_tests(module: &Module, source: &str, checked: &TypecheckOutput) -> ExitCode {
+    let go_source = match emit_go(module, source, checked, true) {
         Ok(source) => source,
         Err(code) => return code,
     };
@@ -265,8 +271,13 @@ fn run_go(go_source: String, temp_prefix: &str) -> ExitCode {
     }
 }
 
-fn emit_go(module: &Module, source: &str, tests: bool) -> Result<String, ExitCode> {
-    let kir_output = lower(module, source);
+fn emit_go(
+    module: &Module,
+    source: &str,
+    checked: &TypecheckOutput,
+    tests: bool,
+) -> Result<String, ExitCode> {
+    let kir_output = lower(module, source, &checked.types);
     if !kir_output.diagnostics.is_empty() {
         eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
         return Err(ExitCode::FAILURE);
