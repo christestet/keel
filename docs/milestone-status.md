@@ -49,7 +49,11 @@ For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
 
 **Known failures:** none.
 
-**Done:** `keelc-kir` crate introduced; backend emits from explicitly-typed KIR. Shared `TypeContext` in `keelc-types` supplies type information to both `keelc-resolve` and KIR lowering.
+**Done:** `keelc-kir` crate introduced; backend emits from explicitly-typed KIR.
+The resolver/typechecker is the single expression-inference owner and KIR
+consumes its span-keyed type results. Shared `TypeContext` declaration tables
+remain in `keelc-types`. See
+[`docs/m6-simplification-audit.md`](m6-simplification-audit.md).
 
 ## M4 — Toolchain skeleton: CLI, fmt, test
 

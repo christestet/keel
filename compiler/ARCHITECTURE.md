@@ -9,7 +9,7 @@ post-1.0 aspiration, not a plan.
 
 ## Pipeline
 
-### Current (M5)
+### Current (M6)
 
 ```
 source --> lexer --> parser --> AST --> resolver/typechecker --> KIR --> backend
@@ -37,12 +37,13 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
 - **AST → name resolution + type checking:** `keelc-resolve` performs name
   resolution and type checking directly on the AST. Explicit function
   signatures; inference is local (`let`) only. Exhaustiveness checking is part
-  of typechecking, not a lint. Type-inference helpers live in `keelc-types`
-  (`TypeContext`) so that `keelc-resolve` and `keelc-kir` lowering share the
-  same tables and rules.
+  of typechecking, not a lint. The typechecker returns a deterministic map of
+  expression spans to types. `TypeContext` in `keelc-types` holds declaration
+  tables shared with KIR lowering; expression inference has one owner in
+  `keelc-resolve`.
 - **KIR (Keel IR):** small, explicitly-typed, desugared IR (e.g. `?` and
   `catch` become explicit match-and-return). `keelc-kir` lowers the AST to KIR
-  and all backends consume KIR.
+  using the typechecker's expression-type map, and all backends consume KIR.
 - **Backends:** `backend-go` first ([KDR-0102](../docs/kdr/0102-go-backend-first.md)) — emits readable Go, drives the Go
   toolchain for codegen, GC, scheduler, cross-compile, static linking.
   `backend-native` (LLVM or cranelift) replaces it later; the conformance suite
@@ -65,7 +66,7 @@ compiler/
   keelc-ast         AST definitions (+ pretty printer = the formatter's core)
   keelc-resolve     name resolution + typechecker (operates directly on the AST)
   keelc-types       type definitions (TypeInfo, merge, collect) and shared
-                    type-inference helpers (TypeContext)
+                    declaration tables/queries (TypeContext)
   keelc-kir         IR + lowering (AST -> KIR)
   keelc-backend-go  Go emission (consumes KIR)
   keelc-driver      CLI entry; drives stages directly today, query database tomorrow;
@@ -86,8 +87,14 @@ non-compiling Rust workspace or invalid generated Go — both caught late.
   lives in `keelc-types`, but `Display for TypeInfo`, the backend `go_type`,
   and `zero_value` (in `keelc-backend-go`) match it exhaustively. Add the
   variant, then let `cargo build` walk you to every site — don't hand-search.
-  Resolver/KIR inference mostly match specific arms with an `_` fallback, so
-  *also* audit those: a silent `_ => Unknown` is how a new type gets dropped.
+  Resolver inference and KIR type consumers mostly match specific arms with an
+  `_` fallback, so *also* audit those: a silent `_ => Unknown` is how a new
+  type gets dropped.
+- **Expression-type map keys must identify the complete AST node.** Postfix
+  nodes such as `value?` include their postfix token in their span; otherwise
+  the node collides with its operand and overwrites its type. Interpolation
+  types use the interpolation's outer source span. See
+  [`docs/m6-simplification-audit.md`](../docs/m6-simplification-audit.md).
 - **Go forbids methods on predeclared types** (`int64`, `string`, …). Any time
   Keel attaches behaviour to a primitive (interface `impl`s, generic bounds),
   the backend must box it into a defined wrapper type. See the `keelBox_<Prim>`
