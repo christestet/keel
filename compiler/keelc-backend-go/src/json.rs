@@ -150,6 +150,22 @@ impl<'a> Emitter<'a> {
                     "return Ok(Some(decoded.values[0].({inner_go})))"
                 ))?;
             }
+            TypeInfo::Generic { name, args } if name == "List" && args.len() == 1 => {
+                let inner = &args[0];
+                let inner_suffix = json_type_name(inner);
+                self.line("if value.kind != \"array\" { return Err(keelJSONType(path, \"List\")) }")?;
+                self.line("out := []any{}")?;
+                self.line("for _, item := range value.items {")?;
+                self.indent += 1;
+                self.line_fmt(format_args!(
+                    "decoded := keelJSONDecode_{inner_suffix}(item, path + \"[]\", tolerant)"
+                ))?;
+                self.line("if decoded.tag == \"Err\" { return decoded }")?;
+                self.line("out = append(out, decoded.values[0])")?;
+                self.indent -= 1;
+                self.line("}")?;
+                self.line("return Ok(out)")?;
+            }
             TypeInfo::Named(name) => {
                 if let Some(info) = self.structs.iter().find(|info| info.name == *name).cloned() {
                     self.emit_json_struct_decoder(&info)?;
@@ -371,6 +387,25 @@ impl<'a> Emitter<'a> {
                 self.line_fmt(format_args!(
                     "return keelJSONEncode_{inner_suffix}(value.values[0].({inner_go}), path)"
                 ))?;
+            }
+            TypeInfo::Generic { name, args } if name == "List" && args.len() == 1 => {
+                let inner = &args[0];
+                let inner_suffix = json_type_name(inner);
+                let inner_go = self.go_type(inner);
+                self.line("var out strings.Builder")?;
+                self.line("out.WriteByte('[')")?;
+                self.line("for i, elem := range value {")?;
+                self.indent += 1;
+                self.line("if i > 0 { out.WriteByte(',') }")?;
+                self.line_fmt(format_args!(
+                    "encoded := keelJSONEncode_{inner_suffix}(elem.({inner_go}), path + \"[]\")"
+                ))?;
+                self.line("if encoded.tag == \"Err\" { return encoded }")?;
+                self.line("out.WriteString(encoded.values[0].(string))")?;
+                self.indent -= 1;
+                self.line("}")?;
+                self.line("out.WriteByte(']')")?;
+                self.line("return Ok(out.String())")?;
             }
             TypeInfo::Named(name) => {
                 if let Some(info) = self.structs.iter().find(|info| info.name == *name).cloned() {

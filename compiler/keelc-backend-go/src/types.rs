@@ -12,6 +12,8 @@ pub fn go_type(ty: &TypeInfo, struct_names: &[String], interface_names: &[String
         TypeInfo::Named(name) if name == "sql.QueryResult" => "keelSQLQueryResult".to_string(),
         TypeInfo::Named(name) if name == "sql.Row" => "keelSQLRow".to_string(),
         TypeInfo::Generic { name, .. } if name == "sql.RowMapper" => "keelSQLRowMapper".to_string(),
+        // List<T> is a []any at runtime (e.g. mapper.collect()).
+        TypeInfo::Generic { name, .. } if name == "List" => "[]any".to_string(),
         TypeInfo::Named(name) if name == "Secret" => "keelConfigSecret".to_string(),
         TypeInfo::Named(name) if name == "Uuid" => "string".to_string(),
         TypeInfo::Named(name) if name == "Timestamp" => "keelTimestamp".to_string(),
