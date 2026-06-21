@@ -146,13 +146,15 @@ operations:
 ```text
 fn json.parse<T>(input: String) -> Result<T, json.Error>
 fn json.parse<T>(input: String, mode: .tolerant) -> Result<T, json.Error>
-fn json.write<T>(value: T) -> Result<String, json.Error>
+fn json.write<T>(value: T) -> String
 ```
 
 `json.parse` requires exactly one explicit concrete type argument. `json.write`
 infers `T` from its value argument. Both calls require a JSON-representable type
 as defined in §15.8; using another type is the compile-time error `K1503`, with
-the type argument or value expression as the primary span.
+the type argument or value expression as the primary span. `json.write` returns
+a `String` directly (KDR-0040): a JSON-representable type always has a canonical
+text, so encoding cannot fail.
 
 The second `parse` spelling is a compiler-known named argument, not a general
 named-argument or enum-shorthand feature. `.tolerant` is its only valid value.
@@ -234,8 +236,8 @@ accept a numeric string, boolean, `1.0`, or `1e0`.
 
 `Float` accepts a JSON number whose value is finite and representable by Keel
 `Float`. JSON strings and the non-standard tokens `NaN`, `Infinity`, and
-`-Infinity` are never numbers. `json.write` returns `json.NonFinite` when asked
-to encode a non-finite `Float`.
+`-Infinity` are never numbers. `json.write` serialises a non-finite `Float` as
+the JSON literal `null` (KDR-0040); JSON has no token for these values.
 
 ## 15.12 Deterministic writing
 
@@ -893,8 +895,8 @@ syntax; it does not prove mailbox ownership or deliverability.
 All three scalar types are JSON-representable under §15.8 and map to JSON
 strings containing their canonical text. `json.parse<T>` returns
 `json.TypeMismatch(path, expected)` when a JSON string is not valid for scalar
-type `T`. `json.write` emits the canonical text and cannot fail for an existing
-scalar value.
+type `T`. `json.write` emits the canonical text for an existing scalar value
+(it returns `String` and cannot fail; KDR-0040).
 
 `http.Request.path_param<T>` accepts `Uuid`, `Timestamp`, and `Email` and applies
 the same parser as JSON after HTTP parameter extraction. An invalid value
