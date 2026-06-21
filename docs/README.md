@@ -1,13 +1,7 @@
 # Documentation
 
-Required reading order (from [`AGENTS.md`](../AGENTS.md)):
-
-1. [`vision.md`](vision.md) — language and tooling design rationale
-2. [`spec/keel-core.md`](spec/keel-core.md) — the frozen M0–M4 language subset (normative)
-3. [`spec/07-interfaces.md`](spec/07-interfaces.md) — first post-Core chapter: nominal interfaces (normative)
-4. [`spec/08-generics.md`](spec/08-generics.md) — interface-constrained generics (normative, parser scaffolding complete)
-5. [`kdr/INDEX.md`](kdr/INDEX.md) — decision records (KDRs), accepted and rejected
-6. [`compiler/ARCHITECTURE.md`](../compiler/ARCHITECTURE.md) — compiler pipeline, crate layout, iron rules
+Reading order is defined once in [`AGENTS.md`](../AGENTS.md) ("Required reading
+order") — follow it there. This page is the directory map.
 
 ## Directory map
 
