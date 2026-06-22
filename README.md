@@ -3,9 +3,10 @@
 > A typed, compiled, garbage-collected language for backend services that should
 > still be readable, reviewable, and deployable after five years of team churn.
 
-**Status: M6 in progress — stdlib slice + demo service. M5 (interfaces, generics)
-complete; `scope`/`spawn` remain.** Start with
-[`docs/vision.md`](docs/vision.md) and [`ROADMAP.md`](ROADMAP.md).
+**Status: M7 complete — 221 conformance cases pass and 4 earlier-milestone
+rejection cases are intentionally skipped. M8 (incremental compiler core + LSP)
+is scoped but not started.** See [`ROADMAP.md`](ROADMAP.md) and
+[`docs/milestone-status.md`](docs/milestone-status.md).
 
 ## What Keel is
 
@@ -16,11 +17,10 @@ complete; `scope`/`spawn` remain.** Start with
 - Safety: no null (`Option<T>`), no implicit zero values, exhaustive `match`,
   `Result` + `?` + `catch` for errors, union error types ([KDR-0005](docs/kdr/0005-no-exceptions.md)).
 - Concurrency: structured only (`scope` / `spawn`). No detached tasks, no colored functions ([KDR-0002](docs/kdr/0002-no-async-await.md)).
-- Tooling: one binary (`keel build|run|test|fmt|lint|audit|gen|fix`; `lsp`
-  [planned](docs/kdr/0103-lsp-server.md) for M7+), zero config, non-configurable
-  formatter and linter ([KDR-0010](docs/kdr/0010-one-formatter.md), [KDR-0018](docs/kdr/0018-waivers.md)).
-- Deployment: static binaries for `FROM scratch`, cgroup-aware runtime,
-  built-in `/healthz`, `/readyz`, SIGTERM drain, OpenTelemetry.
+- Tooling implemented today: `keel build|run|test|fmt|check|audit|gen`.
+  `keel lsp` is planned for M8; `lint` and `fix` are not implemented.
+- Deployment today: reproducible binaries emitted through the Go backend.
+  Reproducible OCI images are planned for M9.
 - Supply chain: package **capabilities** (`net`, `fs`, `exec`, `env`, `ffi`, `unsafe-memory`) enforced by the compiler ([KDR-0011](docs/kdr/0011-package-capabilities.md)).
 - Evolution: Rust-style editions, hardened — old idioms become compile errors in
   new editions, and `keel fix` must migrate the public corpus automatically ([KDR-0001](docs/kdr/0001-editions.md)).
@@ -28,13 +28,16 @@ complete; `scope`/`spawn` remain.** Start with
 ## What Keel is not for
 
 Game engines, kernels, embedded, GUIs, sub-100µs deterministic latency.
-Use Rust, C, or Zig there — Keel's FFI will call the result. See `docs/vision.md` §10.
+Use Rust, C, or Zig there. Keel's C FFI is designed but not implemented; see
+[`docs/vision.md`](docs/vision.md) §10 and
+[`ROADMAP.md`](ROADMAP.md#m10--ecosystem-bridges).
 
 ## Repository map
 
 | Path | Purpose |
 |---|---|
-| `docs/vision.md` | The design document (v0.2). Read this first. |
+| `docs/README.md` | Documentation map and reading paths. |
+| `docs/vision.md` | The design document (v0.2): why Keel exists. |
 | `docs/spec/` | The normative language specification (in progress). |
 | `docs/kdr/` | Keel Decision Records — every adopted/rejected decision, with reopening clauses. |
 | `tests/conformance/` | Executable ground truth. The spec, as tests. **The most important directory for implementers.** |
@@ -45,13 +48,7 @@ Use Rust, C, or Zig there — Keel's FFI will call the result. See `docs/vision.
 | `AGENTS.md` | Mandatory rules for LLM/agent contributors. |
 | `CONTRIBUTING.md` | Rules for human contributors. |
 
-## How implementation starts
-
-Milestone 0 is not code. It is freezing **Keel Core** (`docs/spec/keel-core.md`) — the
-minimal subset — and writing conformance tests for it. Every subsequent PR makes one
-more conformance test pass. See `ROADMAP.md`.
-
-## Current CLI (M6 snapshot)
+## Build the current toolchain
 
 The compiler builds two binaries from `compiler/keelc-driver`:
 
@@ -63,18 +60,17 @@ Available commands:
 ```sh
 cargo build --release -p keelc-driver
 
-./target/release/keel run examples/hello.keel
-./target/release/keel test tests/conformance/702-keel-test-runs-blocks/main.keel
-./target/release/keel fmt tests/conformance/001-hello-world/main.keel
-./target/release/keel build tests/conformance/001-hello-world/main.keel
-./target/release/keel run tests/conformance/214-interface-method-call/main.keel --milestone M5
+./target/release/keel run examples/hello.keel --milestone M7
+./target/release/keel check examples/hello.keel --milestone M7
+./target/release/keel fmt examples/hello.keel --milestone M7
+./target/release/keel build examples/hello.keel --milestone M7
 ```
 
-`keel fmt` is the AST pretty-printer and is idempotent on the Keel Core and M5
-interface conformance corpus. `keel test` discovers `test "name" { assert expr }`
-blocks and runs them. `keel build` compiles a Keel source file to a native binary
-(placed next to the source file) via the Go toolchain. Interfaces require the
-`--milestone M5` gate until M5 is declared the default.
+The current development CLI defaults to the M1 parser gate, so use
+`--milestone M7` for the complete implemented language. `keel fmt` writes
+canonical source to stdout; it does not edit the input file. `keel build` writes
+the executable beside the source file. Rust and Go are currently required to
+build and run the compiler.
 
 ## License
 
