@@ -13,6 +13,8 @@
 //!     `keelc test <main.keel>` and matches stdout against `expected.stdout`.
 //!   * M4+ build mode: `case.toml` may set `mode = "build"`; the runner invokes
 //!     `keelc build <main.keel>`, runs the produced binary, and matches stdout.
+//!   * M7+ audit mode: `case.toml` may set `mode = "audit"`; the runner invokes
+//!     `keelc audit <main.keel>` and matches its stdout (the capability report).
 //!   * reject-case: keelc exits non-zero and stderr contains the diagnostic
 //!     code from line 1 of `expected.error` (e.g. `K0301`). If line 2 is
 //!     `line:N`, stderr must also contain `main.keel:N`. Message TEXT is
@@ -55,6 +57,8 @@ enum RunMode {
     Run,
     Test,
     Build,
+    /// `keelc audit main.keel`: the report goes to stdout, matched like Run.
+    Audit,
 }
 
 #[derive(Debug)]
@@ -305,6 +309,7 @@ fn parse_case_toml(p: &Path) -> Result<(Option<u32>, Option<u32>, RunMode), Stri
                 "run" => RunMode::Run,
                 "test" => RunMode::Test,
                 "build" => RunMode::Build,
+                "audit" => RunMode::Audit,
                 other => return Err(format!("unrecognized mode `{other}`")),
             };
             continue;
@@ -372,11 +377,18 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             current_milestone.unwrap_or(0)
         ));
     }
+    if case.mode == RunMode::Audit && current_milestone < Some(7) {
+        return Outcome::Skip(format!(
+            "requires M7 audit mode, running at M{}",
+            current_milestone.unwrap_or(0)
+        ));
+    }
 
     let command = match case.mode {
         RunMode::Test => "test",
         RunMode::Build => "build",
         RunMode::Run => "run",
+        RunMode::Audit => "audit",
     };
     let out = match invoke_keelc(case, keelc, command, current_milestone) {
         Ok(o) => o,
