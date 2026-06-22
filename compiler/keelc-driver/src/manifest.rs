@@ -63,10 +63,41 @@ pub fn check_workspace(entry: &Path, milestone: u32) -> Vec<ManifestDiag> {
     errors
 }
 
+/// Produce the deterministic `keel audit` report (spec §11.5) for the workspace
+/// rooted at `entry`'s directory, or the manifest diagnostics that prevent it.
+/// Capabilities are listed in the fixed §11.1 order; contributing packages are
+/// sorted by name with the root shown as `self` (root AGENTS.md hard rule 7).
+pub fn audit(entry: &Path, milestone: u32) -> Result<String, Vec<ManifestDiag>> {
+    let dir = entry.parent().filter(|p| !p.as_os_str().is_empty());
+    let dir = dir.unwrap_or_else(|| Path::new("."));
+    let stem = entry
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("package");
+
+    if !dir.join("keel.toml").is_file() {
+        // Implicit single-file package: empty capability set (spec §6.1).
+        let not_present = CAPABILITIES.join(", ");
+        return Ok(format!("{stem} (implicit)\n  ({not_present}: not present)\n"));
+    }
+
+    let mut graph = Graph::new(milestone);
+    graph.load(dir, &mut Vec::new());
+    if !graph.errors.is_empty() {
+        graph.errors.sort();
+        graph.errors.dedup();
+        return Err(graph.errors);
+    }
+
+    let root_dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    Ok(graph.report(&root_dir))
+}
+
 /// A loaded package: its identity, declared capabilities, and path dependencies.
 struct Package {
     dir: PathBuf,
     name: String,
+    version: String,
     capabilities: BTreeSet<String>,
     /// alias -> canonical dependency directory.
     deps: BTreeMap<String, PathBuf>,
@@ -220,21 +251,24 @@ impl Graph {
             }
         };
 
-        match raw.package.get("version") {
-            Some(Value::String(s)) if is_semver(s) => {}
+        let version = match raw.package.get("version") {
+            Some(Value::String(s)) if is_semver(s) => s.clone(),
             Some(Value::String(s)) => {
                 self.err("K1103", format!("version `{s}` must be MAJOR.MINOR.PATCH"));
                 ok = false;
+                String::new()
             }
             Some(_) => {
                 self.err("K1103", "`[package].version` must be a string".to_string());
                 ok = false;
+                String::new()
             }
             None => {
                 self.err("K1103", "`[package].version` is required".to_string());
                 ok = false;
+                String::new()
             }
-        }
+        };
 
         // Edition (spec ch14): omitted => current edition; a declared value the
         // toolchain does not recognize is K1401.
@@ -302,6 +336,7 @@ impl Graph {
             Some(Package {
                 dir: dir.to_path_buf(),
                 name,
+                version,
                 capabilities,
                 deps,
             })
@@ -361,6 +396,83 @@ impl Graph {
             }
         }
         errors
+    }
+
+    /// Capabilities a package directly exercises via its own `std` uses (§11.2).
+    fn own_std_caps(&self, pkg: &Package) -> BTreeSet<String> {
+        let mut caps = BTreeSet::new();
+        for path in package_use_paths(pkg, self.milestone) {
+            if path.first().map(String::as_str) == Some("std") {
+                let module = path.get(1).map(String::as_str).unwrap_or_default();
+                for cap in std_module_caps(module) {
+                    caps.insert((*cap).to_string());
+                }
+            }
+        }
+        caps
+    }
+
+    /// Build the §11.5 report for the package at `root_dir`.
+    fn report(&self, root_dir: &Path) -> String {
+        let Some(root) = self.packages.get(root_dir) else {
+            return String::new();
+        };
+        let mut out = format!("{} {}\n", root.name, root.version);
+
+        let mut not_present = Vec::new();
+        for cap in CAPABILITIES {
+            let mut contributors = Vec::new();
+            if root.capabilities.contains(cap) {
+                contributors.push("self".to_string());
+            }
+            let mut others: Vec<&Package> = self
+                .packages
+                .values()
+                .filter(|p| p.dir != root.dir && p.capabilities.contains(cap))
+                .collect();
+            others.sort_by(|a, b| a.name.cmp(&b.name));
+            for p in others {
+                contributors.push(format!("{} {}", p.name, p.version));
+            }
+            if contributors.is_empty() {
+                not_present.push(cap);
+            } else {
+                out.push_str(&format!("  {cap}: {}\n", contributors.join(", ")));
+            }
+        }
+        if !not_present.is_empty() {
+            out.push_str(&format!("  ({}: not present)\n", not_present.join(", ")));
+        }
+
+        // Over-declaration warnings: a declared capability the package neither
+        // exercises itself nor must re-declare for a dependency (§11.5).
+        let mut packages: Vec<&Package> = self.packages.values().collect();
+        packages.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut warnings = Vec::new();
+        for pkg in packages {
+            let mut needed = self.own_std_caps(pkg);
+            for depdir in pkg.deps.values() {
+                if let Some(dep) = self.packages.get(depdir) {
+                    needed.extend(dep.capabilities.iter().cloned());
+                }
+            }
+            for cap in CAPABILITIES {
+                if pkg.capabilities.contains(cap) && !needed.contains(cap) {
+                    warnings.push(format!(
+                        "  {} {} declares `{cap}` but never exercises it (over-declared)",
+                        pkg.name, pkg.version
+                    ));
+                }
+            }
+        }
+        if !warnings.is_empty() {
+            out.push_str("\nwarnings:\n");
+            for warning in warnings {
+                out.push_str(&warning);
+                out.push('\n');
+            }
+        }
+        out
     }
 }
 

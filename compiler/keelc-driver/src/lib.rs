@@ -56,10 +56,11 @@ pub fn main() -> ExitCode {
 
     match command.as_os_str().to_str() {
         Some("fmt") => return fmt_file(path, &text, milestone),
+        Some("audit") => return audit_workspace(path, milestone),
         Some("check" | "run" | "build" | "test") => {}
         _ => {
             eprintln!(
-                "unsupported command `{}`; keel supports `build|run|fmt|test|check <file>`",
+                "unsupported command `{}`; keel supports `build|run|fmt|test|check|audit <file>`",
                 command.to_string_lossy()
             );
             return ExitCode::from(2);
@@ -112,7 +113,24 @@ pub fn main() -> ExitCode {
 }
 
 fn usage() {
-    eprintln!("usage: keel <build|run|fmt|test|check> <file.keel> [--milestone M<N>]");
+    eprintln!("usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]");
+}
+
+/// `keel audit`: print the deterministic capability report (spec §11.5), or the
+/// manifest diagnostics that block it.
+fn audit_workspace(path: &Path, milestone: u32) -> ExitCode {
+    match manifest::audit(path, milestone) {
+        Ok(report) => {
+            print!("{report}");
+            ExitCode::SUCCESS
+        }
+        Err(diagnostics) => {
+            for (code, message) in &diagnostics {
+                eprintln!("error[{code}]: {message}");
+            }
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
