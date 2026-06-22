@@ -1,0 +1,4 @@
+[package]
+name = "over_declared_pkg"
+version = "0.1.0"
+capabilities = ["fs"]
