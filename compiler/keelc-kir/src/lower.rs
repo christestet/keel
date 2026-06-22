@@ -507,6 +507,9 @@ impl<'a> Lowerer<'a> {
                 expr: Box::new(self.lower_expr(expr)),
                 ty,
             },
+            // arena is a no-op region on the GC backend (spec ch10 / KDR-0012):
+            // the escape rule is enforced at typecheck, so emission is a block.
+            keelc_ast::Expr::Arena { body, .. } => Expr::Block(self.lower_block(body)),
             keelc_ast::Expr::Block(block) => Expr::Block(self.lower_block(block)),
             keelc_ast::Expr::Question { expr, .. } => {
                 // Hoist the propagating match/return to statement position so its

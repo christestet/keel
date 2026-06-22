@@ -461,6 +461,10 @@ impl Printer {
                     10,
                 )
             }
+            Expr::Arena { body, .. } => (
+                format!("arena {}", self.inline_block(body, base_indent)),
+                10,
+            ),
             Expr::Spawn { expr, .. } => {
                 let inner = self.expr(expr, 90, base_indent);
                 (format!("spawn {inner}"), 90)

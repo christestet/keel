@@ -213,6 +213,7 @@ impl<'a> Resolver<'a> {
                 }
                 self.resolve_block(body);
             }
+            Expr::Arena { body, .. } => self.resolve_block(body),
             Expr::Spawn { expr, .. } => self.resolve_expr(expr),
             Expr::Block(block) => self.resolve_block(block),
             Expr::Catch {
@@ -770,6 +771,7 @@ impl<'a> Typechecker<'a> {
                 TypeInfo::Unit
             }
             Expr::Scope { deadline, body, .. } => self.infer_scope(deadline.as_deref(), body),
+            Expr::Arena { body, span } => self.infer_arena(body, *span),
             Expr::Spawn { expr, span } => self.infer_spawn(expr, *span),
             Expr::Block(block) => self.check_block(block),
             Expr::Question { expr, span } => self.infer_question(expr, *span),
@@ -967,6 +969,43 @@ impl<'a> Typechecker<'a> {
             return result;
         };
         TypeInfo::generic("Result", vec![result, error_type])
+    }
+
+    /// Typecheck an `arena` block (spec ch10). The block's value is its tail;
+    /// the escape rule (§10.3) forbids a region-backed tail from leaving.
+    fn infer_arena(&mut self, body: &Block, span: Span) -> TypeInfo {
+        self.push_scope();
+        let mut result = TypeInfo::Unit;
+        let mut tail_span = span;
+        let mut statements = body.statements.iter().peekable();
+        while let Some(statement) = statements.next() {
+            if statements.peek().is_none() {
+                if let Stmt::Expr(expr) = statement {
+                    result = self.infer_expr(expr);
+                    tail_span = expr.span();
+                    continue;
+                }
+            }
+            self.check_stmt(statement);
+        }
+        self.pop_scope();
+
+        // ponytail: tail-position escape check only — a region-backed value
+        // yielded as the block's value is K1001. Full escape analysis (let
+        // bindings that outlive the block, returns, task/closure capture) lands
+        // with a real region backend; today the Go GC backs arena allocations,
+        // so this enforces the spec discipline, it does not prevent UAF.
+        if is_region_backed(&result) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    registry::K1001,
+                    self.diagnostic_span(tail_span),
+                    format!("a region-backed `{result}` may not escape its `arena` block"),
+                )
+                .with_help("allocate it under the GC instead — omit the `arena`"),
+            );
+        }
+        result
     }
 
     fn infer_spawn(&mut self, expr: &Expr, span: Span) -> TypeInfo {
@@ -1960,6 +1999,16 @@ fn arm_pattern_name(arm: &MatchArm) -> Option<&str> {
         Pattern::Name { name, .. } => Some(name.value.as_str()),
         Pattern::Unit(_) | Pattern::Wildcard(_) => None,
     }
+}
+
+/// Whether a value's representation references region memory (spec §10.3):
+/// structs, enums, and the built-in collections. Primitives and `Unit` are
+/// copies that pass freely out of an `arena`.
+fn is_region_backed(ty: &TypeInfo) -> bool {
+    matches!(
+        ty,
+        TypeInfo::Named(_) | TypeInfo::Generic { .. } | TypeInfo::Interface(_)
+    )
 }
 
 fn scope_error_type(errors: Vec<TypeInfo>) -> Option<TypeInfo> {
