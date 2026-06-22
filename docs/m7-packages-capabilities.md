@@ -10,6 +10,12 @@ this note links them, it does not restate them.
 
 ## Status
 
+> **Update (2026-06-22): implemented.** This note records the original spec
+> slice; the manifest/capability/audit compiler work has since landed (cases
+> 810–817, 820–826, 827–828). The "Explicitly not done" section below is the
+> historical snapshot at spec-PR time — see [`m7-status.md`](m7-status.md) for
+> current state.
+
 **Done — spec PR (PR-A + PR-B):**
 
 - [`docs/spec/06-modules-packages.md`](spec/06-modules-packages.md): package =
