@@ -14,11 +14,15 @@ point; contributor-only reading order remains in [`AGENTS.md`](../AGENTS.md).
    and known backend ceilings.
 4. [Packages and capabilities](packages-and-capabilities.md) — manifests, local
    dependencies, authority declarations, and audit reports.
+5. [Idiomatic Keel](idiomatic-keel.md) — non-normative patterns derived from the
+   design and conformance suite.
 
 ## Use the toolchain
 
 - [CLI reference](cli-reference.md)
 - [Compiler diagnostics](diagnostics.md)
+- [Deployment](deployment.md)
+- [Troubleshooting](troubleshooting.md)
 - [Users-service example](../examples/users-service/README.md)
 - [Security policy](../SECURITY.md)
 
@@ -26,6 +30,8 @@ point; contributor-only reading order remains in [`AGENTS.md`](../AGENTS.md).
 
 - [Vision](vision.md) — why Keel exists and the intended complete design.
 - [Who Keel is not for](who-keel-is-not-for.md) — explicit domain boundaries.
+- [Syntax/specification index](syntax-index.md) — map from language forms to
+  normative prose and executable cases.
 - [Language specification](spec/) — normative behavior; `keel-core.md` is the
   frozen M0–M4 subset and numbered chapters add later behavior.
 - [Keel Decision Records](kdr/) — accepted/rejected decisions and reopening
@@ -37,6 +43,8 @@ normative prose, stop and file an issue rather than reconciling either silently.
 ## Follow implementation
 
 - [Roadmap](../ROADMAP.md) — milestone order and binary exit criteria.
+- [Feature status](feature-status.md) — concise implemented/partial/planned
+  matrix for users.
 - [Milestone status](milestone-status.md) — current implementation snapshot.
 - [Compiler architecture](../compiler/ARCHITECTURE.md) — pipeline, crate layout,
   and compiler invariants.
@@ -51,3 +59,9 @@ the language.
 - [Contributing](../CONTRIBUTING.md)
 - [Agent contributor rules](../AGENTS.md)
 - [Governance](../GOVERNANCE.md)
+
+## Releases and compatibility
+
+- [Compatibility policy](compatibility.md)
+- [Changelog](../CHANGELOG.md)
+- [Release process](release-process.md)
