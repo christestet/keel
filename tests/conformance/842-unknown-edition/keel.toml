@@ -1,0 +1,4 @@
+[package]
+name = "unknown_edition"
+version = "0.1.0"
+edition = "99"
