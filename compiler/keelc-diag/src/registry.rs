@@ -61,6 +61,7 @@ codes! {
     K0906 => "attributes are not in Core",
     K0907 => "operator overloading is not in Core",
     K0908 => "async/await are not in Core",
+    K1001 => "arena reference escapes its block",
     K1101 => "manifest required but absent",
     K1102 => "malformed manifest",
     K1103 => "missing or invalid required manifest field",
