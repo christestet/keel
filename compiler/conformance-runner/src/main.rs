@@ -59,6 +59,13 @@ enum RunMode {
     Build,
     /// `keelc audit main.keel`: the report goes to stdout, matched like Run.
     Audit,
+    /// `keelc gen schema.proto`: generated Keel goes to stdout, matched like
+    /// Run, and is additionally re-formatted to assert `keel fmt`-idempotence
+    /// (spec ch17). The case carries `schema.proto`, not `main.keel`.
+    Gen,
+    /// `keelc build` run twice: the two binaries must be byte-identical, then
+    /// one is run and its stdout matched (spec ch18, hermetic builds).
+    Repro,
 }
 
 #[derive(Debug)]
@@ -134,14 +141,9 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
         }
         seen_numbers.push((number, name.clone()));
 
-        if !dir.join("main.keel").is_file() {
-            err("missing main.keel".into());
-            continue;
-        }
-
         // optional case.toml — `milestone = "MN"`, `until = "MN"`, and
-        // `mode = "run|test|build"` are recognized; hand-parsed to keep the
-        // runner dependency-free.
+        // `mode = "run|test|build|audit|gen|repro"` are recognized; hand-parsed
+        // to keep the runner dependency-free.
         let (milestone, until, mode) = match parse_case_toml(&dir.join("case.toml")) {
             Ok(triple) => triple,
             Err(p) => {
@@ -149,6 +151,17 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
                 continue;
             }
         };
+
+        // Most cases drive `main.keel`; `gen` cases drive a schema file instead.
+        let input = if mode == RunMode::Gen {
+            "schema.proto"
+        } else {
+            "main.keel"
+        };
+        if !dir.join(input).is_file() {
+            err(format!("missing {input}"));
+            continue;
+        }
 
         let is_build_mode_no_stdout = mode == RunMode::Build;
 
@@ -310,6 +323,8 @@ fn parse_case_toml(p: &Path) -> Result<(Option<u32>, Option<u32>, RunMode), Stri
                 "test" => RunMode::Test,
                 "build" => RunMode::Build,
                 "audit" => RunMode::Audit,
+                "gen" => RunMode::Gen,
+                "repro" => RunMode::Repro,
                 other => return Err(format!("unrecognized mode `{other}`")),
             };
             continue;
@@ -383,12 +398,34 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             current_milestone.unwrap_or(0)
         ));
     }
+    if case.mode == RunMode::Gen {
+        if current_milestone < Some(7) {
+            return Outcome::Skip(format!(
+                "requires M7 gen mode, running at M{}",
+                current_milestone.unwrap_or(0)
+            ));
+        }
+        return run_gen_case(case, keelc, current_milestone);
+    }
+    if case.mode == RunMode::Repro {
+        if current_milestone < Some(7) {
+            return Outcome::Skip(format!(
+                "requires M7 repro mode, running at M{}",
+                current_milestone.unwrap_or(0)
+            ));
+        }
+        return run_repro_case(case, keelc, current_milestone);
+    }
 
     let command = match case.mode {
         RunMode::Test => "test",
         RunMode::Build => "build",
         RunMode::Run => "run",
         RunMode::Audit => "audit",
+        // Gen/Repro return above; the match stays exhaustive without a panic.
+        RunMode::Gen | RunMode::Repro => {
+            return Outcome::Fail("internal: gen/repro fell through".into())
+        }
     };
     let out = match invoke_keelc(case, keelc, command, current_milestone) {
         Ok(o) => o,
@@ -468,6 +505,154 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             line,
             &format!("expected compile error {code}, but program ran successfully"),
         ),
+    }
+}
+
+fn milestone_args(cmd: &mut Command, current_milestone: Option<u32>) {
+    if let Some(m) = current_milestone {
+        cmd.arg("--milestone").arg(format!("M{m}"));
+    }
+}
+
+/// `mode = "gen"`: `keelc gen schema.proto` emits Keel to stdout. Accept-cases
+/// compare stdout, then assert the output round-trips `keel fmt` (spec ch17).
+fn run_gen_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome {
+    let mut cmd = Command::new(keelc);
+    cmd.arg("gen").arg("schema.proto").current_dir(&case.dir);
+    milestone_args(&mut cmd, current_milestone);
+    let out = match cmd.stdin(Stdio::null()).output() {
+        Ok(o) => o,
+        Err(e) => return Outcome::Fail(format!("could not invoke `{keelc}`: {e}")),
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    let want = match &case.expectation {
+        Expectation::Error { code, line } => {
+            return check_expected_error(
+                &out.status,
+                &stderr,
+                code,
+                line,
+                &format!("expected gen error {code}, but generation succeeded"),
+            )
+        }
+        Expectation::Stdout(want) => want,
+        Expectation::BuildOnly => {
+            return Outcome::Fail("gen mode needs expected.stdout or expected.error".into())
+        }
+    };
+
+    if !out.status.success() {
+        return Outcome::Fail(format!(
+            "expected successful gen, keelc exited {:?}\n--- stderr ---\n{stderr}",
+            out.status.code()
+        ));
+    }
+    let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
+    if &stdout != want {
+        return Outcome::Fail(diff("stdout", want, &stdout));
+    }
+
+    // Round-trip: the generated source must be `keel fmt`-idempotent (ch17 §17.2).
+    let generated = case.dir.join("generated.keel");
+    if let Err(e) = fs::write(&generated, &stdout) {
+        return Outcome::Fail(format!("could not write {}: {e}", generated.display()));
+    }
+    let mut fmt = Command::new(keelc);
+    fmt.arg("fmt").arg("generated.keel").current_dir(&case.dir);
+    milestone_args(&mut fmt, current_milestone);
+    let fmt_out = fmt.stdin(Stdio::null()).output();
+    let _ = fs::remove_file(&generated);
+    let fmt_out = match fmt_out {
+        Ok(o) => o,
+        Err(e) => return Outcome::Fail(format!("could not invoke `{keelc} fmt`: {e}")),
+    };
+    if !fmt_out.status.success() {
+        return Outcome::Fail(format!(
+            "generated source did not parse for `keel fmt`\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&fmt_out.stderr)
+        ));
+    }
+    let reformatted = normalize(&String::from_utf8_lossy(&fmt_out.stdout));
+    if reformatted != stdout {
+        return Outcome::Fail(diff(
+            "generated source is not `keel fmt`-idempotent",
+            &stdout,
+            &reformatted,
+        ));
+    }
+    Outcome::Pass
+}
+
+/// `mode = "repro"`: two clean `keelc build`s must be byte-identical, then one
+/// binary is run and its stdout matched (spec ch18, hermetic builds).
+fn run_repro_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome {
+    let exe = format!("main{}", std::env::consts::EXE_SUFFIX);
+    let binary = case.dir.join(&exe);
+
+    let build = |label: &str| -> Result<Vec<u8>, Outcome> {
+        let mut cmd = Command::new(keelc);
+        cmd.arg("build").arg("main.keel").current_dir(&case.dir);
+        milestone_args(&mut cmd, current_milestone);
+        let out = cmd
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| Outcome::Fail(format!("could not invoke `{keelc}`: {e}")))?;
+        if !out.status.success() {
+            return Err(Outcome::Fail(format!(
+                "expected successful build ({label}), keelc exited {:?}\n--- stderr ---\n{}",
+                out.status.code(),
+                String::from_utf8_lossy(&out.stderr)
+            )));
+        }
+        fs::read(&binary).map_err(|e| Outcome::Fail(format!("could not read built binary: {e}")))
+    };
+
+    let first = match build("build 1") {
+        Ok(bytes) => bytes,
+        Err(o) => return o,
+    };
+    let second = match build("build 2") {
+        Ok(bytes) => bytes,
+        Err(o) => {
+            let _ = fs::remove_file(&binary);
+            return o;
+        }
+    };
+    if first != second {
+        let _ = fs::remove_file(&binary);
+        return Outcome::Fail(format!(
+            "two clean builds are not byte-identical ({} vs {} bytes)",
+            first.len(),
+            second.len()
+        ));
+    }
+
+    // The binary from build 2 is still on disk; run it for the stdout check.
+    // Canonicalize so the path is valid once `current_dir` is the case dir.
+    let exe_path = fs::canonicalize(&binary).unwrap_or_else(|_| binary.clone());
+    let run = Command::new(&exe_path)
+        .current_dir(&case.dir)
+        .stdin(Stdio::null())
+        .output();
+    let _ = fs::remove_file(&binary);
+    let run = match run {
+        Ok(o) => o,
+        Err(e) => return Outcome::Fail(format!("could not run built binary: {e}")),
+    };
+    let stdout = normalize(&String::from_utf8_lossy(&run.stdout));
+    match &case.expectation {
+        Expectation::BuildOnly => Outcome::Pass,
+        Expectation::Stdout(want) => {
+            if &stdout == want {
+                Outcome::Pass
+            } else {
+                Outcome::Fail(diff("stdout", want, &stdout))
+            }
+        }
+        Expectation::Error { .. } => {
+            Outcome::Fail("repro mode does not support expected.error".into())
+        }
     }
 }
 

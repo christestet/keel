@@ -1,0 +1,9 @@
+struct User {
+    name: String
+    id: Int
+    active: Bool
+}
+
+struct UserList {
+    users: List<User>
+}

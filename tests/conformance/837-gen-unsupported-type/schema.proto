@@ -1,0 +1,3 @@
+message Blob {
+  bytes data = 1;
+}

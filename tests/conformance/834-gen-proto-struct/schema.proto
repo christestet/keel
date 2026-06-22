@@ -1,0 +1,12 @@
+syntax = "proto3";
+package users;
+
+message User {
+  string name = 1;
+  int64 id = 2;
+  bool active = 3;
+}
+
+message UserList {
+  repeated User users = 1;
+}
