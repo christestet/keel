@@ -115,4 +115,5 @@ test "addition holds" ... ok
 - `keel lsp`, `keel lint`, and `keel fix` are not implemented.
 - C FFI and OpenAPI generation are planned for M10.
 
-Use the [specification](spec/keel-core.md) when exact semantics matter.
+Continue with the [language tour](language-tour.md), then use the
+[specification](spec/keel-core.md) when exact semantics matter.
