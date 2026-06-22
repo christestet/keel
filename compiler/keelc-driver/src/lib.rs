@@ -1,5 +1,7 @@
 //! Keel CLI driver: check, run, fmt, and build Keel Core source files.
 
+mod manifest;
+
 use keelc_ast::pretty::pretty_print;
 use keelc_ast::Module;
 use keelc_backend_go::{emit, emit_tests};
@@ -62,6 +64,16 @@ pub fn main() -> ExitCode {
             );
             return ExitCode::from(2);
         }
+    }
+
+    // M7 package + capability enforcement (spec ch06/ch11). A no-op for an
+    // implicit single-file package (no adjacent keel.toml).
+    let manifest_diagnostics = manifest::check_workspace(path, milestone);
+    if !manifest_diagnostics.is_empty() {
+        for (code, message) in &manifest_diagnostics {
+            eprintln!("error[{code}]: {message}");
+        }
+        return ExitCode::FAILURE;
     }
 
     let output = parse_with_milestone(SourceId::new(0), &text, milestone);
