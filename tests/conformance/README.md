@@ -21,6 +21,11 @@ mode = "test"        # M4+: invoke `keelc test` instead of `keelc run`
 mode = "build"       # M4+: invoke `keelc build`, then run the produced binary
 ```
 
+Package cases may also contain a `keel.toml` beside `main.keel` and nested
+package directories referenced by path dependencies. The runner invokes
+`keelc` from the case directory, so relative manifest paths retain their
+source spelling.
+
 ## Rules
 
 - One behavior per case. A case that tests two things is two cases.

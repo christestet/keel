@@ -1,0 +1,6 @@
+[package]
+name = "path_dependency"
+version = "0.1.0"
+
+[dependencies]
+helper = { path = "helper" }

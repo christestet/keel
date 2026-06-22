@@ -34,10 +34,11 @@ arenas, schema codegen, hermetic builds, and edition machinery.
   the two previously-undecided differentiators (proposed). `keel audit` needs no
   new decision — it is part of [`KDR-0011`](kdr/0011-package-capabilities.md),
   specified in [`11-capabilities.md`](spec/11-capabilities.md) §11.5.
-- **No compiler code for any differentiator yet.** Specs/KDRs are the contracts;
-  tests and implementation follow per hard rule 1.
-- Conformance unchanged from M6 — all spec-only so far; cases land with the
-  test PRs.
+- **No compiler code for any differentiator yet.** Specs/KDRs and the first
+  package/capability conformance slice are the contracts; implementation follows
+  separately per hard rule 1.
+- Package/capability cases `810`–`817` and `820`–`826` are encoded. The M6 gate
+  remains green; the M7 gate is intentionally red until implementation lands.
 
 ## The exit gate — OPEN
 
@@ -82,10 +83,10 @@ chain. KDRs and spec chapters are in place for capabilities, audit, arena, and
 editions; `keel gen` / hermetic builds have KDRs, specs pending. **No compiler
 code is started for any of them.**
 
-1. **Capabilities** (in progress). Spec done. Next: **PR-T** — cases `810`–`817`,
-   `820`–`826`; the conformance runner needs a **package-aware mode** (a case
-   carries a `keel.toml` and, for dep cases, sibling package dirs) before these
-   can be expressed. Then **PR-I** — manifest parser (every malformed input a
+1. **Capabilities** (in progress). Spec and conformance cases `810`–`817`,
+   `820`–`826` done. Existing case-directory execution already preserves
+   relative manifest paths, so no runner mode was needed. Next: **PR-I** —
+   manifest parser (every malformed input a
    `K11xx` diagnostic, never a panic), path-dep resolver + cycle detection,
    `std`-use capability check, transitive rollup, registering `K1101`–`K1108`
    and `K1110`–`K1112`. Entry points: `compiler/conformance-runner`,
@@ -111,11 +112,11 @@ code is started for any of them.**
 
 ## Validation snapshot
 
-Spec + roadmap slice. No new conformance cases yet. Gate:
+Spec + conformance slice. Gate:
 
 ```sh
 scripts/preflight.sh        # harness self-check + workspace build/test + conformance structure
 ```
 
-Last run: **91 passed, 0 failed** at the default milestone; M6 full run is
-194 / 0 / 3. Nothing in the suite moves until the first test PR (PR-T).
+Last M6 full run: **194 passed, 0 failed, 18 skipped** (15 M7 cases plus the
+three post-M4 Core rejections). M7 remains red pending the implementation PR.
