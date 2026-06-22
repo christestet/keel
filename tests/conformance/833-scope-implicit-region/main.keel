@@ -1,0 +1,14 @@
+struct Node { value: Int }
+
+fn make() -> Int {
+    2
+}
+
+fn main() {
+    let result = scope {
+        let task = spawn make()
+        let n = Node { value: 3 }
+        task.value + n.value
+    }
+    print("{result}")
+}

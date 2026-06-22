@@ -1,0 +1,10 @@
+struct Node { value: Int }
+
+fn build() -> Node {
+    arena {
+        let n = Node { value: 1 }
+        n
+    }
+}
+
+fn main() {}
