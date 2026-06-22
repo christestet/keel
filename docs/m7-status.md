@@ -54,7 +54,7 @@ compiler grows to meet it.
 | 3 | `arena` | `arena { }` scratch region compiles + runs safely | spec landed (ch10), impl pending |
 | 4 | `keel gen` | service types from protobuf/OpenAPI; round-trips `keel fmt` | KDR-0104 landed, spec + impl pending |
 | 5 | Hermetic builds | two clean builds byte-identical, no host/net leakage | KDR-0105 landed, spec + impl pending |
-| 6 | Editions | manifest `edition` honored; unknown edition diagnosed | spec landed (ch14), impl pending |
+| 6 | Editions | manifest `edition` honored; unknown edition diagnosed | **implemented** (cases 840–842 green; K1401) |
 
 ## Dependency chain
 
@@ -92,10 +92,11 @@ code is started for any of them.**
    `compiler/keelc-diag/src/registry.rs`.
 2. **`keel audit`** — built on PR-I's rollup; a `keel audit` subcommand emitting
    the deterministic report. Conformance asserts byte-identical output.
-3. **Editions** — spec [`ch14`](spec/14-editions.md) landed. Impl: edition gate
-   in the compiler, `K1401` unknown-edition, `K1402` preview gating; `K1403`
-   registered, untriggered until an edition past 1. The `keel.toml` slot exists
-   (ch06).
+3. **Editions** — **done** for the exit-criterion slice. The manifest pass
+   honors `[package].edition` and emits `K1401` for an unrecognized edition
+   (cases 840–842). `K1402` (preview gating) and `K1403` (removed idiom) are
+   registered but untriggered: `K1402` needs a specified preview feature before
+   case 843 can exist; `K1403` waits on an edition past 1.
 4. **`arena`** — spec [`ch10`](spec/10-memory.md) landed. Impl: `arena { }`
    lowering onto the Go runtime within KDR-0012's safety guarantees, escape
    analysis emitting `K1001`, scope/arena interaction (spec
