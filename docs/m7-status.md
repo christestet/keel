@@ -50,7 +50,7 @@ compiler grows to meet it.
 | # | Differentiator | Demonstrand | State |
 |---|---|---|---|
 | 1 | Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject | **implemented** (cases 810–817, 820–826 green) |
-| 2 | `keel audit` | deterministic effective-capability report (spec §11.5) | spec landed (§11.5), impl pending |
+| 2 | `keel audit` | deterministic effective-capability report (spec §11.5) | **implemented** (cases 830–831 green) |
 | 3 | `arena` | `arena { }` scratch region compiles + runs safely | spec landed (ch10), impl pending |
 | 4 | `keel gen` | service types from protobuf/OpenAPI; round-trips `keel fmt` | KDR-0104 landed, spec + impl pending |
 | 5 | Hermetic builds | two clean builds byte-identical, no host/net leakage | KDR-0105 landed, spec + impl pending |
@@ -90,8 +90,11 @@ code is started for any of them.**
    detection, `std`-use capability check, and transitive rollup. Codes
    `K1101`–`K1108` and `K1110`–`K1112` are registered in
    `compiler/keelc-diag/src/registry.rs`.
-2. **`keel audit`** — built on PR-I's rollup; a `keel audit` subcommand emitting
-   the deterministic report. Conformance asserts byte-identical output.
+2. **`keel audit`** — **done**. A `keel audit` subcommand emits the deterministic
+   §11.5 report (capabilities in fixed order, contributors sorted by name with
+   the root as `self`, over-declaration warnings), built on PR-I's graph. The
+   conformance runner gained an `audit` mode; cases 830–831 assert byte-identical
+   output.
 3. **Editions** — **done** for the exit-criterion slice. The manifest pass
    honors `[package].edition` and emits `K1401` for an unrecognized edition
    (cases 840–842). `K1402` (preview gating) and `K1403` (removed idiom) are

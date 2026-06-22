@@ -78,7 +78,9 @@ pub fn audit(entry: &Path, milestone: u32) -> Result<String, Vec<ManifestDiag>> 
     if !dir.join("keel.toml").is_file() {
         // Implicit single-file package: empty capability set (spec §6.1).
         let not_present = CAPABILITIES.join(", ");
-        return Ok(format!("{stem} (implicit)\n  ({not_present}: not present)\n"));
+        return Ok(format!(
+            "{stem} (implicit)\n  ({not_present}: not present)\n"
+        ));
     }
 
     let mut graph = Graph::new(milestone);
