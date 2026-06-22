@@ -83,4 +83,6 @@ codes! {
     K1505 => "invalid HTTP port",
     K1506 => "invalid FromRow function",
     K1507 => "unparseable config target",
+    K1601 => "malformed schema in keel gen",
+    K1602 => "unsupported schema construct in keel gen",
 }
