@@ -260,6 +260,12 @@ pub enum Expr {
         body: Block,
         span: Span,
     },
+    /// `arena { ... }` — a lexically scoped region (spec ch10). Its value is the
+    /// value of its tail block; a region-backed tail is rejected (K1001).
+    Arena {
+        body: Block,
+        span: Span,
+    },
     Spawn {
         expr: Box<Expr>,
         span: Span,
@@ -341,6 +347,7 @@ impl Expr {
             | Expr::Match { span, .. }
             | Expr::While { span, .. }
             | Expr::Scope { span, .. }
+            | Expr::Arena { span, .. }
             | Expr::Spawn { span, .. }
             | Expr::Question { span, .. }
             | Expr::Catch { span, .. }

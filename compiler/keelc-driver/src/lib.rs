@@ -1,5 +1,8 @@
 //! Keel CLI driver: check, run, fmt, and build Keel Core source files.
 
+mod gen;
+mod manifest;
+
 use keelc_ast::pretty::pretty_print;
 use keelc_ast::Module;
 use keelc_backend_go::{emit, emit_tests};
@@ -54,14 +57,26 @@ pub fn main() -> ExitCode {
 
     match command.as_os_str().to_str() {
         Some("fmt") => return fmt_file(path, &text, milestone),
+        Some("audit") => return audit_workspace(path, milestone),
+        Some("gen") => return gen_schema(path, &text),
         Some("check" | "run" | "build" | "test") => {}
         _ => {
             eprintln!(
-                "unsupported command `{}`; keel supports `build|run|fmt|test|check <file>`",
+                "unsupported command `{}`; keel supports `build|run|fmt|test|check|audit|gen <file>`",
                 command.to_string_lossy()
             );
             return ExitCode::from(2);
         }
+    }
+
+    // M7 package + capability enforcement (spec ch06/ch11). A no-op for an
+    // implicit single-file package (no adjacent keel.toml).
+    let manifest_diagnostics = manifest::check_workspace(path, milestone);
+    if !manifest_diagnostics.is_empty() {
+        for (code, message) in &manifest_diagnostics {
+            eprintln!("error[{code}]: {message}");
+        }
+        return ExitCode::FAILURE;
     }
 
     let output = parse_with_milestone(SourceId::new(0), &text, milestone);
@@ -100,7 +115,45 @@ pub fn main() -> ExitCode {
 }
 
 fn usage() {
-    eprintln!("usage: keel <build|run|fmt|test|check> <file.keel> [--milestone M<N>]");
+    eprintln!(
+        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>"
+    );
+}
+
+/// `keel gen`: emit Keel source from a schema (spec ch17). The format is chosen
+/// by extension; today only `.proto` is recognized.
+fn gen_schema(path: &Path, text: &str) -> ExitCode {
+    if path.extension().and_then(OsStr::to_str) != Some("proto") {
+        eprintln!("keel gen: unrecognized schema extension; expected a `.proto` file");
+        return ExitCode::from(2);
+    }
+    match gen::generate(text) {
+        Ok(source) => {
+            print!("{source}");
+            ExitCode::SUCCESS
+        }
+        Err((code, message)) => {
+            eprintln!("error[{code}]: {message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `keel audit`: print the deterministic capability report (spec §11.5), or the
+/// manifest diagnostics that block it.
+fn audit_workspace(path: &Path, milestone: u32) -> ExitCode {
+    match manifest::audit(path, milestone) {
+        Ok(report) => {
+            print!("{report}");
+            ExitCode::SUCCESS
+        }
+        Err(diagnostics) => {
+            for (code, message) in &diagnostics {
+                eprintln!("error[{code}]: {message}");
+            }
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
@@ -159,7 +212,15 @@ fn build_module(
         .unwrap_or(binary_path);
 
     let mut command = Command::new("go");
-    command.arg("build").arg("-o").arg(&binary_path);
+    // Hermetic build (spec ch18, KDR-0105): `-trimpath` strips the per-invocation
+    // temp build path and `-buildvcs=false` keeps VCS metadata out of the binary,
+    // so two clean builds of the same source are byte-identical.
+    command
+        .arg("build")
+        .arg("-trimpath")
+        .arg("-buildvcs=false")
+        .arg("-o")
+        .arg(&binary_path);
     if module_mode {
         command.arg(".").current_dir(&temp_dir);
     } else {

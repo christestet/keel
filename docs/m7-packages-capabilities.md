@@ -10,6 +10,12 @@ this note links them, it does not restate them.
 
 ## Status
 
+> **Update (2026-06-22): implemented.** This note records the original spec
+> slice; the manifest/capability/audit compiler work has since landed (cases
+> 810–817, 820–826, 827–828). The "Explicitly not done" section below is the
+> historical snapshot at spec-PR time — see [`m7-status.md`](m7-status.md) for
+> current state.
+
 **Done — spec PR (PR-A + PR-B):**
 
 - [`docs/spec/06-modules-packages.md`](spec/06-modules-packages.md): package =
@@ -35,6 +41,11 @@ this note links them, it does not restate them.
 - Registry/network dependencies (path deps only).
 - Function-level `use capabilities(...)` annotations ([`KDR-0017`](kdr/0017-function-capabilities.md)).
 
+**Done — conformance PR (PR-T):** cases `810`–`817` and `820`–`826`, including
+manifest fixtures and nested path-dependency packages. The runner already uses
+each case directory as the compiler working directory, so no new package mode
+or runner code was necessary.
+
 ## Dependency chain
 
 - Decisions: [`KDR-0011`](kdr/0011-package-capabilities.md) (capability set +
@@ -58,26 +69,21 @@ but **not** the post-M7 LSP server until the salsa query core exists.
 
 ## Validation snapshot
 
-Spec-only PR. No new conformance cases yet (they land with the test PR). Gate:
+Conformance PR. Gate:
 
 ```sh
 scripts/preflight.sh        # harness self-check + workspace build/test + conformance structure
 ```
 
-Conformance score unchanged from M6 (194/0/3 per the M6 exit). The spec adds no
-runtime behavior, so nothing in the suite moves until PR-T.
+Structure: **212 cases valid**. M6: **194 passed, 0 failed, 18 skipped** (the
+15 new M7 cases plus three post-M4 Core rejections). The M7 gate is expected to
+fail until PR-I implements these cases.
 
 ## Next work
 
-Two PRs, in order, per hard rule 1:
+Next PR, per hard rule 1:
 
-1. **PR-T (tests).** Encode cases `810`–`817` (chapter 06) and `820`–`826`
-   (chapter 11). **Blocker to resolve first:** the conformance runner compiles a
-   single `.keel` file today — these cases need a `keel.toml` alongside the
-   source, and the dependency cases (`812`, `817`, `825`) need sibling package
-   directories. The runner needs a **package-aware mode** before the reject/accept
-   cases can be expressed. Entry point: `compiler/conformance-runner`.
-2. **PR-I (implementation).** Manifest parser (TOML → typed manifest, every
+1. **PR-I (implementation).** Manifest parser (TOML → typed manifest, every
    malformed input a `K11xx` diagnostic, never a panic), dependency-graph
    resolver (path deps, cycle detection), `std`-use capability check, transitive
    rollup, and `keel audit`. Register `K1101`–`K1108` and `K1110`–`K1112` in

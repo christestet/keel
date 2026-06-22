@@ -1,0 +1,3 @@
+use analytics.track
+
+fn main() {}

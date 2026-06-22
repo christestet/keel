@@ -1,6 +1,6 @@
 # KDR-0105: Hermetic, reproducible builds
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** toolchain
 

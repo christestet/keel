@@ -1,0 +1,7 @@
+fn main() {
+    let total = arena {
+        let a = 20
+        a + 22
+    }
+    print("{total}")
+}

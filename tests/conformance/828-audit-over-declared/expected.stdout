@@ -1,0 +1,6 @@
+over_declared_pkg 0.1.0
+  fs: self
+  (net, exec, env, ffi, unsafe-memory: not present)
+
+warnings:
+  over_declared_pkg 0.1.0 declares `fs` but never exercises it (over-declared)

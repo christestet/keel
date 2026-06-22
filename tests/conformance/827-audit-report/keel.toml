@@ -1,0 +1,7 @@
+[package]
+name = "users_service"
+version = "0.1.0"
+capabilities = ["net"]
+
+[dependencies]
+http_client = { path = "http_client" }

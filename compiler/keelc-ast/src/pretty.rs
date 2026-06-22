@@ -461,6 +461,10 @@ impl Printer {
                     10,
                 )
             }
+            Expr::Arena { body, .. } => (
+                format!("arena {}", self.inline_block(body, base_indent)),
+                10,
+            ),
             Expr::Spawn { expr, .. } => {
                 let inner = self.expr(expr, 90, base_indent);
                 (format!("spawn {inner}"), 90)
@@ -554,8 +558,13 @@ impl Printer {
         let content_indent = base_indent + 1;
         let mut result = "{\n".to_string();
         for statement in &block.statements {
+            // Expr renders unindented and is prefixed here; other statements come
+            // back already indented to content_indent by their sub-printer, so
+            // they must not be indented a second time.
             let line = match statement {
-                Stmt::Expr(expr) => self.expr(expr, 0, content_indent),
+                Stmt::Expr(expr) => {
+                    self.indent_line(&self.expr(expr, 0, content_indent), content_indent)
+                }
                 other => {
                     let mut printer = Printer::new();
                     printer.indent = content_indent;
@@ -563,7 +572,7 @@ impl Printer {
                     printer.finish().trim_end().to_string()
                 }
             };
-            result.push_str(&self.indent_line(&line, content_indent));
+            result.push_str(&line);
             result.push('\n');
         }
         result.push_str(&self.indent_line("}", base_indent));

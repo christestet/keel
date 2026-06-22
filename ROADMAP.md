@@ -1,7 +1,22 @@
 # Keel Implementation Roadmap
 
-Milestones are in strict dependency order. Each milestone has a binary exit
+Milestones are in strict delivery order. Each milestone has a binary exit
 criterion. Do not start milestone N+1 work while N's exit criterion fails.
+
+## Delivery cycle
+
+Every milestone is delivered as the smallest independently reviewable slices.
+Each slice follows the repository's concern-separated sequence:
+
+1. accept or supersede the governing KDR when a decision is still open;
+2. land normative spec text;
+3. land failing conformance cases or protocol/performance fixtures;
+4. implement until those fixtures pass without regressing earlier milestones;
+5. record the exact `scripts/preflight.sh` result in the milestone status note.
+
+KDR, spec, tests, and implementation remain separate PRs. A milestone opens
+only after the preceding exit gate is green; a status note may scope later work
+but does not authorize implementation early.
 
 ## M0 — Freeze Keel Core and its conformance suite  *(no compiler code)*
 
@@ -53,17 +68,21 @@ first release — formatting freezes *now*, while the corpus is small.
 
 ## M5 — Language completion wave 1
 
-- **Interfaces** (≤5 methods, compiler-enforced) — complete; see
-  [`docs/spec/07-interfaces.md`](docs/spec/07-interfaces.md) and
-  [`docs/milestone-status.md`](docs/milestone-status.md) §M5.
-- **User generics** (interface-constrained only) — not started.
-- **`scope`/`spawn` structured concurrency** on the Go runtime, resource scoping — not started.
+Interfaces (≤5 methods), interface-constrained user generics, and
+`scope`/`spawn` structured concurrency on the Go runtime.
+
+**Exit reached:** cases 212–233 and 710–723 pass at M5; formatter and backend
+support are complete. See [`docs/milestone-status.md`](docs/milestone-status.md)
+§M5.
 
 ## M6 — Stdlib slice + the demo service
 
 `std.http`, `std.json`, `std.sql` (SQLite first, then Postgres), `std.log`,
 `std.config`. **Exit:** `examples/users-service/main.keel` from the design
 discussion compiles, runs, and passes its test file.
+
+**Exit reached:** the users service runs full CRUD on SQLite; cases 804 and 806
+lock the database path. See [`docs/m6-status.md`](docs/m6-status.md).
 
 ## M7 — The differentiators
 
@@ -101,21 +120,109 @@ conformance:
    an unknown edition is a diagnostic, and the edition gate exists in the
    compiler though edition 2 is years away ([KDR-0001](docs/kdr/0001-editions.md)).
 
-### Post-M7: LSP server
+**Exit reached:** 221 passed, 0 failed, 4 intentionally gated Core rejections.
+See [`docs/m7-status.md`](docs/m7-status.md).
 
-An LSP server (`keel lsp`) is deferred until the salsa-style query-based core
-is operational — without incrementality the server cannot meet the
-[vision.md §7](docs/vision.md#7-compile-time-as-a-contract) budget. See
-[KDR-0103](docs/kdr/0103-lsp-server.md) and [`docs/spec/16-lsp.md`](docs/spec/16-lsp.md).
-No LSP work begins while any M1–M7 exit criterion fails.
+## M8 — Incremental compiler core + LSP
 
-## Performance contract (applies from M1 onward)
+M8 has two ordered slices. M8a makes compiler work reusable and measurable;
+M8b exposes that work through LSP. The live plan is
+[`docs/m8-status.md`](docs/m8-status.md).
 
-CI tracks compile time on a growing reference corpus. Regressions > 5% block merge
-([vision.md §7](docs/vision.md#7-compile-time-as-a-contract)). Incrementality is
-architecture, not a later feature: the compiler is designed for a query-based
-(salsa-style) core; see [`compiler/ARCHITECTURE.md`](compiler/ARCHITECTURE.md)
-for current status.
+### M8a — Query core and performance gate
+
+- Accept a toolchain KDR for the query-engine dependency and input/query
+  boundaries; dependency approval is not inferred from the architecture prose.
+- Route `keel check` and the existing driver through one in-process query
+  database without changing diagnostics, formatting, generated Go, or runtime
+  behavior.
+- Add the public reference corpus and CI benchmark required by
+  [KDR-0019](docs/kdr/0019-compile-time-contract.md): cold build <10s,
+  incremental build <1s, and `keel check` <300ms on the reference machine,
+  with regressions over 5% blocking release.
+
+### M8b — LSP
+
+- Accept or supersede proposed [KDR-0103](docs/kdr/0103-lsp-server.md) before
+  adding its dependencies or crate.
+- Rebase chapter 16's old `M7+`/`M8+`/`M9+` labels into an explicit base and
+  future capability split in a spec-only PR before adding transcript fixtures.
+- Add `keel lsp` with the base chapter-16 surface only: incremental document
+  sync, diagnostics, definition, hover, completion, and document symbols.
+- Map byte spans to 0-based UTF-16 LSP positions and lock behavior with
+  deterministic JSON-RPC transcript fixtures.
+
+**Exit:** all M7 conformance remains byte-identical; the three KDR-0019 budgets
+pass in CI; a golden initialize/open/change/query/shutdown transcript passes for
+each advertised capability; malformed requests and malformed Keel source never
+crash the server.
+
+## M9 — Reproducible OCI images
+
+Extend the chapter-18 hermetic build contract from the binary to its minimal
+deployment artifact. First land a toolchain KDR and normative spec chapter 19;
+then add daemonless `keel build --image`, producing a `FROM scratch`-equivalent
+OCI image from the already-built static binary.
+
+**Exit:** a new image conformance mode builds the same workspace twice and
+asserts byte-identical OCI output and digest, validates the OCI layout/config,
+and verifies that no network, Docker daemon, timestamp, path, or host metadata
+enters the artifact.
+
+Explicitly out of scope: language-level health probes, Helm charts, operators,
+UPX/strip policy, and new shutdown machinery. Existing HTTP, config, static
+binary, and structured-concurrency behavior already covers those runtime needs.
+
+## M10 — Ecosystem bridges
+
+Complete the two accepted bootstrap paths from
+[KDR-0020](docs/kdr/0020-ecosystem-bootstrap.md) as separate slices:
+
+1. Author spec chapter 12, then implement the smallest specified C ABI
+   `extern` surface end to end. `extern` requires the package's `ffi`
+   capability, each crossing appears in `keel audit`, and malformed declarations
+   diagnose rather than panic.
+2. Extend chapter 17 and `keel gen` from the proto3 data subset to the OpenAPI
+   client/server output required by
+   [KDR-0104](docs/kdr/0104-keel-gen-codegen-surface.md). Output remains
+   deterministic, `keel fmt`-clean, stdlib-only, and capability-declared.
+
+**Exit:** conformance calls a reference C library through an audited `extern`
+boundary and generates, builds, and runs a typed client/server pair from a
+fixed OpenAPI fixture. Unsupported ABI/schema constructs fail with stable
+diagnostics rather than being guessed.
+
+## M11 — Native backend and 1.0 gate
+
+[KDR-0102](docs/kdr/0102-go-backend-first.md) requires the Go-emitting backend
+to be replaced before 1.0. M11 begins with a KDR choosing the native backend and
+runtime strategy; no backend implementation starts before that decision lands.
+The Go backend remains available during equivalence work and the conformance
+suite is the proof boundary.
+
+**Exit:** every conformance case passes with byte-identical observable behavior
+under both backends; the native backend satisfies KDR-0019 and chapter-18
+reproducibility, emits static cross-compiled binaries, implements real arena
+regions with complete escape checking, and the release toolchain no longer
+requires Go. The native-backend KDR supersedes KDR-0102.
+
+## Trigger-gated work (not scheduled)
+
+- `K1402`, `--preview`, and case 843 wait for an approved preview feature.
+- `keel fix` and `K1403` wait for the first concrete edition migration; they
+  are mandatory parts of that edition's release gate, not standalone commands
+  built against no migration.
+- Function-level capabilities wait for KDR-0017 acceptance backed by corpus
+  evidence that package-level reporting is insufficient.
+- Additional arena analysis belongs to M11's real region backend; extending the
+  current no-op Go lowering earlier would not improve runtime behavior.
+
+## Performance contract (measured from M8 onward)
+
+M8 creates the reference corpus and CI harness required by KDR-0019. From that
+point, regressions >5% block merge
+([vision.md §7](docs/vision.md#7-compile-time-as-a-contract)). See
+[`compiler/ARCHITECTURE.md`](compiler/ARCHITECTURE.md) for current status.
 
 ## Validating the active milestone
 

@@ -1,0 +1,7 @@
+[package]
+name = "transitive_undeclared"
+version = "0.1.0"
+capabilities = []
+
+[dependencies]
+network_client = { path = "network_client" }

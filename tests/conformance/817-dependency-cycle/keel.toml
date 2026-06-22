@@ -1,0 +1,6 @@
+[package]
+name = "cycle_root"
+version = "0.1.0"
+
+[dependencies]
+cycle_leaf = { path = "cycle_leaf" }

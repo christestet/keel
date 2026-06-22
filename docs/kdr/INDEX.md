@@ -5,7 +5,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 
 | # | Title | Status |
 |---|---|---|
-| 0000 | KDR template | — |
+| [0000](0000-template.md) | KDR template | — |
 | [0001](0001-editions.md) | Exclusive editions, mandatory mechanical migration | accepted |
 | [0002](0002-no-async-await.md) | No async/await; structured concurrency only | accepted |
 | [0003](0003-no-inheritance.md) | No inheritance (composition + interfaces ≤5 methods) | accepted |
@@ -51,8 +51,8 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
 | [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | proposed |
-| [0104](0104-keel-gen-codegen-surface.md) | `keel gen` — schema-driven codegen in the core toolchain | proposed |
-| [0105](0105-hermetic-reproducible-builds.md) | Hermetic, reproducible builds | proposed |
+| [0104](0104-keel-gen-codegen-surface.md) | `keel gen` — schema-driven codegen in the core toolchain | accepted |
+| [0105](0105-hermetic-reproducible-builds.md) | Hermetic, reproducible builds | accepted |
 
 All decisions derived from [`docs/vision.md`](../vision.md) are expanded above.
 `proposed` entries are not yet accepted; see [`kdr/AGENTS.md`](AGENTS.md) for

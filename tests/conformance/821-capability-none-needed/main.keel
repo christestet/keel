@@ -1,0 +1,6 @@
+use std.json
+use std.log
+
+fn main() {
+    print("pure")
+}

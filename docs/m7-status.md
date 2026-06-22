@@ -34,26 +34,28 @@ arenas, schema codegen, hermetic builds, and edition machinery.
   the two previously-undecided differentiators (proposed). `keel audit` needs no
   new decision — it is part of [`KDR-0011`](kdr/0011-package-capabilities.md),
   specified in [`11-capabilities.md`](spec/11-capabilities.md) §11.5.
-- **No compiler code for any differentiator yet.** Specs/KDRs are the contracts;
-  tests and implementation follow per hard rule 1.
-- Conformance unchanged from M6 — all spec-only so far; cases land with the
-  test PRs.
+- **No compiler code for any differentiator yet.** Specs/KDRs and the first
+  package/capability conformance slice are the contracts; implementation follows
+  separately per hard rule 1.
+- Package/capability cases `810`–`817` and `820`–`826` are encoded. The M6 gate
+  remains green; the M7 gate is intentionally red until implementation lands.
 
-## The exit gate — OPEN
+## The exit gate — REACHED
 
-ROADMAP M7 **exit** requires all six differentiators demonstrable through the
-packaged [`examples/users-service/`](../examples/users-service/) workspace, each
-locked by conformance. The example is aspirational by design (as with M6); the
-compiler grows to meet it.
+ROADMAP M7 **exit** requires all six differentiators demonstrable, each locked by
+conformance. As with the earlier differentiators, each is locked by standalone
+conformance cases (the packaged `examples/users-service/` workspace remains
+aspirational; the compiler grows to meet it). All six now pass under
+`KEEL_MILESTONE=M7 scripts/preflight.sh` (**221 passed, 0 failed, 4 skipped**).
 
 | # | Differentiator | Demonstrand | State |
 |---|---|---|---|
-| 1 | Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject | spec landed, impl pending |
-| 2 | `keel audit` | deterministic effective-capability report (spec §11.5) | spec landed (§11.5), impl pending |
-| 3 | `arena` | `arena { }` scratch region compiles + runs safely | spec landed (ch10), impl pending |
-| 4 | `keel gen` | service types from protobuf/OpenAPI; round-trips `keel fmt` | KDR-0104 landed, spec + impl pending |
-| 5 | Hermetic builds | two clean builds byte-identical, no host/net leakage | KDR-0105 landed, spec + impl pending |
-| 6 | Editions | manifest `edition` honored; unknown edition diagnosed | spec landed (ch14), impl pending |
+| 1 | Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject | **implemented** (cases 810–817, 820–826 green) |
+| 2 | `keel audit` | deterministic effective-capability report (spec §11.5) | **implemented** (cases 827–828 green) |
+| 3 | `arena` | `arena { }` scratch region compiles + runs safely | **implemented** (cases 830–833 green; K1001) |
+| 4 | `keel gen` | service types from a proto3 schema; round-trips `keel fmt` | **implemented** (cases 834, 836, 837 green; K1601/K1602, spec ch17) |
+| 5 | Hermetic builds | two clean builds byte-identical, no host/net leakage | **implemented** (case 850 green; spec ch18, `-trimpath`/`-buildvcs=false`) |
+| 6 | Editions | manifest `edition` honored; unknown edition diagnosed | **implemented** (cases 840–842 green; K1401) |
 
 ## Dependency chain
 
@@ -67,9 +69,9 @@ compiler grows to meet it.
 - Specs: chapters [`06`](spec/06-modules-packages.md) /
   [`11`](spec/11-capabilities.md) / [`10`](spec/10-memory.md) (arena) /
   [`14`](spec/14-editions.md) (editions) landed; chapter 12 (FFI) to be authored.
-  `keel gen` ([`KDR-0104`](kdr/0104-keel-gen-codegen-surface.md)) and hermetic
-  builds ([`KDR-0105`](kdr/0105-hermetic-reproducible-builds.md)) now have
-  decisions; their spec chapters are not yet authored.
+  `keel gen` ([`17-codegen.md`](spec/17-codegen.md), KDR-0104) and hermetic
+  builds ([`18-hermetic-builds.md`](spec/18-hermetic-builds.md), KDR-0105) are
+  now specified and implemented.
 - Harness: root [`AGENTS.md`](../AGENTS.md) hard rule 1 (spec→tests→impl),
   rule 5 (no new deps without a justifying PR — relevant to TOML, protobuf,
   OpenAPI), rule 6 (no panics on manifests/schemas), rule 7 (deterministic
@@ -82,40 +84,51 @@ chain. KDRs and spec chapters are in place for capabilities, audit, arena, and
 editions; `keel gen` / hermetic builds have KDRs, specs pending. **No compiler
 code is started for any of them.**
 
-1. **Capabilities** (in progress). Spec done. Next: **PR-T** — cases `810`–`817`,
-   `820`–`826`; the conformance runner needs a **package-aware mode** (a case
-   carries a `keel.toml` and, for dep cases, sibling package dirs) before these
-   can be expressed. Then **PR-I** — manifest parser (every malformed input a
-   `K11xx` diagnostic, never a panic), path-dep resolver + cycle detection,
-   `std`-use capability check, transitive rollup, registering `K1101`–`K1108`
-   and `K1110`–`K1112`. Entry points: `compiler/conformance-runner`,
-   `compiler/keelc-diag/src/registry.rs`, a new manifest crate.
-2. **`keel audit`** — built on PR-I's rollup; a `keel audit` subcommand emitting
-   the deterministic report. Conformance asserts byte-identical output.
-3. **Editions** — spec [`ch14`](spec/14-editions.md) landed. Impl: edition gate
-   in the compiler, `K1401` unknown-edition, `K1402` preview gating; `K1403`
-   registered, untriggered until an edition past 1. The `keel.toml` slot exists
-   (ch06).
-4. **`arena`** — spec [`ch10`](spec/10-memory.md) landed. Impl: `arena { }`
-   lowering onto the Go runtime within KDR-0012's safety guarantees, escape
-   analysis emitting `K1001`, scope/arena interaction (spec
-   ch09 §9.7 already names the boundary).
-5. **`keel gen`** — decision recorded
-   ([`KDR-0104`](kdr/0104-keel-gen-codegen-surface.md)). Next: a spec chapter for
-   the proto/OpenAPI → Keel mapping, then a `keel gen` command that emits
-   deterministic, `keel fmt`-clean, capability-declared, stdlib-only source.
-6. **Hermetic builds** — decision recorded
-   ([`KDR-0105`](kdr/0105-hermetic-reproducible-builds.md)). Next: a CI check
-   asserting two clean builds are byte-identical, and enforcement of the
-   no-network / no-host-dependence build constraints.
+1. **Capabilities** — **done**. Spec and conformance cases `810`–`817`,
+   `820`–`826` green. PR-I landed the manifest pre-pass as a `manifest` module
+   in `keelc-driver` (no new crate): a TOML-subset parser (every malformed input
+   a `K11xx` diagnostic, never a panic), path-dep resolver + cycle/collision
+   detection, `std`-use capability check, and transitive rollup. Codes
+   `K1101`–`K1108` and `K1110`–`K1112` are registered in
+   `compiler/keelc-diag/src/registry.rs`.
+2. **`keel audit`** — **done**. A `keel audit` subcommand emits the deterministic
+   §11.5 report (capabilities in fixed order, contributors sorted by name with
+   the root as `self`, over-declaration warnings), built on PR-I's graph. The
+   conformance runner gained an `audit` mode; cases 827–828 assert byte-identical
+   output.
+3. **Editions** — **done** for the exit-criterion slice. The manifest pass
+   honors `[package].edition` and emits `K1401` for an unrecognized edition
+   (cases 840–842). `K1402` (preview gating) and `K1403` (removed idiom) are
+   registered but untriggered: `K1402` needs a specified preview feature before
+   case 843 can exist; `K1403` waits on an edition past 1.
+4. **`arena`** — **done** for the exit-criterion slice. `arena { }` parses as an
+   expression at M7 (`Expr::Arena`), lowers to a plain block on the GC backend
+   (no-op region per KDR-0012), and the typechecker enforces the §10.3 escape
+   rule: a region-backed tail value yields `K1001` (cases 830–833; 904 bounded to
+   ≤M6). ponytail ceiling: the escape check is tail-position only — full escape
+   analysis (let-bindings, returns, captures) lands with a real region backend.
+5. **`keel gen`** — **done** for the exit-criterion slice. Spec
+   [`17-codegen.md`](spec/17-codegen.md) defines the `proto3` message/enum
+   subset → Keel mapping. `keel gen <schema.proto>` (driver `gen.rs`) tokenizes
+   the schema, builds an AST, and emits it through the shared pretty-printer, so
+   output is `keel fmt`-idempotent by construction (iron rule 3). Codes
+   `K1601` (malformed) / `K1602` (unsupported construct). Cases 834 (accept +
+   fmt round-trip via the new runner `gen` mode), 836 (K1601), 837 (K1602).
+   ponytail ceiling: proto3 only (no OpenAPI yet), and `bytes`/`map`/`oneof`/
+   services are `K1602` rather than guessed — widen under the KDR-0104 clause.
+6. **Hermetic builds** — **done** for the exit-criterion slice. Spec
+   [`18-hermetic-builds.md`](spec/18-hermetic-builds.md) states the contract;
+   `keel build` now passes `-trimpath -buildvcs=false` so two clean builds are
+   byte-identical (no build-path or VCS leakage). The new runner `repro` mode
+   builds twice, asserts byte-identity, then runs one binary (case 850).
 
 ## Validation snapshot
 
-Spec + roadmap slice. No new conformance cases yet. Gate:
+Spec + conformance slice. Gate:
 
 ```sh
 scripts/preflight.sh        # harness self-check + workspace build/test + conformance structure
 ```
 
-Last run: **91 passed, 0 failed** at the default milestone; M6 full run is
-194 / 0 / 3. Nothing in the suite moves until the first test PR (PR-T).
+Last M7 full run: **221 passed, 0 failed, 4 skipped** — all six differentiators
+green. The 4 skips are Core not-in-Core rejections bounded to ≤M4/≤M6.

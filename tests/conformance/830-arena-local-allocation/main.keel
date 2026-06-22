@@ -1,0 +1,12 @@
+struct Node { value: Int }
+
+fn sum_tree() -> Int {
+    arena {
+        let n = Node { value: 42 }
+        n.value
+    }
+}
+
+fn main() {
+    print("{sum_tree()}")
+}

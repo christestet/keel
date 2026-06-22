@@ -1,0 +1,4 @@
+use std.http
+use http_client.fetch
+
+fn main() {}

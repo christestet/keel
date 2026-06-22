@@ -1,0 +1,5 @@
+use std.sql
+
+fn main() {
+    print("sql")
+}

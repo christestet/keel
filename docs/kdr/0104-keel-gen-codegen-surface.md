@@ -1,6 +1,6 @@
 # KDR-0104: `keel gen` — schema-driven codegen in the core toolchain
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** toolchain
 

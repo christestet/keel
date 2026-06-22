@@ -1115,7 +1115,7 @@ impl Parser {
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Arena),
                 span,
-            }) => self.banned_expr(span, registry::K0904, "arena is not in Keel Core"),
+            }) => self.finish_primary_arena(span),
             Some(Token {
                 kind: TokenKind::Keyword(Keyword::Async | Keyword::Await),
                 span,
@@ -1186,6 +1186,18 @@ impl Parser {
             self.finish_spawn(span)
         } else {
             self.banned_expr(span, registry::K0903, "scope/spawn are not in Keel Core")
+        }
+    }
+
+    fn finish_primary_arena(&mut self, span: Span) -> Expr {
+        if self.milestone >= 7 {
+            let body = self.parse_block();
+            Expr::Arena {
+                span: span.join(body.span),
+                body,
+            }
+        } else {
+            self.banned_expr(span, registry::K0904, "arena is not in Keel Core")
         }
     }
 

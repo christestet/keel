@@ -1,0 +1,4 @@
+[package]
+name = "capability_none_needed"
+version = "0.1.0"
+capabilities = []

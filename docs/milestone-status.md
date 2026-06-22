@@ -111,7 +111,7 @@ all generic syntax.
 
 **Known limitations:** interfaces are limited to ≤5 methods (KDR-0003); no default methods, inheritance, or structural subtyping.
 
-## M6 — Stdlib slice (in progress)
+## M6 — Stdlib slice (EXIT REACHED)
 
 | Area | State |
 |---|---|
@@ -125,43 +125,59 @@ all generic syntax.
 | Universal `Error` | Done. Opaque error type absorbing any propagated error at `?`/return; `catch`/`match` on it is `K0504`. Cases `511`/`512`. See [`KDR-0033`](kdr/0033-universal-error-type.md). |
 | Multi-line strings | Done. Literal newlines inside `"..."`. See [`KDR-0035`](kdr/0035-multiline-string-literals.md). |
 | `Struct.from_row` + error classification | Done. Auto-derived `from_row`, qualified `sql.NoRows`/`sql.UniqueViolation` patterns, union narrowing. Cases `794`–`796`. See [`KDR-0037`](kdr/0037-sql-error-classification-patterns.md)/[`KDR-0038`](kdr/0038-union-narrowing-patterns.md). |
-| `examples/users-service/main.keel` | Parses + typechecks fully. Four remaining gaps before the exit gate (`json.write` ergonomics, http error helpers, `Option.unwrap`, the SQLite test harness) — see [`m6-status.md`](m6-status.md#remaining-gaps). M6 exit criterion. |
+| `examples/users-service/main.keel` | Compiles and runs full CRUD on SQLite; cases 804 and 806 lock the execution path. M6 exit criterion reached. |
 
-**Conformance score:** 185 / 185 passed at M6, 3 skipped. The live planning note
+**Conformance score:** 194 / 194 passed at M6, 3 skipped. The live planning note
 with the step-by-step exit sequence is [`docs/m6-status.md`](m6-status.md).
 
-## M7 — The differentiators (in progress)
+## M7 — The differentiators (EXIT REACHED)
 
-**Exit (all six must hold).** Per [`ROADMAP.md`](../ROADMAP.md) §M7, the packaged
-`examples/users-service/` workspace must demonstrate every differentiator end to
-end, each locked by conformance. Live note: [`docs/m7-status.md`](m7-status.md).
+**Exit (all six must hold).** Per [`ROADMAP.md`](../ROADMAP.md) §M7, every
+differentiator must be demonstrable and locked by conformance. Each is locked by
+standalone conformance cases (the packaged `examples/users-service/` workspace
+remains aspirational; the compiler grows to meet it). Live note:
+[`docs/m7-status.md`](m7-status.md).
 
 | Differentiator | Exit demonstrand | State |
 |---|---|---|
-| Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject variant | **Spec landed**, impl pending — chapters [`06`](spec/06-modules-packages.md)/[`11`](spec/11-capabilities.md), `K1101`–`K1108`, `K1110`–`K1112`. |
-| `keel audit` | deterministic effective-capability report for the dep graph | **Spec landed** ([§11.5](spec/11-capabilities.md)), impl pending. |
-| `arena` | `arena { }` scratch region compiles + runs safely | **Spec landed** ([ch10](spec/10-memory.md), `K1001`; KDR-0012/0016), impl pending. |
-| `keel gen` | service types generated from protobuf/OpenAPI; round-trips `keel fmt` | **KDR landed** ([0104](kdr/0104-keel-gen-codegen-surface.md)), spec + impl pending. |
-| Hermetic builds | two clean builds byte-identical, no host/net leakage | **KDR landed** ([0105](kdr/0105-hermetic-reproducible-builds.md)), spec + impl pending. |
-| Editions | manifest `edition` honored; unknown edition diagnosed | **Spec landed** ([ch14](spec/14-editions.md), `K1401`–`K1403`; KDR-0001), impl pending. |
+| Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject variant | **Implemented** — chapters [`06`](spec/06-modules-packages.md)/[`11`](spec/11-capabilities.md), `K1101`–`K1108`/`K1110`–`K1112`, cases 810–817, 820–826. |
+| `keel audit` | deterministic effective-capability report for the dep graph | **Implemented** ([§11.5](spec/11-capabilities.md)), cases 827–828. |
+| `arena` | `arena { }` scratch region compiles + runs safely | **Implemented** ([ch10](spec/10-memory.md), `K1001`; KDR-0012/0016), cases 830–833. |
+| `keel gen` | service types generated from a proto3 schema; round-trips `keel fmt` | **Implemented** ([ch17](spec/17-codegen.md), `K1601`/`K1602`; KDR-0104), cases 834/836/837. |
+| Hermetic builds | two clean builds byte-identical, no host/net leakage | **Implemented** ([ch18](spec/18-hermetic-builds.md); KDR-0105; `-trimpath`/`-buildvcs=false`), case 850. |
+| Editions | manifest `edition` honored; unknown edition diagnosed | **Implemented** ([ch14](spec/14-editions.md), `K1401`–`K1403`; KDR-0001), cases 840–842. |
 
 Function-level capability annotations ([`KDR-0017`](kdr/0017-function-capabilities.md))
 remain deferred. Per-slice detail: [`docs/m7-packages-capabilities.md`](m7-packages-capabilities.md).
 
-**Conformance score:** unchanged from M6 (spec-only so far; cases `810`–`817`,
-`820`–`826` land with the capability test PR).
+**Conformance score:** **221 passed, 0 failed, 4 skipped** at M7
+(`KEEL_MILESTONE=M7 scripts/preflight.sh`). The 4 skips are not-in-Core
+rejections bounded to ≤M4/≤M6.
 
-## Future: LSP server (M7+)
+## M8 — Incremental compiler core + LSP (not started)
 
 | Area | State |
 |---|---|
-| KDR | [`KDR-0103`](kdr/0103-lsp-server.md) — proposed. Defers LSP work to M7+; requires salsa query core. |
-| Spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) — landed. Capability table, diagnostics mapping, server lifecycle. |
-| Crate | Not started. Depends on `tower-lsp` + `tokio`; blocked on salsa-style incrementality (target architecture). |
+| Query decision | Not started. KDR-0019 requires incrementality; a dependency/integration KDR must land before a query crate is added. |
+| Performance harness | Not started. No public reference corpus, reference-machine baseline, or 5% CI regression gate exists yet. |
+| LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) remains proposed and must be accepted or superseded. |
+| LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) is landed; its old relative milestone labels need a spec-only rebase before M8 fixtures. |
+| Implementation | No query database, `keelc-lsp` crate, or `keel lsp` subcommand. |
 
-**Not started:** no `keelc-lsp` crate, no `keel lsp` subcommand, no workspace
-state management. The salsa query core is a prerequisite — see
-[`compiler/ARCHITECTURE.md`](../compiler/ARCHITECTURE.md) §Query-based core.
+M8a delivers the query core and KDR-0019 performance gate; M8b delivers the
+base LSP capabilities. See [`docs/m8-status.md`](m8-status.md).
+
+## Planned milestones
+
+| Milestone | Scope | Governing constraint |
+|---|---|---|
+| M9 | Reproducible daemonless OCI images | Extend KDR-0105/chapter 18 through a new KDR + chapter 19 |
+| M10 | OpenAPI codegen + C FFI ecosystem bridges | KDR-0104, KDR-0011, KDR-0020; chapter 12 required first |
+| M11 | Native backend and 1.0 gate | KDR-0102 requires replacement of the Go backend before 1.0 |
+
+Preview gating/`keel fix`, function capabilities, and extra arena analysis are
+trigger-gated rather than assigned speculative milestone numbers; see
+[`ROADMAP.md`](../ROADMAP.md) §Trigger-gated work.
 
 ## Milestone key
 
@@ -175,6 +191,10 @@ state management. The salsa query core is a prerequisite — see
 | M5 | Interfaces + generics + concurrency | Language completion wave 1 |
 | M6 | Stdlib slice | `examples/users-service/` compiles and runs |
 | M7 | Differentiators | Package capabilities, arenas, `keel gen`, editions machinery |
+| M8 | Query core + LSP | KDR-0019 budgets and base chapter-16 transcripts pass |
+| M9 | OCI images | Two daemonless image builds have byte-identical OCI output/digest |
+| M10 | Ecosystem bridges | Audited C FFI and runnable generated OpenAPI client/server |
+| M11 | Native backend | Full backend equivalence; release toolchain no longer requires Go |
 
 ## Validation
 
@@ -207,6 +227,14 @@ patterns; validate with:
 ```sh
 KEEL_MILESTONE=M6 scripts/preflight.sh
 # → 185 passed, 0 failed, 3 skipped
+```
+
+M7 adds packages/capabilities, audit, arenas, proto3 generation, hermetic
+builds, and edition selection; validate with:
+
+```sh
+KEEL_MILESTONE=M7 scripts/preflight.sh
+# → 221 passed, 0 failed, 4 skipped
 ```
 
 ## Dependency chain

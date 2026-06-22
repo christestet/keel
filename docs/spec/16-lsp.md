@@ -9,7 +9,7 @@ readers should be familiar with LSP.
 Implementation governance: [`KDR-0103`](../kdr/0103-lsp-server.md). The server
 is deferred to M7+; references to the salsa query core (target architecture)
 are forward-looking and not yet implemented — see
-[`compiler/ARCHITECTURE.md`](../compiler/ARCHITECTURE.md) §Query-based core.
+[`compiler/ARCHITECTURE.md`](../../compiler/ARCHITECTURE.md) §Query-based core.
 
 ## 16.1 Capability advertisement
 

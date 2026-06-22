@@ -67,7 +67,7 @@ backend callbacks.
   workspace open/close, file change notifications, and cancellation.
 - `keel check` output must be structured (diagnostic codes, spans, and messages)
   for reliable LSP mapping — this is already the design (see
-  [`compiler/ARCHITECTURE.md`](../compiler/ARCHITECTURE.md) §Diagnostics).
+  [`compiler/ARCHITECTURE.md`](../../compiler/ARCHITECTURE.md) §Diagnostics).
 - The salsa query core (target architecture) becomes a hard dependency for
   LSP performance: every keystroke triggers a re-check of the affected file
   and its dependents. Without incrementality, the LSP server cannot meet the

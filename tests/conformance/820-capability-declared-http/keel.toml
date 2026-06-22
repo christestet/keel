@@ -1,0 +1,4 @@
+[package]
+name = "capability_declared_http"
+version = "0.1.0"
+capabilities = ["net"]

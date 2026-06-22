@@ -1,0 +1,3 @@
+users_service 0.1.0
+  net: self, http_client 0.1.0
+  (fs, exec, env, ffi, unsafe-memory: not present)
