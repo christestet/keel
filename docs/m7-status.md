@@ -51,7 +51,7 @@ compiler grows to meet it.
 |---|---|---|---|
 | 1 | Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject | **implemented** (cases 810–817, 820–826 green) |
 | 2 | `keel audit` | deterministic effective-capability report (spec §11.5) | **implemented** (cases 827–828 green) |
-| 3 | `arena` | `arena { }` scratch region compiles + runs safely | spec landed (ch10), impl pending |
+| 3 | `arena` | `arena { }` scratch region compiles + runs safely | **implemented** (cases 830–833 green; K1001) |
 | 4 | `keel gen` | service types from protobuf/OpenAPI; round-trips `keel fmt` | KDR-0104 landed, spec + impl pending |
 | 5 | Hermetic builds | two clean builds byte-identical, no host/net leakage | KDR-0105 landed, spec + impl pending |
 | 6 | Editions | manifest `edition` honored; unknown edition diagnosed | **implemented** (cases 840–842 green; K1401) |
@@ -100,10 +100,12 @@ code is started for any of them.**
    (cases 840–842). `K1402` (preview gating) and `K1403` (removed idiom) are
    registered but untriggered: `K1402` needs a specified preview feature before
    case 843 can exist; `K1403` waits on an edition past 1.
-4. **`arena`** — spec [`ch10`](spec/10-memory.md) landed. Impl: `arena { }`
-   lowering onto the Go runtime within KDR-0012's safety guarantees, escape
-   analysis emitting `K1001`, scope/arena interaction (spec
-   ch09 §9.7 already names the boundary).
+4. **`arena`** — **done** for the exit-criterion slice. `arena { }` parses as an
+   expression at M7 (`Expr::Arena`), lowers to a plain block on the GC backend
+   (no-op region per KDR-0012), and the typechecker enforces the §10.3 escape
+   rule: a region-backed tail value yields `K1001` (cases 830–833; 904 bounded to
+   ≤M6). ponytail ceiling: the escape check is tail-position only — full escape
+   analysis (let-bindings, returns, captures) lands with a real region backend.
 5. **`keel gen`** — decision recorded
    ([`KDR-0104`](kdr/0104-keel-gen-codegen-surface.md)). Next: a spec chapter for
    the proto/OpenAPI → Keel mapping, then a `keel gen` command that emits
