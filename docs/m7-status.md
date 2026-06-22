@@ -49,7 +49,7 @@ compiler grows to meet it.
 
 | # | Differentiator | Demonstrand | State |
 |---|---|---|---|
-| 1 | Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject | spec landed, impl pending |
+| 1 | Manifests + capabilities | per-package `keel.toml`; transitive enforcement; `K1110` reject | **implemented** (cases 810–817, 820–826 green) |
 | 2 | `keel audit` | deterministic effective-capability report (spec §11.5) | spec landed (§11.5), impl pending |
 | 3 | `arena` | `arena { }` scratch region compiles + runs safely | spec landed (ch10), impl pending |
 | 4 | `keel gen` | service types from protobuf/OpenAPI; round-trips `keel fmt` | KDR-0104 landed, spec + impl pending |
@@ -83,14 +83,13 @@ chain. KDRs and spec chapters are in place for capabilities, audit, arena, and
 editions; `keel gen` / hermetic builds have KDRs, specs pending. **No compiler
 code is started for any of them.**
 
-1. **Capabilities** (in progress). Spec and conformance cases `810`–`817`,
-   `820`–`826` done. Existing case-directory execution already preserves
-   relative manifest paths, so no runner mode was needed. Next: **PR-I** —
-   manifest parser (every malformed input a
-   `K11xx` diagnostic, never a panic), path-dep resolver + cycle detection,
-   `std`-use capability check, transitive rollup, registering `K1101`–`K1108`
-   and `K1110`–`K1112`. Entry points: `compiler/conformance-runner`,
-   `compiler/keelc-diag/src/registry.rs`, a new manifest crate.
+1. **Capabilities** — **done**. Spec and conformance cases `810`–`817`,
+   `820`–`826` green. PR-I landed the manifest pre-pass as a `manifest` module
+   in `keelc-driver` (no new crate): a TOML-subset parser (every malformed input
+   a `K11xx` diagnostic, never a panic), path-dep resolver + cycle/collision
+   detection, `std`-use capability check, and transitive rollup. Codes
+   `K1101`–`K1108` and `K1110`–`K1112` are registered in
+   `compiler/keelc-diag/src/registry.rs`.
 2. **`keel audit`** — built on PR-I's rollup; a `keel audit` subcommand emitting
    the deterministic report. Conformance asserts byte-identical output.
 3. **Editions** — spec [`ch14`](spec/14-editions.md) landed. Impl: edition gate
