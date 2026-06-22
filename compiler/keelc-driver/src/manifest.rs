@@ -17,6 +17,9 @@ use std::path::{Path, PathBuf};
 /// The six capabilities (spec §11.1), in their fixed reporting order.
 const CAPABILITIES: [&str; 6] = ["net", "fs", "exec", "env", "ffi", "unsafe-memory"];
 
+/// Editions the toolchain recognizes (spec ch14). Edition 1 is the only one.
+const KNOWN_EDITIONS: [&str; 1] = ["1"];
+
 /// Capabilities a `std` module obligates (spec §11.2). `None` => no capability.
 fn std_module_caps(module: &str) -> &'static [&'static str] {
     match module {
@@ -233,8 +236,25 @@ impl Graph {
             }
         }
 
-        // Capabilities: each entry must be one of the six (K1111). `edition` is
-        // admitted into the schema here; its value is a chapter-14 concern.
+        // Edition (spec ch14): omitted => current edition; a declared value the
+        // toolchain does not recognize is K1401.
+        match raw.package.get("edition") {
+            None => {}
+            Some(Value::String(s)) if KNOWN_EDITIONS.contains(&s.as_str()) => {}
+            Some(Value::String(s)) => {
+                self.err(
+                    "K1401",
+                    format!("edition `{s}` is not recognized by this toolchain"),
+                );
+                ok = false;
+            }
+            Some(_) => {
+                self.err("K1102", "`[package].edition` must be a string".to_string());
+                ok = false;
+            }
+        }
+
+        // Capabilities: each entry must be one of the six (K1111).
         let mut capabilities = BTreeSet::new();
         if let Some(value) = raw.package.get("capabilities") {
             match value {
