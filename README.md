@@ -36,7 +36,9 @@ Use Rust, C, or Zig there. Keel's C FFI is designed but not implemented; see
 
 | Path | Purpose |
 |---|---|
-| `docs/README.md` | Documentation map and reading paths. |
+| [`docs/README.md`](docs/README.md) | Documentation map and reading paths. |
+| [`docs/getting-started.md`](docs/getting-started.md) | Source-build quickstart. |
+| [`docs/language-tour.md`](docs/language-tour.md) | Implemented language tour. |
 | `docs/vision.md` | The design document (v0.2): why Keel exists. |
 | `docs/spec/` | The normative language specification (in progress). |
 | `docs/kdr/` | Keel Decision Records — every adopted/rejected decision, with reopening clauses. |
@@ -47,6 +49,7 @@ Use Rust, C, or Zig there. Keel's C FFI is designed but not implemented; see
 | `ROADMAP.md` | Milestones, in dependency order. |
 | `AGENTS.md` | Mandatory rules for LLM/agent contributors. |
 | `CONTRIBUTING.md` | Rules for human contributors. |
+| [`SECURITY.md`](SECURITY.md) | Vulnerability reporting and current trust boundaries. |
 
 ## Build the current toolchain
 

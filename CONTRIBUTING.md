@@ -2,9 +2,11 @@
 
 ## Where to start
 
-Read `docs/vision.md`, then `ROADMAP.md`, then pick an issue labeled with the
-current milestone. If you use an LLM/agent for any part of your contribution,
-`AGENTS.md` applies to you too — you are responsible for your agent's output.
+Start from [`docs/README.md`](docs/README.md). Compiler contributors then read
+`docs/vision.md`, `ROADMAP.md`, and `compiler/ARCHITECTURE.md` before picking an
+issue labeled with the current milestone. If you use an LLM/agent for any part
+of your contribution, `AGENTS.md` applies to you too — you are responsible for
+your agent's output.
 
 ## How decisions are made
 

@@ -1,18 +1,53 @@
 # Documentation
 
-Reading order is defined once in [`AGENTS.md`](../AGENTS.md) ("Required reading
-order") — follow it there. This page is the directory map.
+Keel separates learning material, operational guides, normative specification,
+design decisions, and implementation status. This page is the public entry
+point; contributor-only reading order remains in [`AGENTS.md`](../AGENTS.md).
 
-## Directory map
+## Learn Keel
 
-| Path | Purpose |
-|---|---|
-| [`vision.md`](vision.md) | Design document v0.2 — the "why" behind every feature and decision. Start here. |
-| [`spec/`](spec/) | Normative language specification. `keel-core.md` is the frozen subset; numbered chapters add tested detail. |
-| [`kdr/`](kdr/) | Keel Decision Records — every adopted or rejected design decision, with reopening clauses. |
-| [`ROADMAP.md`](../ROADMAP.md) | Milestones with exit criteria. |
+1. [Getting started](getting-started.md) — build the current source toolchain and
+   run, check, format, build, and test a program.
+2. [Language tour](language-tour.md) — conformance-backed syntax and semantics
+   through M7.
+3. [Standard library reference](stdlib-reference.md) — implemented API surface
+   and known backend ceilings.
+4. [Packages and capabilities](packages-and-capabilities.md) — manifests, local
+   dependencies, authority declarations, and audit reports.
+
+## Use the toolchain
+
+- [CLI reference](cli-reference.md)
+- [Compiler diagnostics](diagnostics.md)
+- [Users-service example](../examples/users-service/README.md)
+- [Security policy](../SECURITY.md)
+
+## Understand the language
+
+- [Vision](vision.md) — why Keel exists and the intended complete design.
+- [Who Keel is not for](who-keel-is-not-for.md) — explicit domain boundaries.
+- [Language specification](spec/) — normative behavior; `keel-core.md` is the
+  frozen M0–M4 subset and numbered chapters add later behavior.
+- [Keel Decision Records](kdr/) — accepted/rejected decisions and reopening
+  evidence.
+
+The conformance suite is the executable specification. If it disagrees with
+normative prose, stop and file an issue rather than reconciling either silently.
+
+## Follow implementation
+
+- [Roadmap](../ROADMAP.md) — milestone order and binary exit criteria.
+- [Milestone status](milestone-status.md) — current implementation snapshot.
+- [Compiler architecture](../compiler/ARCHITECTURE.md) — pipeline, crate layout,
+  and compiler invariants.
+- [Conformance guide](../tests/conformance/README.md) — executable case format.
 
 Non-normative implementation notes live alongside this file as `*-status.md`,
-`*-implementation.md`, and `*-audit.md` (e.g. [`milestone-status.md`](milestone-status.md),
-[`m6-status.md`](m6-status.md)) — browse the [`docs/` listing](.) rather than a
-hand-maintained index, which drifts.
+`*-implementation.md`, and `*-audit.md`. They record work; they do not define
+the language.
+
+## Contribute
+
+- [Contributing](../CONTRIBUTING.md)
+- [Agent contributor rules](../AGENTS.md)
+- [Governance](../GOVERNANCE.md)
