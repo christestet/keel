@@ -38,7 +38,7 @@ These six are the closed set. A `capabilities` entry that is not one of them is
 can violate Keel's safety guarantees is reachable only through these two
 capabilities, so `keel audit` names exactly the packages that could do so
 ([`KDR-0011`](../kdr/0011-package-capabilities.md); FFI detail is
-[`12-ffi.md`](12-ffi.md)).
+[chapter 12 in the specification plan](00-spec-plan.md#chapter-plan)).
 
 ## 11.2 Standard-library capability map
 
@@ -179,7 +179,8 @@ surfaced by `keel audit`, not one of these errors.
   §15.25 (`log` → stdout), §15.28 (`sql`), §15.31 (`config` → env).
 - Related: [`09-concurrency.md`](09-concurrency.md) §9.7 (`spawn` introduces no
   new authority — a task runs under its enclosing function's capability budget),
-  [`12-ffi.md`](12-ffi.md) (the `ffi` / `extern` boundary).
+  [chapter 12 in the specification plan](00-spec-plan.md#chapter-plan) (the
+  `ffi` / `extern` boundary).
 - Code registry: `K1110`–`K1112` are registered (append-only) in
   [`compiler/keelc-diag/src/registry.rs`](../../compiler/keelc-diag/src/registry.rs)
   by the implementation PR.

@@ -5,7 +5,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 
 | # | Title | Status |
 |---|---|---|
-| 0000 | KDR template | — |
+| [0000](0000-template.md) | KDR template | — |
 | [0001](0001-editions.md) | Exclusive editions, mandatory mechanical migration | accepted |
 | [0002](0002-no-async-await.md) | No async/await; structured concurrency only | accepted |
 | [0003](0003-no-inheritance.md) | No inheritance (composition + interfaces ≤5 methods) | accepted |

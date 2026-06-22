@@ -40,16 +40,17 @@ Use Rust, C, or Zig there. Keel's C FFI is designed but not implemented; see
 | [`docs/getting-started.md`](docs/getting-started.md) | Source-build quickstart. |
 | [`docs/language-tour.md`](docs/language-tour.md) | Implemented language tour. |
 | [`docs/feature-status.md`](docs/feature-status.md) | User-facing implementation matrix. |
-| `docs/vision.md` | The design document (v0.2): why Keel exists. |
-| `docs/spec/` | The normative language specification (in progress). |
-| `docs/kdr/` | Keel Decision Records — every adopted/rejected decision, with reopening clauses. |
-| `tests/conformance/` | Executable ground truth. The spec, as tests. **The most important directory for implementers.** |
-| `compiler/` | The compiler (`keelc`). See `compiler/ARCHITECTURE.md` before writing code. |
-| `examples/` | Idiomatic Keel programs the compiler must eventually accept. |
-| `docs/milestone-status.md` | Per-milestone implementation status. |
-| `ROADMAP.md` | Milestones, in dependency order. |
-| `AGENTS.md` | Mandatory rules for LLM/agent contributors. |
-| `CONTRIBUTING.md` | Rules for human contributors. |
+| [`docs/vision.md`](docs/vision.md) | The design document (v0.2): why Keel exists. |
+| [`docs/spec/`](docs/spec/00-spec-plan.md) | The normative language specification (in progress). |
+| [`docs/kdr/`](docs/kdr/INDEX.md) | Keel Decision Records — every adopted/rejected decision, with reopening clauses. |
+| [`tests/conformance/`](tests/conformance/README.md) | Executable ground truth. The spec, as tests. **The most important directory for implementers.** |
+| [`compiler/`](compiler/ARCHITECTURE.md) | The compiler (`keelc`) and its architecture. |
+| [`examples/`](examples/) | Idiomatic Keel programs the compiler must eventually accept. |
+| [`docs/milestone-status.md`](docs/milestone-status.md) | Per-milestone implementation status. |
+| [`ROADMAP.md`](ROADMAP.md) | Milestones, in dependency order. |
+| [`AGENTS.md`](AGENTS.md) | Mandatory rules for LLM/agent contributors. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Rules for human contributors. |
+| [Brand style guide](keel-brand-kit/keel-style-guide.md) | Visual identity and asset usage. |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability reporting and current trust boundaries. |
 | [`CHANGELOG.md`](CHANGELOG.md) | Unreleased user-visible changes and future release history. |
 
@@ -79,4 +80,5 @@ build and run the compiler.
 
 ## License
 
-Apache-2.0. See [`LICENSE`](LICENSE) for details.
+Apache-2.0. See [`LICENSE`](LICENSE) for the license text and
+[`LICENSE-NOTE.md`](LICENSE-NOTE.md) for repository licensing guidance.
