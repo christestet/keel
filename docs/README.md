@@ -65,3 +65,17 @@ the language.
 - [Compatibility policy](compatibility.md)
 - [Changelog](../CHANGELOG.md)
 - [Release process](release-process.md)
+
+## Documentation integrity
+
+Every local file or section reference must be a Markdown link, not an
+unlinked path in prose. Public documentation must be reachable from the root
+[`README.md`](../README.md), normally through this index. Run
+[`scripts/check-docs.sh`](../scripts/check-docs.sh) to reject broken file links,
+broken section anchors, self-links, and orphan documents. The same check runs in
+CI and as part of [`scripts/preflight.sh`](../scripts/preflight.sh).
+
+Navigation backlinks are allowed: an index must be able to link to a guide that
+links back to its governing index. Dependency descriptions should link toward
+their governing spec, KDR, architecture, conformance, and roadmap sources rather
+than restating those sources.

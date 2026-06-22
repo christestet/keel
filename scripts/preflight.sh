@@ -11,6 +11,9 @@ step() { echo; echo "==> $*"; }
 step "agent-harness self-check"
 scripts/check-harness.sh
 
+step "documentation graph"
+scripts/check-docs.sh
+
 step "cargo fmt --all --check"
 cargo fmt --all --check
 

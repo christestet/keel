@@ -56,15 +56,15 @@ task seems to require violating milestone order, the task is mis-scoped — say 
 
 ## What "done" means
 
-A task is done when: `scripts/preflight.sh` is green (it runs exactly what CI
-runs), new behavior has new conformance cases, `keel fmt`/pretty-printer
+A task is done when: [`scripts/preflight.sh`](scripts/preflight.sh) is green (it
+runs exactly what CI runs), new behavior has new conformance cases, `keel fmt`/pretty-printer
 round-trips any syntax you added, and the PR description states which spec
 section it implements.
 
 ## The agent harness (how this guidance scales)
 
 This guidance is a layered harness, versioned and CI-checked like any other
-code (`scripts/check-harness.sh`):
+code ([`scripts/check-harness.sh`](scripts/check-harness.sh)):
 
 - **This file holds the global rules.** Directory-local rules live in nested
   `AGENTS.md` files (`compiler/`, `tests/conformance/`, `docs/spec/`,
@@ -74,6 +74,9 @@ code (`scripts/check-harness.sh`):
   wins and the nested file has a bug.
 - **`scripts/preflight.sh`** is the executable definition of done. Run it from
   the repo root before declaring any task complete.
+- **`scripts/check-docs.sh`** rejects broken local files and section anchors,
+  self-links, and public Markdown files that are unreachable from this
+  repository's [`README.md`](README.md).
 - **`.agents/`** holds the shared agent layer: a permission allowlist and slash
   commands (`/preflight`, `/new-case`, `/new-kdr`, `/wiki-note`). `.claude` is
   a symlink to `.agents` so Claude Code and other agent surfaces load the same

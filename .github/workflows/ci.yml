@@ -16,6 +16,7 @@ jobs:
       compiler: ${{ steps.classify.outputs.compiler }}
       conformance: ${{ steps.classify.outputs.conformance }}
       harness: ${{ steps.classify.outputs.harness }}
+      docs: ${{ steps.classify.outputs.docs }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +48,7 @@ jobs:
           compiler=false
           conformance=false
           harness=false
+          docs=false
 
           if has '^(compiler/|Cargo\.toml$|Cargo\.lock$)'; then
             compiler=true
@@ -57,11 +59,15 @@ jobs:
           if has '(^|/)(AGENTS|CLAUDE)\.md$|^\.agents/|^scripts/(check-harness|preflight)\.sh$|^\.github/workflows/'; then
             harness=true
           fi
+          if has '\.md$|^scripts/check-docs\.(rs|sh)$'; then
+            docs=true
+          fi
 
           {
             echo "compiler=$compiler"
             echo "conformance=$conformance"
             echo "harness=$harness"
+            echo "docs=$docs"
           } >> "$GITHUB_OUTPUT"
 
   # The conformance suite is the executable spec — it must be structurally
@@ -116,6 +122,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Agent harness self-check
         run: scripts/check-harness.sh
+
+  documentation:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate documentation graph
+        run: scripts/check-docs.sh
 
   rust-quality:
     needs: changes
