@@ -1,0 +1,53 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "004-error-responses",
+  "description": "Malformed JSON-RPC input and unsupported non-base methods produce deterministic JSON-RPC errors.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "raw-error",
+      "raw": "Content-Length: 10\r\n\r\n{\"jsonrpc\"",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": {
+          "code": -32700,
+          "message": "Parse error"
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "textDocument/references",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel"
+          },
+          "position": {
+            "line": 0,
+            "character": 3
+          },
+          "context": {
+            "includeDeclaration": true
+          }
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "response",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    }
+  ]
+}

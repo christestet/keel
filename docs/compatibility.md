@@ -2,7 +2,9 @@
 
 Keel is pre-1.0 and has no published release line. This document distinguishes
 the compatibility mechanisms already enforced by the repository from the
-long-term promises in the language design.
+long-term promises in the language design. The first public developer-preview
+bar is tracked separately in
+[`0.1.0 release readiness`](0.1-release-readiness.md).
 
 ## Current support level
 
@@ -14,6 +16,11 @@ conformance → implementation process before 1.0.
 No change may silently contradict an accepted KDR, normative specification, or
 passing conformance case. That process is the current compatibility control; it
 is not semantic-versioning stability for users.
+
+When 0.1.0 is published, it should be described as a developer preview unless a
+separate compatibility KDR creates a stronger support window. Do not infer
+production support, package ecosystem stability, or backports from the `0.1.0`
+version number.
 
 ## Language compatibility
 
@@ -108,3 +115,6 @@ A 1.0 compatibility declaration still needs explicit decisions for:
 
 Those policies must be decided before release rather than inferred from this
 development implementation.
+
+For the narrower first-release checklist, see
+[`0.1.0 release readiness`](0.1-release-readiness.md).

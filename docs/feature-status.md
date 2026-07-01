@@ -1,8 +1,10 @@
 # Feature status
 
-This is the user-facing M7 snapshot. It summarizes implementation, not future
-design intent. Normative behavior lives in the specification and conformance
-suite; detailed work history lives in [milestone status](milestone-status.md).
+This is the user-facing implementation snapshot. It summarizes implementation,
+not future design intent. Normative behavior lives in the specification and
+conformance suite; detailed work history lives in
+[milestone status](milestone-status.md). The first-release gate is tracked in
+[`0.1.0 release readiness`](0.1-release-readiness.md).
 
 Status meanings:
 
@@ -14,7 +16,7 @@ Status meanings:
 
 Current M7 gate: **221 passed, 0 failed, 4 intentionally skipped**. The skipped
 cases are earlier-milestone rejection traps for features that subsequently
-landed.
+landed. M8 implementation has started, but there is no 0.1.0 release yet.
 
 ## Language
 
@@ -52,14 +54,14 @@ landed.
 
 | Tool | Status | Current boundary |
 |---|---|---|
-| `keel check` | Implemented | direct full-pipeline check; no query database yet |
-| `keel run` | Implemented | emits and runs temporary Go |
-| `keel build` | Partial | reproducible flags and host executable; SQL may resolve Go modules over network |
-| `keel test` | Implemented | discovers Keel test blocks and runs generated Go harness |
+| `keel check` | Implemented | routed through the M8 Salsa query database for parse/resolve/typecheck |
+| `keel run` | Implemented | query-backed KIR/Go emission, then temporary `go run` |
+| `keel build` | Partial | query-backed KIR/Go emission plus reproducible flags; SQL may resolve Go modules over network |
+| `keel test` | Implemented | query-backed Go test harness generation |
 | `keel fmt` | Implemented | canonical stdout formatter; does not edit files |
 | `keel audit` | Implemented slice | deterministic explicit-package capability report |
 | `keel gen` | Partial | proto3 data subset only; OpenAPI/client/server generation is M10 |
-| `keel lsp` | Planned (M8) | query core and LSP crate absent |
+| `keel lsp` | Planned (M8) | KDR/spec/initial transcripts exist; LSP crate and command absent |
 | `keel build --image` | Planned (M9) | no OCI image output |
 | `keel lint` | Not implemented | waiver/lint design is not a command today |
 | `keel fix` | Trigger-gated | requires a concrete edition migration |
@@ -70,13 +72,17 @@ landed.
 
 - Spec chapters 2, 3, 5, 12, and 13 are not authored as standalone full
   chapters; Core and conformance cover existing behavior where applicable.
-- Chapter 16 predates the numbered M8 roadmap and needs its milestone labels
-  rebased before LSP fixtures land.
+- Chapter 16 has been rebased to an explicit M8 base/deferred split. Initial
+  protocol fixtures exist, but semantic LSP capability transcripts are still
+  incomplete.
 - Structured log arguments are accepted by current code but remain explicitly
   aspirational in chapter 15 and lack conformance coverage.
 - The strong no-network hermetic-build prose conflicts with current SQL module
   resolution. Documentation treats the implementation as the present limit;
   the normative/implementation gap still needs resolution.
+- 0.1.0 release readiness is blocked on nonzero M8 performance baselines, CI
+  enforcement, release/install/version reporting, and a decision to either
+  finish or omit `keel lsp`.
 
 When a row changes, update this page in the same concern as the status change;
 do not present roadmap intent as implemented behavior.

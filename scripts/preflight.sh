@@ -14,6 +14,9 @@ scripts/check-harness.sh
 step "documentation graph"
 scripts/check-docs.sh
 
+step "lsp transcript fixtures"
+scripts/check-lsp-fixtures.sh
+
 step "cargo fmt --all --check"
 cargo fmt --all --check
 

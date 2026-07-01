@@ -2,14 +2,11 @@
 
 mod gen;
 mod manifest;
+mod query;
 
 use keelc_ast::pretty::pretty_print;
-use keelc_ast::Module;
-use keelc_backend_go::{emit, emit_tests};
 use keelc_diag::{Diagnostic, Severity};
-use keelc_kir::lower::lower;
 use keelc_parse::parse_with_milestone;
-use keelc_resolve::{resolve, typecheck, TypecheckOutput};
 use keelc_span::{LineIndex, SourceId};
 use std::env;
 use std::ffi::OsStr;
@@ -79,37 +76,26 @@ pub fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let output = parse_with_milestone(SourceId::new(0), &text, milestone);
-    let mut diagnostics = output.diagnostics;
-    let checked = typecheck(&output.module);
-    if milestone >= 2 && !diagnostics.iter().any(is_error) {
-        diagnostics.extend(resolve(&output.module).diagnostics);
-        if !diagnostics.iter().any(is_error) {
-            diagnostics.extend(checked.diagnostics.iter().cloned());
-        }
-    }
-    diagnostics.sort_by(|left, right| {
-        left.span
-            .start
-            .cmp(&right.span.start)
-            .then_with(|| left.span.end.cmp(&right.span.end))
-            .then_with(|| left.code.as_str().cmp(right.code.as_str()))
-    });
-
-    let has_error = diagnostics.iter().any(is_error);
-    let index = LineIndex::new(&text);
-    for diagnostic in &diagnostics {
-        emit_diagnostic(path, &index, diagnostic);
-    }
-
-    if has_error {
+    let db = query::QueryDatabase::default();
+    let source = query::SourceFile::new(&db, text.clone(), milestone);
+    if !emit_check_diagnostics(path, &text, &db, source) {
         return ExitCode::FAILURE;
     }
 
     match command.as_os_str().to_str() {
-        Some("run") => run_module(&output.module, &text, &checked),
-        Some("test") => run_tests(&output.module, &text, &checked),
-        Some("build") => build_module(&output.module, path, &text, &checked),
+        Some("check") => ExitCode::SUCCESS,
+        Some("run") => match query_go_source(&db, source, false) {
+            Ok(go_source) => run_go(go_source, "keelc-go"),
+            Err(code) => code,
+        },
+        Some("test") => match query_go_source(&db, source, true) {
+            Ok(go_source) => run_go(go_source, "keelc-go-tests"),
+            Err(code) => code,
+        },
+        Some("build") => match query_go_source(&db, source, false) {
+            Ok(go_source) => build_go_source(path, &go_source),
+            Err(code) => code,
+        },
         _ => ExitCode::SUCCESS,
     }
 }
@@ -170,17 +156,22 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn build_module(
-    module: &Module,
-    source_path: &Path,
-    source: &str,
-    checked: &TypecheckOutput,
-) -> ExitCode {
-    let go_source = match emit_go(module, source, checked, false) {
-        Ok(source) => source,
-        Err(code) => return code,
-    };
+fn emit_check_diagnostics(
+    path: &Path,
+    text: &str,
+    db: &query::QueryDatabase,
+    source: query::SourceFile,
+) -> bool {
+    let diagnostics = query::check_diagnostics(db, source);
+    let has_error = diagnostics.iter().any(is_error);
+    let index = LineIndex::new(text);
+    for diagnostic in diagnostics.iter() {
+        emit_diagnostic(path, &index, diagnostic);
+    }
+    !has_error
+}
 
+fn build_go_source(source_path: &Path, go_source: &str) -> ExitCode {
     let temp_dir = env::temp_dir().join(format!("keelc-build-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
         eprintln!(
@@ -191,7 +182,7 @@ fn build_module(
     }
     let _guard = TempDir(temp_dir.clone());
 
-    let module_mode = match write_go_project(&temp_dir, &go_source) {
+    let module_mode = match write_go_project(&temp_dir, go_source) {
         Ok(module_mode) => module_mode,
         Err(code) => return code,
     };
@@ -271,23 +262,6 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
-}
-
-fn run_module(module: &Module, source: &str, checked: &TypecheckOutput) -> ExitCode {
-    let go_source = match emit_go(module, source, checked, false) {
-        Ok(source) => source,
-        Err(code) => return code,
-    };
-    run_go(go_source, "keelc-go")
-}
-
-fn run_tests(module: &Module, source: &str, checked: &TypecheckOutput) -> ExitCode {
-    let go_source = match emit_go(module, source, checked, true) {
-        Ok(source) => source,
-        Err(code) => return code,
-    };
-
-    run_go(go_source, "keelc-go-tests")
 }
 
 /// Write the generated Go into `temp_dir`. When the program imports an external
@@ -372,29 +346,29 @@ fn run_go(go_source: String, temp_prefix: &str) -> ExitCode {
     }
 }
 
-fn emit_go(
-    module: &Module,
-    source: &str,
-    checked: &TypecheckOutput,
+fn query_go_source(
+    db: &query::QueryDatabase,
+    source: query::SourceFile,
     tests: bool,
 ) -> Result<String, ExitCode> {
-    let kir_output = lower(module, source, &checked.types);
-    if !kir_output.diagnostics.is_empty() {
-        eprintln!("lowering error: {}", kir_output.diagnostics[0].message);
-        return Err(ExitCode::FAILURE);
-    }
-    let go_source = match if tests {
-        emit_tests(&kir_output.module)
+    let emitted = if tests {
+        query::go_test_source(db, source)
     } else {
-        emit(&kir_output.module)
-    } {
-        Ok(source) => source,
-        Err(err) => {
-            eprintln!("backend error: {err}");
-            return Err(ExitCode::FAILURE);
-        }
+        query::go_source(db, source)
     };
-    Ok(go_source)
+    emitted
+        .as_ref()
+        .clone()
+        .map_err(|diagnostic| match diagnostic {
+            query::EmitDiagnostic::Lowering(message) => {
+                eprintln!("lowering error: {message}");
+                ExitCode::FAILURE
+            }
+            query::EmitDiagnostic::Backend(message) => {
+                eprintln!("backend error: {message}");
+                ExitCode::FAILURE
+            }
+        })
 }
 
 fn file_label(path: &Path) -> String {

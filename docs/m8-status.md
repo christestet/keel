@@ -3,48 +3,65 @@
 Non-normative planning note for M8. The milestone boundary and exit criterion
 live in [`ROADMAP.md`](../ROADMAP.md) §M8. Compiler behavior remains defined by
 the specs and [`tests/conformance/`](../tests/conformance/).
+The first public preview release gate is tracked in
+[`0.1.0 release readiness`](0.1-release-readiness.md).
 
 ## Goal and status
 
 M8 makes the existing compiler pipeline incrementally reusable, measures the
 compile-time contract, then exposes the same queries through `keel lsp`.
 
-**Not started.** M7 is green at 221 passed, 0 failed, 4 intentionally gated
-Core rejections. There is no query database, public performance corpus, CI
-benchmark, `keelc-lsp` crate, or `keel lsp` subcommand.
+**Implementation slice started.** [`KDR-0106`](kdr/0106-query-engine.md)
+accepts Salsa as the query engine and fixes the M8 input/query boundary. M7 is
+green at 221 passed, 0 failed, 4 intentionally gated Core rejections. `keel
+check`, `keel run`, `keel test`, and `keel build` now route parse, resolve,
+typecheck, KIR lowering, diagnostics, and Go emission through a driver-internal
+Salsa database. [`KDR-0103`](kdr/0103-lsp-server.md) now accepts the M8 LSP
+server boundary and synchronous protocol stack. Initial
+[`tests/lsp`](../tests/lsp/README.md) transcript fixtures cover
+initialization, diagnostics, UTF-16/CRLF position mapping, shutdown, and
+JSON-RPC errors. There is no public performance baseline, CI benchmark,
+`keelc-lsp` crate, `keel lsp` subcommand, or full transcript coverage for every
+advertised semantic capability.
 
 ## Ordered slices
 
 ### M8a — query core
 
-1. **Decision PR.** Accept a toolchain KDR choosing the query engine and fixing
+1. **Decision PR.** Done in [`KDR-0106`](kdr/0106-query-engine.md): accept a
+   toolchain KDR choosing the query engine and fixing
    its input/query boundaries. This is the dependency-justification PR required
    by the root harness; KDR-0019 mandates incrementality but does not authorize
    a particular crate version or integration surface.
-2. **Performance-fixture PR.** Add the public reference corpus, reference-machine
-   description, benchmark command, and 5% regression comparison. Keep benchmark
-   fixtures separate from compiler implementation.
-3. **Query implementation PRs.** Introduce source/config inputs and wrap the
-   existing parse, resolve/typecheck, and KIR stages as deterministic queries.
-   Repoint `keel check` first; repoint build/run only after check output is
-   byte-identical. Stage functions remain free of I/O and global state.
+2. **Performance-fixture PR.** Started by
+   [`tests/performance/m8-reference/README.md`](../tests/performance/m8-reference/README.md):
+   add the public reference corpus, reference-machine description, benchmark
+   command, and 5% regression comparison. Keep benchmark fixtures separate from
+   compiler implementation. Baselines are still zero and the gate is not wired
+   into CI.
+3. **Query implementation PRs.** Started: `keel check`, `run`, `test`, and
+   `build` use a Salsa `SourceFile` input and deterministic parse, resolve,
+   typecheck, KIR-lowering, Go-emission, and diagnostic queries. Stage
+   functions remain free of I/O and global state; filesystem/process effects
+   remain in the driver.
 4. **Gate PR.** Enable the KDR-0019 CI budgets only after the reference baseline
    is checked in and reproducible on the named machine.
 
 ### M8b — LSP
 
-1. **Decision PR.** Accept or supersede proposed KDR-0103. No LSP dependency or
-   crate lands while its decision remains proposed.
-2. **Spec PR.** Chapter 16 predates the numbered M8 roadmap and labels optional
-   capabilities `M8+`/`M9+`. Replace those relative labels with an explicit base
-   and future capability split; otherwise assigning M8 would accidentally pull
-   references, formatting, code actions, and workspace symbols into the exit
-   gate.
-3. **Protocol-fixture PR.** Add deterministic JSON-RPC transcripts for
-   initialize, incremental open/change, diagnostics, definition, hover,
-   completion, document symbols, shutdown, and malformed requests. Positions
-   include ASCII, non-BMP Unicode, CRLF, and multi-line cases to lock 0-based
-   UTF-16 conversion.
+1. **Decision PR.** Done in [`KDR-0103`](kdr/0103-lsp-server.md): accept the
+   M8 base LSP capability set and the `lsp-server`/`lsp-types` protocol stack.
+2. **Spec PR.** Done in [`docs/spec/16-lsp.md`](spec/16-lsp.md): chapter 16 now
+   names the M8 base capability set explicitly and marks references,
+   formatting, code actions, workspace symbols, rename, and inlay hints as
+   deferred.
+3. **Protocol-fixture PR.** Started in
+   [`tests/lsp/m8-base`](../tests/lsp/m8-base): deterministic JSON-RPC
+   transcripts cover initialize, open diagnostics, UTF-16/CRLF positions,
+   shutdown, malformed JSON, and unsupported methods. Definition, hover,
+   completion, document symbols, incremental change, and multi-line position
+   transcripts still need golden cases before `keel lsp` advertises the full M8
+   base surface.
 4. **Implementation PRs.** Add the `keelc-lsp` crate and `keel lsp`, backed only
    by the M8a query database. Advertise exactly the implemented base capability
    set from spec chapter 16.
@@ -65,11 +82,17 @@ M8 exits only when all of the following hold:
   not terminate the server;
 - `scripts/preflight.sh` is green and its summary is recorded here.
 
+For a 0.1.0 developer-preview release, M8a's query and performance gate is a
+hard blocker. M8b's LSP surface may either ship fully transcript-backed or be
+left out of the release; do not advertise partial semantic LSP capabilities.
+
 ## Dependency chain
 
 - [KDR-0019](kdr/0019-compile-time-contract.md) — budgets and query-core mandate.
-- [KDR-0103](kdr/0103-lsp-server.md) — proposed LSP decision; must be accepted or
-  superseded before implementation.
+- [KDR-0106](kdr/0106-query-engine.md) — accepted Salsa query engine and query
+  boundaries.
+- [KDR-0103](kdr/0103-lsp-server.md) — accepted M8 LSP decision, capability
+  boundary, and protocol dependency stack.
 - [Spec chapter 16](spec/16-lsp.md) — protocol surface and lifecycle.
 - [Compiler architecture](../compiler/ARCHITECTURE.md) — pipeline and query-core
   constraints.
@@ -78,9 +101,15 @@ M8 exits only when all of the following hold:
 
 ## Validation snapshot
 
-Planning only; no M8 implementation exists. Last completed gate:
+Current implementation snapshot:
 
 ```text
+scripts/preflight.sh
+91 passed, 0 failed, 134 skipped
+
 KEEL_MILESTONE=M7 scripts/preflight.sh
 221 passed, 0 failed, 4 skipped
+
+M8_REFERENCE_HANDLERS=3 scripts/m8-benchmark.sh --mode check --work-dir target/m8-reference-smoke --metrics target/m8-reference-smoke.tsv
+keel_check	9	300	0	ok
 ```

@@ -38,7 +38,7 @@ one to match an assumption.
 
 | Area | Normative source | Current status |
 |---|---|---|
-| LSP protocol | [chapter 16](spec/16-lsp.md) | specified, M8 implementation absent |
+| LSP protocol | [chapter 16](spec/16-lsp.md) | KDR/spec/initial transcripts exist; server implementation absent |
 | Schema generation | [chapter 17](spec/17-codegen.md) | proto3 data subset implemented |
 | Hermetic/reproducible builds | [chapter 18](spec/18-hermetic-builds.md) | fixed-input reproducibility implemented; SQL network gap remains |
 

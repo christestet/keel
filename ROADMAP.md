@@ -129,6 +129,10 @@ M8 has two ordered slices. M8a makes compiler work reusable and measurable;
 M8b exposes that work through LSP. The live plan is
 [`docs/m8-status.md`](docs/m8-status.md).
 
+The first public 0.1.0 developer-preview release is not identical to M8 exit.
+Its additional release, documentation, installation, and known-limitation gates
+are tracked in [`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
+
 ### M8a — Query core and performance gate
 
 - Accept a toolchain KDR for the query-engine dependency and input/query

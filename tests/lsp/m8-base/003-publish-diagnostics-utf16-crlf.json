@@ -1,0 +1,52 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "003-publish-diagnostics-utf16-crlf",
+  "description": "A diagnostic after a non-BMP character in a CRLF document uses 0-based UTF-16 LSP columns.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/unicode.keel",
+            "languageId": "keel",
+            "version": 1,
+            "text": "fn main() -> Unit {\r\n    let smile = \"\ud83d\ude42\";\r\n}\r\n"
+          }
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "notification",
+      "expect": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {
+          "uri": "file:///workspace/unicode.keel",
+          "diagnostics": [
+            {
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 20
+                },
+                "end": {
+                  "line": 1,
+                  "character": 21
+                }
+              },
+              "severity": 1,
+              "code": "K0102",
+              "source": "keelc",
+              "message": "Keel uses newline-based statement termination; semicolons are not allowed"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

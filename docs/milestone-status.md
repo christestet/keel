@@ -4,6 +4,8 @@ Non-normative implementation status for the current milestone-based build-out.
 The governing language definition is [`docs/spec/keel-core.md`](spec/keel-core.md);
 the executable spec is [`tests/conformance/`](../tests/conformance/).
 For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
+For the first public developer-preview release gate, see
+[`docs/0.1-release-readiness.md`](0.1-release-readiness.md).
 
 ## M1 — Frontend: lexer, parser, AST, diagnostics
 
@@ -154,18 +156,21 @@ remain deferred. Per-slice detail: [`docs/m7-packages-capabilities.md`](m7-packa
 (`KEEL_MILESTONE=M7 scripts/preflight.sh`). The 4 skips are not-in-Core
 rejections bounded to ≤M4/≤M6.
 
-## M8 — Incremental compiler core + LSP (not started)
+## M8 — Incremental compiler core + LSP (implementation slice started)
 
 | Area | State |
 |---|---|
-| Query decision | Not started. KDR-0019 requires incrementality; a dependency/integration KDR must land before a query crate is added. |
-| Performance harness | Not started. No public reference corpus, reference-machine baseline, or 5% CI regression gate exists yet. |
-| LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) remains proposed and must be accepted or superseded. |
-| LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) is landed; its old relative milestone labels need a spec-only rebase before M8 fixtures. |
-| Implementation | No query database, `keelc-lsp` crate, or `keel lsp` subcommand. |
+| Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary; the first implementation keeps the database driver-internal rather than adding a query crate. |
+| Performance harness | Started. [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison; no nonzero baseline or CI gate exists yet. |
+| LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) accepted the M8 base capability set and `lsp-server`/`lsp-types` protocol stack. |
+| LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) defines the M8 base capability set explicitly and defers non-base capabilities. |
+| LSP fixtures | Started. [`tests/lsp/m8-base`](../tests/lsp/m8-base) covers initialize, diagnostics, UTF-16/CRLF position mapping, shutdown, and JSON-RPC errors; semantic capability transcripts remain open. |
+| Implementation | `keel check`, `run`, `test`, and `build` route parse, resolve, typecheck, KIR, Go emission, and diagnostics through Salsa queries. `keelc-lsp` and `keel lsp` remain planned. |
 
 M8a delivers the query core and KDR-0019 performance gate; M8b delivers the
-base LSP capabilities. See [`docs/m8-status.md`](m8-status.md).
+base LSP capabilities. A public 0.1.0 preview additionally needs the release
+readiness items in [`docs/0.1-release-readiness.md`](0.1-release-readiness.md).
+See [`docs/m8-status.md`](m8-status.md).
 
 ## Planned milestones
 

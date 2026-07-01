@@ -9,7 +9,7 @@ post-1.0 aspiration, not a plan.
 
 ## Pipeline
 
-### Current (M7)
+### Current (M8 partial)
 
 ```
 source --> lexer --> parser --> AST --> resolver/typechecker --> KIR --> backend
@@ -26,12 +26,13 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
 ```
 
 - **Query-based core ([salsa](https://github.com/salsa-rs/salsa)-style) is the
-  target architecture.** Every stage is designed as a memoized query keyed on
+  active architecture.** Every stage is designed as a memoized query keyed on
   inputs. This is how the [vision.md §7](../docs/vision.md#7-compile-time-as-a-contract)
   budget (incremental < 1s, `keel check` < 300ms) stays achievable. The salsa
-  integration is not yet implemented; the frontend currently drives stages
-  directly. Retrofitting incrementality is the single most expensive mistake a
-  compiler project makes (see: rustc).
+  integration currently lives in `keelc-driver` and routes check/build/run/test
+  through source/config inputs plus parse, resolve, typecheck, KIR lowering,
+  backend-emission, and diagnostic queries. Retrofitting incrementality is the
+  single most expensive mistake a compiler project makes (see: rustc).
 - **Lexer/parser:** hand-written recursive descent. Parser must recover from
   errors (parse the whole file, report many diagnostics, never crash).
 - **AST → name resolution + type checking:** `keelc-resolve` performs name
@@ -69,9 +70,9 @@ compiler/
                     declaration tables/queries (TypeContext)
   keelc-kir         IR + lowering (AST -> KIR)
   keelc-backend-go  Go emission (consumes KIR)
-  keelc-driver      CLI entry; drives stages directly today, query database tomorrow;
-                    builds both the user-facing `keel` binary and the `keelc`
-                    binary used by the conformance runner
+  keelc-driver      CLI entry; owns the current in-process query database and
+                    side-effect boundary; builds both the user-facing `keel`
+                    binary and the `keelc` binary used by the conformance runner
   keelc-lsp         (planned, M8) LSP server — protocol handlers, workspace state,
                     capability table; see [KDR-0103](../docs/kdr/0103-lsp-server.md)
                     and [spec ch. 16](../docs/spec/16-lsp.md)

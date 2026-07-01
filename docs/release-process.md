@@ -4,6 +4,10 @@ Keel has not published a release. This process defines the minimum bar for the
 first source release without pretending binary distribution, signing, support
 windows, or package infrastructure already exists.
 
+For the first public developer-preview release, also apply the explicit
+[`0.1.0 release readiness`](0.1-release-readiness.md) gate. A source-only
+checkpoint and a usable public toolchain release are different claims.
+
 ## 1. Confirm release scope
 
 - The release corresponds to a completed roadmap milestone with a binary exit
@@ -12,6 +16,8 @@ windows, or package infrastructure already exists.
   sequence.
 - No proposed KDR is presented as accepted behavior.
 - Trigger-gated and future features remain clearly marked as unavailable.
+- The release announcement states whether this is a source-only checkpoint or a
+  public developer preview with supported installation artifacts.
 
 Release preparation is its own concern. Do not combine unrelated language,
 conformance, compiler, or harness changes into the release commit.
@@ -43,6 +49,8 @@ Record:
 - conformance count and intentional skips;
 - known implementation/specification gaps from
   [feature status](feature-status.md).
+- for 0.1.0, the current checklist state from
+  [0.1.0 release readiness](0.1-release-readiness.md).
 
 Do not claim support for an untested host/target.
 
@@ -68,6 +76,16 @@ Run documentation relative-link checks and execute every getting-started command
 from a clean working directory. SQL conformance may require an approved Go
 module cache/network path for `modernc.org/sqlite`; record which was used.
 
+For a public 0.1.0 developer preview, also run the M8 performance gate from the
+published reference machine:
+
+```sh
+scripts/m8-benchmark.sh --mode full --enforce
+```
+
+The benchmark must use nonzero checked-in baselines; zero baselines are useful
+for fixture development only and cannot justify a release claim.
+
 Any failure blocks the release. Do not alter a conformance expectation to make
 the release pass.
 
@@ -79,6 +97,8 @@ the release pass.
   compatibility/support statements to the exact released state.
 - Verify all CLI examples against the release binary.
 - List known limitations prominently; roadmap items are not release features.
+- Link [0.1.0 release readiness](0.1-release-readiness.md) from the release
+  notes while 0.1.0 is still unreleased.
 - Ensure `SECURITY.md` names a working private reporting route before inviting
   external production use.
 
