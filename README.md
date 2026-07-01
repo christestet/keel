@@ -5,7 +5,7 @@
 
 **Status: M7 complete — 221 conformance cases pass and 4 earlier-milestone
 rejection cases are intentionally skipped. M8 (incremental compiler core + LSP)
-is scoped but not started.** See [`ROADMAP.md`](ROADMAP.md) and
+is in progress.** See [`ROADMAP.md`](ROADMAP.md) and
 [`docs/milestone-status.md`](docs/milestone-status.md).
 
 ## What Keel is
@@ -44,6 +44,7 @@ Use Rust, C, or Zig there. Keel's C FFI is designed but not implemented; see
 | [`docs/spec/`](docs/spec/00-spec-plan.md) | The normative language specification (in progress). |
 | [`docs/kdr/`](docs/kdr/INDEX.md) | Keel Decision Records — every adopted/rejected decision, with reopening clauses. |
 | [`tests/conformance/`](tests/conformance/README.md) | Executable ground truth. The spec, as tests. **The most important directory for implementers.** |
+| [`tests/lsp/`](tests/lsp/README.md) | M8 JSON-RPC protocol transcript fixtures for `keel lsp`. |
 | [`compiler/`](compiler/ARCHITECTURE.md) | The compiler (`keelc`) and its architecture. |
 | [`examples/`](examples/) | Idiomatic Keel programs the compiler must eventually accept. |
 | [`docs/milestone-status.md`](docs/milestone-status.md) | Per-milestone implementation status. |

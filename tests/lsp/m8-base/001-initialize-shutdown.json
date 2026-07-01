@@ -1,0 +1,82 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "001-initialize-shutdown",
+  "description": "The M8 server advertises only the base capabilities from spec chapter 16 and exits cleanly after shutdown.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "processId": null,
+          "rootUri": "file:///workspace",
+          "capabilities": {},
+          "trace": "off"
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "response",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "capabilities": {
+            "textDocumentSync": 2,
+            "definitionProvider": true,
+            "completionProvider": {
+              "resolveProvider": false,
+              "triggerCharacters": []
+            },
+            "hoverProvider": true,
+            "documentSymbolProvider": true
+          },
+          "serverInfo": {
+            "name": "keel-lsp"
+          }
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "initialized",
+        "params": {}
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "shutdown",
+        "params": null
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "response",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": null
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "exit",
+        "params": null
+      }
+    }
+  ]
+}

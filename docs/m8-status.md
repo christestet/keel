@@ -15,9 +15,12 @@ green at 221 passed, 0 failed, 4 intentionally gated Core rejections. `keel
 check`, `keel run`, `keel test`, and `keel build` now route parse, resolve,
 typecheck, KIR lowering, diagnostics, and Go emission through a driver-internal
 Salsa database. [`KDR-0103`](kdr/0103-lsp-server.md) now accepts the M8 LSP
-server boundary and synchronous protocol stack. There is no public performance
-baseline, CI benchmark, `keelc-lsp` crate, `keel lsp` subcommand, or LSP
-transcript fixture.
+server boundary and synchronous protocol stack. Initial
+[`tests/lsp`](../tests/lsp/README.md) transcript fixtures cover
+initialization, diagnostics, UTF-16/CRLF position mapping, shutdown, and
+JSON-RPC errors. There is no public performance baseline, CI benchmark,
+`keelc-lsp` crate, `keel lsp` subcommand, or full transcript coverage for every
+advertised semantic capability.
 
 ## Ordered slices
 
@@ -50,11 +53,13 @@ transcript fixture.
    names the M8 base capability set explicitly and marks references,
    formatting, code actions, workspace symbols, rename, and inlay hints as
    deferred.
-3. **Protocol-fixture PR.** Add deterministic JSON-RPC transcripts for
-   initialize, incremental open/change, diagnostics, definition, hover,
-   completion, document symbols, shutdown, and malformed requests. Positions
-   include ASCII, non-BMP Unicode, CRLF, and multi-line cases to lock 0-based
-   UTF-16 conversion.
+3. **Protocol-fixture PR.** Started in
+   [`tests/lsp/m8-base`](../tests/lsp/m8-base): deterministic JSON-RPC
+   transcripts cover initialize, open diagnostics, UTF-16/CRLF positions,
+   shutdown, malformed JSON, and unsupported methods. Definition, hover,
+   completion, document symbols, incremental change, and multi-line position
+   transcripts still need golden cases before `keel lsp` advertises the full M8
+   base surface.
 4. **Implementation PRs.** Add the `keelc-lsp` crate and `keel lsp`, backed only
    by the M8a query database. Advertise exactly the implemented base capability
    set from spec chapter 16.
