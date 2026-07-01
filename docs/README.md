@@ -63,6 +63,7 @@ the language.
 ## Releases and compatibility
 
 - [Compatibility policy](compatibility.md)
+- [0.1.0 release readiness](0.1-release-readiness.md)
 - [Changelog](../CHANGELOG.md)
 - [Release process](release-process.md)
 

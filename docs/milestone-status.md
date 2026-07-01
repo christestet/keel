@@ -4,6 +4,8 @@ Non-normative implementation status for the current milestone-based build-out.
 The governing language definition is [`docs/spec/keel-core.md`](spec/keel-core.md);
 the executable spec is [`tests/conformance/`](../tests/conformance/).
 For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
+For the first public developer-preview release gate, see
+[`docs/0.1-release-readiness.md`](0.1-release-readiness.md).
 
 ## M1 — Frontend: lexer, parser, AST, diagnostics
 
@@ -166,7 +168,9 @@ rejections bounded to ≤M4/≤M6.
 | Implementation | `keel check`, `run`, `test`, and `build` route parse, resolve, typecheck, KIR, Go emission, and diagnostics through Salsa queries. `keelc-lsp` and `keel lsp` remain planned. |
 
 M8a delivers the query core and KDR-0019 performance gate; M8b delivers the
-base LSP capabilities. See [`docs/m8-status.md`](m8-status.md).
+base LSP capabilities. A public 0.1.0 preview additionally needs the release
+readiness items in [`docs/0.1-release-readiness.md`](0.1-release-readiness.md).
+See [`docs/m8-status.md`](m8-status.md).
 
 ## Planned milestones
 

@@ -18,6 +18,8 @@ development record.
 - Corrected public status from stale M6 claims to the completed M7 gate.
 - Documented implementation/specification gaps instead of presenting planned
   behavior as available.
+- Added an explicit 0.1.0 release-readiness gate and linked it from public
+  roadmap, status, compatibility, and release-process docs.
 
 ### Current implementation baseline
 
@@ -25,7 +27,8 @@ development record.
   earlier-milestone rejection cases.
 - Implemented tool commands: `build`, `run`, `fmt`, `test`, `check`, `audit`,
   and proto3-subset `gen`.
-- Executable generation still uses the Go backend; M8–M11 remain roadmap work.
+- Executable generation still uses the Go backend; M8 is in progress and
+  M9–M11 remain roadmap work.
 
 ## Changelog policy
 

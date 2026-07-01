@@ -5,8 +5,9 @@
 
 **Status: M7 complete — 221 conformance cases pass and 4 earlier-milestone
 rejection cases are intentionally skipped. M8 (incremental compiler core + LSP)
-is in progress.** See [`ROADMAP.md`](ROADMAP.md) and
-[`docs/milestone-status.md`](docs/milestone-status.md).
+is in progress. No public 0.1.0 release has been cut.** See
+[`ROADMAP.md`](ROADMAP.md), [`docs/milestone-status.md`](docs/milestone-status.md),
+and [`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
 
 ## What Keel is
 
@@ -40,6 +41,7 @@ Use Rust, C, or Zig there. Keel's C FFI is designed but not implemented; see
 | [`docs/getting-started.md`](docs/getting-started.md) | Source-build quickstart. |
 | [`docs/language-tour.md`](docs/language-tour.md) | Implemented language tour. |
 | [`docs/feature-status.md`](docs/feature-status.md) | User-facing implementation matrix. |
+| [`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md) | Honest gate for a first public developer-preview release. |
 | [`docs/vision.md`](docs/vision.md) | The design document (v0.2): why Keel exists. |
 | [`docs/spec/`](docs/spec/00-spec-plan.md) | The normative language specification (in progress). |
 | [`docs/kdr/`](docs/kdr/INDEX.md) | Keel Decision Records — every adopted/rejected decision, with reopening clauses. |

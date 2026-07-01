@@ -3,6 +3,8 @@
 Non-normative planning note for M8. The milestone boundary and exit criterion
 live in [`ROADMAP.md`](../ROADMAP.md) §M8. Compiler behavior remains defined by
 the specs and [`tests/conformance/`](../tests/conformance/).
+The first public preview release gate is tracked in
+[`0.1.0 release readiness`](0.1-release-readiness.md).
 
 ## Goal and status
 
@@ -79,6 +81,10 @@ M8 exits only when all of the following hold:
 - malformed JSON-RPC and malformed Keel input produce errors/diagnostics and do
   not terminate the server;
 - `scripts/preflight.sh` is green and its summary is recorded here.
+
+For a 0.1.0 developer-preview release, M8a's query and performance gate is a
+hard blocker. M8b's LSP surface may either ship fully transcript-backed or be
+left out of the release; do not advertise partial semantic LSP capabilities.
 
 ## Dependency chain
 
