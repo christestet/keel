@@ -18,8 +18,28 @@ source of truth for what actually produced a given baseline number.
 
 ## Current baseline
 
-Not captured yet. `baseline.tsv` still carries zero baselines; this section
-will name the `m8-benchmark` workflow run and `keelc` commit once a capture PR
-records real numbers. See [`baseline.tsv`](baseline.tsv) for the current
-(zero) values and [`docs/m8-status.md`](../../../docs/m8-status.md) for what
-is and is not enforced yet.
+Captured from the `m8-benchmark` job, [workflow run
+28533408054](https://github.com/christestet/keel/actions/runs/28533408054),
+commit `4283835`, 2026-07-01. Machine, as self-reported by that run:
+
+- CPU: 2 vCPU, AMD EPYC 7763 64-Core Processor
+- RAM: 7.8 GiB
+- OS: Ubuntu 24.04.4 LTS, kernel `6.17.0-1018-azure`
+- Rust: `rustc 1.96.1 (31fca3adb 2026-06-26)`
+- Go: `go1.24.13 linux/amd64`
+
+```text
+metric                   elapsed_ms  budget_ms  status
+keel_check               794         300        over-budget
+keel_build_cold          18770       10000      over-budget
+keel_build_incremental   1701        1000       over-budget
+```
+
+All three metrics exceed their KDR-0019 budget on this run — this is a real
+compiler-performance gap on the reference machine itself, not a measurement
+artifact of a noisy or underpowered local sandbox. See
+[`docs/m8-status.md`](../../../docs/m8-status.md) for why `--enforce` stays
+off (enforcing budgets none of the three metrics currently meet would just
+block every future compiler PR, not signal a new regression) and for what
+closing this gap needs. `baseline.tsv` records these numbers so the 5%
+regression check still catches further slowdowns from here.
