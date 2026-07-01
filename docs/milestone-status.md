@@ -154,15 +154,15 @@ remain deferred. Per-slice detail: [`docs/m7-packages-capabilities.md`](m7-packa
 (`KEEL_MILESTONE=M7 scripts/preflight.sh`). The 4 skips are not-in-Core
 rejections bounded to ≤M4/≤M6.
 
-## M8 — Incremental compiler core + LSP (decision slice started)
+## M8 — Incremental compiler core + LSP (implementation slice started)
 
 | Area | State |
 |---|---|
-| Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary; no query crate has been added yet. |
+| Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary; the first implementation keeps the database driver-internal rather than adding a query crate. |
 | Performance harness | Started. [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison; no nonzero baseline or CI gate exists yet. |
 | LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) remains proposed and must be accepted or superseded. |
 | LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) is landed; its old relative milestone labels need a spec-only rebase before M8 fixtures. |
-| Implementation | No query database, `keelc-lsp` crate, or `keel lsp` subcommand. |
+| Implementation | `keel check` routes parse, resolve, typecheck, and diagnostics through Salsa queries. KIR, build/run/test, `keelc-lsp`, and `keel lsp` remain direct/planned. |
 
 M8a delivers the query core and KDR-0019 performance gate; M8b delivers the
 base LSP capabilities. See [`docs/m8-status.md`](m8-status.md).

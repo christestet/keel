@@ -9,7 +9,7 @@ post-1.0 aspiration, not a plan.
 
 ## Pipeline
 
-### Current (M7)
+### Current (M8 partial)
 
 ```
 source --> lexer --> parser --> AST --> resolver/typechecker --> KIR --> backend
@@ -26,11 +26,13 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
 ```
 
 - **Query-based core ([salsa](https://github.com/salsa-rs/salsa)-style) is the
-  target architecture.** Every stage is designed as a memoized query keyed on
+  active architecture.** Every stage is designed as a memoized query keyed on
   inputs. This is how the [vision.md §7](../docs/vision.md#7-compile-time-as-a-contract)
   budget (incremental < 1s, `keel check` < 300ms) stays achievable. The salsa
-  integration is not yet implemented; the frontend currently drives stages
-  directly. Retrofitting incrementality is the single most expensive mistake a
+  integration currently lives in `keelc-driver` and routes `keel check` through
+  source/config inputs plus parse, resolve, typecheck, and diagnostic queries.
+  Build/run/test still drive later stages directly until byte-identical output
+  is locked. Retrofitting incrementality is the single most expensive mistake a
   compiler project makes (see: rustc).
 - **Lexer/parser:** hand-written recursive descent. Parser must recover from
   errors (parse the whole file, report many diagnostics, never crash).

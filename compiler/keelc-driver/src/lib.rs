@@ -2,6 +2,7 @@
 
 mod gen;
 mod manifest;
+mod query;
 
 use keelc_ast::pretty::pretty_print;
 use keelc_ast::Module;
@@ -77,6 +78,10 @@ pub fn main() -> ExitCode {
             eprintln!("error[{code}]: {message}");
         }
         return ExitCode::FAILURE;
+    }
+
+    if command.as_os_str() == OsStr::new("check") {
+        return check_file(path, &text, milestone);
     }
 
     let output = parse_with_milestone(SourceId::new(0), &text, milestone);
@@ -168,6 +173,22 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
     }
     print!("{}", pretty_print(&output.module));
     ExitCode::SUCCESS
+}
+
+fn check_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
+    let db = query::QueryDatabase::default();
+    let source = query::SourceFile::new(&db, text.to_owned(), milestone);
+    let diagnostics = query::check_diagnostics(&db, source);
+    let has_error = diagnostics.iter().any(is_error);
+    let index = LineIndex::new(text);
+    for diagnostic in diagnostics.iter() {
+        emit_diagnostic(path, &index, diagnostic);
+    }
+    if has_error {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 fn build_module(

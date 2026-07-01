@@ -12,3 +12,4 @@ keelc-kir = { path = "../keelc-kir" }
 keelc-parse = { path = "../keelc-parse" }
 keelc-resolve = { path = "../keelc-resolve" }
 keelc-span = { path = "../keelc-span" }
+salsa = { version = "0.27.2", default-features = false, features = ["inventory", "macros"] }

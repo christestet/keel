@@ -52,7 +52,7 @@ landed.
 
 | Tool | Status | Current boundary |
 |---|---|---|
-| `keel check` | Implemented | direct full-pipeline check; no query database yet |
+| `keel check` | Implemented | routed through the M8 Salsa query database for parse/resolve/typecheck |
 | `keel run` | Implemented | emits and runs temporary Go |
 | `keel build` | Partial | reproducible flags and host executable; SQL may resolve Go modules over network |
 | `keel test` | Implemented | discovers Keel test blocks and runs generated Go harness |
