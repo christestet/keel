@@ -53,6 +53,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | proposed |
 | [0104](0104-keel-gen-codegen-surface.md) | `keel gen` — schema-driven codegen in the core toolchain | accepted |
 | [0105](0105-hermetic-reproducible-builds.md) | Hermetic, reproducible builds | accepted |
+| [0106](0106-query-engine.md) | Salsa query engine for keelc | accepted |
 
 All decisions derived from [`docs/vision.md`](../vision.md) are expanded above.
 `proposed` entries are not yet accepted; see [`kdr/AGENTS.md`](AGENTS.md) for

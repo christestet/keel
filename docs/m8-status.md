@@ -9,15 +9,18 @@ the specs and [`tests/conformance/`](../tests/conformance/).
 M8 makes the existing compiler pipeline incrementally reusable, measures the
 compile-time contract, then exposes the same queries through `keel lsp`.
 
-**Not started.** M7 is green at 221 passed, 0 failed, 4 intentionally gated
-Core rejections. There is no query database, public performance corpus, CI
-benchmark, `keelc-lsp` crate, or `keel lsp` subcommand.
+**Decision slice started.** [`KDR-0106`](kdr/0106-query-engine.md) accepts
+Salsa as the query engine and fixes the M8 input/query boundary. M7 is green at
+221 passed, 0 failed, 4 intentionally gated Core rejections. There is no query
+database, public performance corpus, CI benchmark, `keelc-lsp` crate, or
+`keel lsp` subcommand.
 
 ## Ordered slices
 
 ### M8a — query core
 
-1. **Decision PR.** Accept a toolchain KDR choosing the query engine and fixing
+1. **Decision PR.** Done in [`KDR-0106`](kdr/0106-query-engine.md): accept a
+   toolchain KDR choosing the query engine and fixing
    its input/query boundaries. This is the dependency-justification PR required
    by the root harness; KDR-0019 mandates incrementality but does not authorize
    a particular crate version or integration surface.
@@ -68,6 +71,8 @@ M8 exits only when all of the following hold:
 ## Dependency chain
 
 - [KDR-0019](kdr/0019-compile-time-contract.md) — budgets and query-core mandate.
+- [KDR-0106](kdr/0106-query-engine.md) — accepted Salsa query engine and query
+  boundaries.
 - [KDR-0103](kdr/0103-lsp-server.md) — proposed LSP decision; must be accepted or
   superseded before implementation.
 - [Spec chapter 16](spec/16-lsp.md) — protocol surface and lifecycle.

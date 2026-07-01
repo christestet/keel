@@ -154,11 +154,11 @@ remain deferred. Per-slice detail: [`docs/m7-packages-capabilities.md`](m7-packa
 (`KEEL_MILESTONE=M7 scripts/preflight.sh`). The 4 skips are not-in-Core
 rejections bounded to ≤M4/≤M6.
 
-## M8 — Incremental compiler core + LSP (not started)
+## M8 — Incremental compiler core + LSP (decision slice started)
 
 | Area | State |
 |---|---|
-| Query decision | Not started. KDR-0019 requires incrementality; a dependency/integration KDR must land before a query crate is added. |
+| Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary; no query crate has been added yet. |
 | Performance harness | Not started. No public reference corpus, reference-machine baseline, or 5% CI regression gate exists yet. |
 | LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) remains proposed and must be accepted or superseded. |
 | LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) is landed; its old relative milestone labels need a spec-only rebase before M8 fixtures. |
