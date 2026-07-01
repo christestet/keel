@@ -70,9 +70,9 @@ compiler/
                     declaration tables/queries (TypeContext)
   keelc-kir         IR + lowering (AST -> KIR)
   keelc-backend-go  Go emission (consumes KIR)
-  keelc-driver      CLI entry; drives stages directly today, query database tomorrow;
-                    builds both the user-facing `keel` binary and the `keelc`
-                    binary used by the conformance runner
+  keelc-driver      CLI entry; owns the current in-process query database and
+                    side-effect boundary; builds both the user-facing `keel`
+                    binary and the `keelc` binary used by the conformance runner
   keelc-lsp         (planned, M8) LSP server — protocol handlers, workspace state,
                     capability table; see [KDR-0103](../docs/kdr/0103-lsp-server.md)
                     and [spec ch. 16](../docs/spec/16-lsp.md)
