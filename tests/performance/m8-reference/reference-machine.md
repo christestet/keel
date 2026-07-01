@@ -1,19 +1,25 @@
 # M8 reference machine
 
-The M8 performance gate will use one published machine profile for baseline
-capture and regression comparison. The profile is not filled in by this fixture
-commit because no baseline has been captured yet.
+The reference machine is the `m8-benchmark` job's own runner in
+[`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml): the standard
+GitHub-hosted `ubuntu-latest` Linux runner (2 vCPU, 7 GB RAM, 14 GB SSD per
+[GitHub's published runner specifications](https://docs.github.com/en/actions/reference/specifications-for-github-hosted-runners)).
+A contributor's laptop or an interactive coding-agent sandbox is deliberately
+*not* the reference machine — KDR-0019's own reasoning is that a public,
+reproducible benchmark "prevents 'works on my machine' dismissals," so the
+baseline must come from the same machine class the gate runs on for every PR,
+not from whatever happened to be available when the baseline was captured.
 
-The gate PR must record:
+GitHub occasionally changes the exact runner image/spec, so this file names
+the runner label rather than pinning numbers that would silently go stale.
+Every `m8-benchmark` run re-records CPU/RAM/disk/OS/Rust/Go versions and the
+`keelc` commit in its own job log — that per-run record, not this file, is the
+source of truth for what actually produced a given baseline number.
 
-- CPU model and core count
-- RAM size
-- storage type
-- operating system image and version
-- Rust toolchain version
-- Go toolchain version
-- `keelc` commit used for the baseline
-- the exact output of `scripts/m8-benchmark.sh --mode full`
+## Current baseline
 
-Until those fields are recorded and `baseline.tsv` contains nonzero baselines,
-the M8 benchmark script must stay out of required CI.
+Captured from the `m8-benchmark` job on `ubuntu-latest`, workflow run
+[to be filled in], commit [to be filled in]. See
+[`baseline.tsv`](baseline.tsv) for the numbers and
+[`docs/m8-status.md`](../../../docs/m8-status.md) for what is and is not
+enforced yet.
