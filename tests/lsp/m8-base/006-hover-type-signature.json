@@ -1,0 +1,65 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "006-hover-type-signature",
+  "description": "Hover on a call-site identifier renders the resolved function signature as markdown.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel",
+            "languageId": "keel",
+            "version": 1,
+            "text": "fn greet(name: String) -> String {\n    return \"hi \" + name\n}\n\nfn main() {\n    let message = greet(\"keel\")\n    print(message)\n}\n"
+          }
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "textDocument/hover",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel"
+          },
+          "position": {
+            "line": 5,
+            "character": 20
+          }
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "response",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "contents": {
+            "kind": "markdown",
+            "value": "```keel\nfn greet(name: String) -> String\n```"
+          },
+          "range": {
+            "start": {
+              "line": 5,
+              "character": 18
+            },
+            "end": {
+              "line": 5,
+              "character": 23
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "005-go-to-definition",
+  "description": "Go-to-definition on a call-site identifier resolves to the function declaration span.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel",
+            "languageId": "keel",
+            "version": 1,
+            "text": "fn greet(name: String) -> String {\n    return \"hi \" + name\n}\n\nfn main() {\n    let message = greet(\"keel\")\n    print(message)\n}\n"
+          }
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "textDocument/definition",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel"
+          },
+          "position": {
+            "line": 5,
+            "character": 20
+          }
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "response",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "uri": "file:///workspace/main.keel",
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 3
+            },
+            "end": {
+              "line": 0,
+              "character": 8
+            }
+          }
+        }
+      }
+    }
+  ]
+}

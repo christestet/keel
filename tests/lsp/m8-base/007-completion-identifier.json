@@ -1,0 +1,59 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "007-completion-identifier",
+  "description": "Completion on a partial identifier prefix offers the matching built-in function.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel",
+            "languageId": "keel",
+            "version": 1,
+            "text": "fn main() {\n    pri\n}\n"
+          }
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "textDocument/completion",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel"
+          },
+          "position": {
+            "line": 1,
+            "character": 7
+          }
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "response",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "isIncomplete": false,
+          "items": [
+            {
+              "label": "print",
+              "kind": 3,
+              "detail": "fn print(value: String)"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
