@@ -18,8 +18,8 @@ source of truth for what actually produced a given baseline number.
 
 ## Current baseline
 
-Captured from the `m8-benchmark` job on `ubuntu-latest`, workflow run
-[to be filled in], commit [to be filled in]. See
-[`baseline.tsv`](baseline.tsv) for the numbers and
-[`docs/m8-status.md`](../../../docs/m8-status.md) for what is and is not
-enforced yet.
+Not captured yet. `baseline.tsv` still carries zero baselines; this section
+will name the `m8-benchmark` workflow run and `keelc` commit once a capture PR
+records real numbers. See [`baseline.tsv`](baseline.tsv) for the current
+(zero) values and [`docs/m8-status.md`](../../../docs/m8-status.md) for what
+is and is not enforced yet.

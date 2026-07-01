@@ -9,6 +9,7 @@ currently accepts the same arguments.
 ```text
 keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]
 keel gen <schema.proto>
+keel lsp
 ```
 
 The CLI does not yet implement `--help`, `--version`, response files, global
@@ -137,6 +138,31 @@ are usage errors and exit 2.
 
 Generation is explicit and never runs as part of `keel build`.
 
+## `keel lsp`
+
+```sh
+keel lsp
+```
+
+Runs the M8 base LSP server (spec chapter 16, KDR-0103) over stdio until it
+receives `exit`. It takes no file argument — documents are opened, changed,
+and closed through `textDocument/didOpen`/`didChange`/`didClose`
+notifications, not CLI arguments. Every document is checked at the highest
+implemented Core milestone (M7), independent of the `--milestone` flag, which
+applies only to file commands.
+
+Advertised capabilities: incremental text sync, diagnostics, go-to-definition,
+hover, completion, and document symbols. Definition/hover/completion/document
+symbols resolve module-level `fn`/`struct` declarations and a small built-in
+table by name; there is no local-scope (parameter/`let`-binding) resolution
+yet. References, formatting, code actions, workspace symbols, rename, and
+inlay hints are not advertised — see spec chapter 16 §16.1.
+
+Malformed JSON-RPC input and unsupported methods produce JSON-RPC error
+responses; they do not terminate the server. All ten behaviors above are
+locked by golden transcripts in [`tests/lsp/m8-base`](../tests/lsp/m8-base),
+replayed against the real server in `compiler/keelc-lsp/tests/transcripts.rs`.
+
 ## Exit status
 
 | Status | Meaning |
@@ -147,5 +173,5 @@ Generation is explicit and never runs as part of `keel build`.
 
 ## Not implemented
 
-`keel lint`, `keel fix`, `keel lsp`, `keel init`, package publishing, and OCI
-image output are roadmap work, not hidden commands.
+`keel lint`, `keel fix`, `keel init`, package publishing, and OCI image output
+are roadmap work, not hidden commands.

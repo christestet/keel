@@ -160,12 +160,12 @@ rejections bounded to ≤M4/≤M6.
 
 | Area | State |
 |---|---|
-| Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary; the first implementation keeps the database driver-internal rather than adding a query crate. |
-| Performance harness | Started. [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison; no nonzero baseline or CI gate exists yet. |
+| Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary. The database lives in its own `keelc-query` crate (not driver-internal), so `keelc-driver` and `keelc-lsp` share it without a dependency cycle. |
+| Performance harness | [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison. The `m8-benchmark` CI job runs it on every compiler PR; `--enforce` and nonzero baselines are not wired in yet. |
 | LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) accepted the M8 base capability set and `lsp-server`/`lsp-types` protocol stack. |
 | LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) defines the M8 base capability set explicitly and defers non-base capabilities. |
-| LSP fixtures | Started. [`tests/lsp/m8-base`](../tests/lsp/m8-base) covers initialize, diagnostics, UTF-16/CRLF position mapping, shutdown, and JSON-RPC errors; semantic capability transcripts remain open. |
-| Implementation | `keel check`, `run`, `test`, and `build` route parse, resolve, typecheck, KIR, Go emission, and diagnostics through Salsa queries. `keelc-lsp` and `keel lsp` remain planned. |
+| LSP fixtures | Done. [`tests/lsp/m8-base`](../tests/lsp/m8-base) covers all ten base-capability transcripts: initialize, diagnostics (ASCII + UTF-16/CRLF), shutdown, JSON-RPC errors, go-to-definition, hover, completion, document symbols, incremental `didChange`, and multi-line position mapping. |
+| Implementation | `keel check`, `run`, `test`, and `build` route parse, resolve, typecheck, KIR, Go emission, and diagnostics through Salsa queries. `keelc-lsp` and `keel lsp` are implemented and pass all ten fixtures byte-for-byte; module-level symbol resolution only (no local/parameter scope yet). |
 
 M8a delivers the query core and KDR-0019 performance gate; M8b delivers the
 base LSP capabilities. A public 0.1.0 preview additionally needs the release

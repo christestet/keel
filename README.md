@@ -18,8 +18,10 @@ and [`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
 - Safety: no null (`Option<T>`), no implicit zero values, exhaustive `match`,
   `Result` + `?` + `catch` for errors, union error types ([KDR-0005](docs/kdr/0005-no-exceptions.md)).
 - Concurrency: structured only (`scope` / `spawn`). No detached tasks, no colored functions ([KDR-0002](docs/kdr/0002-no-async-await.md)).
-- Tooling implemented today: `keel build|run|test|fmt|check|audit|gen`.
-  `keel lsp` is planned for M8; `lint` and `fix` are not implemented.
+- Tooling implemented today: `keel build|run|test|fmt|check|audit|gen|lsp`.
+  `keel lsp` covers the M8 base capabilities (diagnostics, definition, hover,
+  completion, document symbols) at module scope; `lint` and `fix` are not
+  implemented.
 - Deployment today: reproducible binaries emitted through the Go backend.
   Reproducible OCI images are planned for M9.
 - Supply chain: package **capabilities** (`net`, `fs`, `exec`, `env`, `ffi`, `unsafe-memory`) enforced by the compiler ([KDR-0011](docs/kdr/0011-package-capabilities.md)).

@@ -37,8 +37,30 @@ declarations and a small built-in table by name — there is no local-scope
 `ResolveOutput` carries diagnostics only, no name/definition index. That is
 sufficient for the ten base-capability fixtures but is a known gap for a real
 editor session; extending it needs a resolver-side name index, which is
-`keelc-resolve` work, not `keelc-lsp` work. There is still no public
-performance baseline or CI benchmark gate (M8a work, tracked below).
+`keelc-resolve` work, not `keelc-lsp` work.
+
+**M8a performance gate: wired into CI, not yet enforced.** The `m8-benchmark`
+job in `.github/workflows/ci.yml` runs `scripts/m8-benchmark.sh --mode full`
+on every compiler-touching PR, on the standard GitHub-hosted `ubuntu-latest`
+runner — now the documented reference machine (see
+[`tests/performance/m8-reference/reference-machine.md`](../tests/performance/m8-reference/reference-machine.md)),
+not a contributor's local hardware. `baseline.tsv` still carries zero
+baselines and `--enforce` is off pending that capture.
+
+**Known limitation: `keel_build_incremental` does not measure real
+incrementality yet.** `keelc-query::SourceFile` has one `text: String` field
+for the whole file, so any edit invalidates the entire
+parse→resolve→typecheck→lower→emit chain — Salsa only memoizes exact repeats
+today, not per-declaration reuse. The benchmark script also runs `keel build`
+twice as separate CLI processes, each starting a fresh database, so today's
+"incremental" number is really two independent cold builds. Real per-
+declaration incrementality needs finer-grained query inputs (splitting the
+monolithic `SourceFile` text), which is a compiler-architecture change, not a
+benchmark-script fix — tracked as a `--known-gap keel_build_incremental` flag
+on the CI job rather than silently claimed as met. `keel lsp` reuses the same
+coarse-grained input today too (a fresh `SourceFile` per request), so it does
+not yet demonstrate real incremental reuse either, despite holding one
+long-lived `QueryDatabase` per session.
 
 ## Ordered slices
 
@@ -49,19 +71,25 @@ performance baseline or CI benchmark gate (M8a work, tracked below).
    its input/query boundaries. This is the dependency-justification PR required
    by the root harness; KDR-0019 mandates incrementality but does not authorize
    a particular crate version or integration surface.
-2. **Performance-fixture PR.** Started by
-   [`tests/performance/m8-reference/README.md`](../tests/performance/m8-reference/README.md):
-   add the public reference corpus, reference-machine description, benchmark
-   command, and 5% regression comparison. Keep benchmark fixtures separate from
-   compiler implementation. Baselines are still zero and the gate is not wired
-   into CI.
+2. **Performance-fixture PR.** Done for the fixture and CI wiring:
+   [`tests/performance/m8-reference/README.md`](../tests/performance/m8-reference/README.md)
+   defines the public reference corpus, reference-machine description (the
+   `m8-benchmark` CI job's own `ubuntu-latest` runner), benchmark command, and
+   5% regression comparison, and the `m8-benchmark` job runs it on every
+   compiler-touching PR. Still open: `baseline.tsv` has zero baselines and
+   `--enforce` is off, so this stays informational, not a gate, until the
+   baseline PR lands.
 3. **Query implementation PRs.** Started: `keel check`, `run`, `test`, and
    `build` use a Salsa `SourceFile` input and deterministic parse, resolve,
    typecheck, KIR-lowering, Go-emission, and diagnostic queries. Stage
    functions remain free of I/O and global state; filesystem/process effects
    remain in the driver.
-4. **Gate PR.** Enable the KDR-0019 CI budgets only after the reference baseline
-   is checked in and reproducible on the named machine.
+4. **Gate PR.** Not started. Record the `m8-benchmark` job's own output as
+   `baseline.tsv`'s baselines, then enable `--enforce` for `keel_check` and
+   `keel_build_cold`. `keel_build_incremental` stays `--known-gap` until the
+   query core gets per-declaration granularity (see the known-limitation note
+   above) — enforcing a budget that cannot currently be met would just block
+   every future compiler PR, not signal a real regression.
 
 ### M8b — LSP
 
@@ -137,3 +165,10 @@ KEEL_MILESTONE=M7 scripts/preflight.sh
 M8_REFERENCE_HANDLERS=3 scripts/m8-benchmark.sh --mode check --work-dir target/m8-reference-smoke --metrics target/m8-reference-smoke.tsv
 keel_check	9	300	0	ok
 ```
+
+The `m8-benchmark` CI job (full corpus, on the reference machine) is wired in
+as of this note but has not yet produced a captured baseline commit — that is
+the next M8a step (slice 4, "Gate PR" above). Once captured, this section
+should be replaced with that job's real `keel_check`/`keel_build_cold`/
+`keel_build_incremental` numbers and the `--enforce` status, not the local
+3-handler smoke check above.
