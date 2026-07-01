@@ -12,4 +12,6 @@ members = [
     "compiler/keelc-resolve",
     "compiler/keelc-kir",
     "compiler/keelc-backend-go",
+    "compiler/keelc-query",
+    "compiler/keelc-lsp",
 ]

@@ -1,8 +1,16 @@
-//! Query-backed frontend entry points for M8.
+//! Salsa query core for M8 (KDR-0106).
 //!
-//! The current database is driver-internal so the first implementation slice can
-//! route `keel check` without changing crate boundaries. Query functions remain
-//! pure and side-effect free; filesystem and process work stays in `lib.rs`.
+//! `keel check`/`run`/`test`/`build` (via `keelc-driver`) and `keel lsp` (via
+//! `keelc-lsp`) both depend on this crate so they share one in-process query
+//! graph instead of each driving their own copy of the pipeline. Living in a
+//! crate of its own — rather than inside `keelc-driver` — avoids a dependency
+//! cycle: `keelc-driver` depends on `keelc-lsp` to implement the `keel lsp`
+//! subcommand, and `keelc-lsp` depends on this crate for parse/check queries.
+//! KDR-0103 anticipates this: "the query surface may be exposed from
+//! `keelc-driver` or moved into a separately justified compiler crate."
+//!
+//! Query functions remain pure and side-effect free; filesystem and process
+//! work stays in the driver/server callers.
 
 use keelc_diag::{Diagnostic, Severity};
 use keelc_kir::lower::{lower, LowerOutput};
