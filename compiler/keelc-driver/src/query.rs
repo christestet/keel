@@ -5,6 +5,7 @@
 //! pure and side-effect free; filesystem and process work stays in `lib.rs`.
 
 use keelc_diag::{Diagnostic, Severity};
+use keelc_kir::lower::{lower, LowerOutput};
 use keelc_parse::{parse_with_milestone, ParseOutput};
 use keelc_resolve::{resolve, typecheck, ResolveOutput, TypecheckOutput};
 use keelc_span::SourceId;
@@ -42,6 +43,43 @@ pub fn typechecked_module(db: &dyn salsa::Database, source: SourceFile) -> Arc<T
 }
 
 #[salsa::tracked(returns(clone))]
+pub fn lowered_module(db: &dyn salsa::Database, source: SourceFile) -> Arc<LowerOutput> {
+    let parsed = parsed_module(db, source);
+    let checked = typechecked_module(db, source);
+    Arc::new(lower(&parsed.module, source.text(db), &checked.types))
+}
+
+#[salsa::tracked(returns(clone))]
+pub fn go_source(
+    db: &dyn salsa::Database,
+    source: SourceFile,
+) -> Arc<Result<String, EmitDiagnostic>> {
+    let lowered = lowered_module(db, source);
+    if let Some(diagnostic) = lowered.diagnostics.first() {
+        return Arc::new(Err(EmitDiagnostic::Lowering(diagnostic.message.clone())));
+    }
+    Arc::new(
+        keelc_backend_go::emit(&lowered.module)
+            .map_err(|error| EmitDiagnostic::Backend(error.to_string())),
+    )
+}
+
+#[salsa::tracked(returns(clone))]
+pub fn go_test_source(
+    db: &dyn salsa::Database,
+    source: SourceFile,
+) -> Arc<Result<String, EmitDiagnostic>> {
+    let lowered = lowered_module(db, source);
+    if let Some(diagnostic) = lowered.diagnostics.first() {
+        return Arc::new(Err(EmitDiagnostic::Lowering(diagnostic.message.clone())));
+    }
+    Arc::new(
+        keelc_backend_go::emit_tests(&lowered.module)
+            .map_err(|error| EmitDiagnostic::Backend(error.to_string())),
+    )
+}
+
+#[salsa::tracked(returns(clone))]
 pub fn check_diagnostics(db: &dyn salsa::Database, source: SourceFile) -> Arc<Vec<Diagnostic>> {
     let parsed = parsed_module(db, source);
     let mut diagnostics = parsed.diagnostics.clone();
@@ -65,6 +103,12 @@ pub fn check_diagnostics(db: &dyn salsa::Database, source: SourceFile) -> Arc<Ve
 
 fn is_error(diagnostic: &Diagnostic) -> bool {
     diagnostic.severity == Severity::Error
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EmitDiagnostic {
+    Lowering(String),
+    Backend(String),
 }
 
 #[cfg(test)]
@@ -102,5 +146,16 @@ mod tests {
             &*check_diagnostics(&db, file),
             &direct_diagnostics(source, 7)
         );
+    }
+
+    #[test]
+    fn go_source_emits_from_checked_query_outputs() {
+        let source = "fn main() -> Unit {\n    print(\"hello\")\n}\n";
+        let db = QueryDatabase::default();
+        let file = SourceFile::new(&db, source.to_owned(), 7);
+
+        let go = go_source(&db, file).as_ref().clone().expect("Go source");
+        assert!(go.contains("func main()"));
+        assert!(go.contains("hello"));
     }
 }

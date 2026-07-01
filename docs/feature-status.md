@@ -53,9 +53,9 @@ landed.
 | Tool | Status | Current boundary |
 |---|---|---|
 | `keel check` | Implemented | routed through the M8 Salsa query database for parse/resolve/typecheck |
-| `keel run` | Implemented | emits and runs temporary Go |
-| `keel build` | Partial | reproducible flags and host executable; SQL may resolve Go modules over network |
-| `keel test` | Implemented | discovers Keel test blocks and runs generated Go harness |
+| `keel run` | Implemented | query-backed KIR/Go emission, then temporary `go run` |
+| `keel build` | Partial | query-backed KIR/Go emission plus reproducible flags; SQL may resolve Go modules over network |
+| `keel test` | Implemented | query-backed Go test harness generation |
 | `keel fmt` | Implemented | canonical stdout formatter; does not edit files |
 | `keel audit` | Implemented slice | deterministic explicit-package capability report |
 | `keel gen` | Partial | proto3 data subset only; OpenAPI/client/server generation is M10 |

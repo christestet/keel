@@ -162,7 +162,7 @@ rejections bounded to ≤M4/≤M6.
 | Performance harness | Started. [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison; no nonzero baseline or CI gate exists yet. |
 | LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) remains proposed and must be accepted or superseded. |
 | LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) is landed; its old relative milestone labels need a spec-only rebase before M8 fixtures. |
-| Implementation | `keel check` routes parse, resolve, typecheck, and diagnostics through Salsa queries. KIR, build/run/test, `keelc-lsp`, and `keel lsp` remain direct/planned. |
+| Implementation | `keel check`, `run`, `test`, and `build` route parse, resolve, typecheck, KIR, Go emission, and diagnostics through Salsa queries. `keelc-lsp` and `keel lsp` remain planned. |
 
 M8a delivers the query core and KDR-0019 performance gate; M8b delivers the
 base LSP capabilities. See [`docs/m8-status.md`](m8-status.md).

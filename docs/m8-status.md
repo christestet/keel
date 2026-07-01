@@ -12,9 +12,10 @@ compile-time contract, then exposes the same queries through `keel lsp`.
 **Implementation slice started.** [`KDR-0106`](kdr/0106-query-engine.md)
 accepts Salsa as the query engine and fixes the M8 input/query boundary. M7 is
 green at 221 passed, 0 failed, 4 intentionally gated Core rejections. `keel
-check` now routes parse, resolve, and typecheck through a driver-internal Salsa
-database. There is no public performance baseline, CI benchmark, `keelc-lsp`
-crate, or `keel lsp` subcommand.
+check`, `keel run`, `keel test`, and `keel build` now route parse, resolve,
+typecheck, KIR lowering, diagnostics, and Go emission through a driver-internal
+Salsa database. There is no public performance baseline, CI benchmark,
+`keelc-lsp` crate, or `keel lsp` subcommand.
 
 ## Ordered slices
 
@@ -31,11 +32,11 @@ crate, or `keel lsp` subcommand.
    command, and 5% regression comparison. Keep benchmark fixtures separate from
    compiler implementation. Baselines are still zero and the gate is not wired
    into CI.
-3. **Query implementation PRs.** Started: `keel check` uses a Salsa `SourceFile`
-   input and deterministic parse, resolve, typecheck, and check-diagnostic
-   queries. KIR lowering and build/run/test remain on the direct pipeline.
-   Repoint build/run only after check output is byte-identical. Stage functions
-   remain free of I/O and global state.
+3. **Query implementation PRs.** Started: `keel check`, `run`, `test`, and
+   `build` use a Salsa `SourceFile` input and deterministic parse, resolve,
+   typecheck, KIR-lowering, Go-emission, and diagnostic queries. Stage
+   functions remain free of I/O and global state; filesystem/process effects
+   remain in the driver.
 4. **Gate PR.** Enable the KDR-0019 CI budgets only after the reference baseline
    is checked in and reproducible on the named machine.
 

@@ -29,11 +29,10 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
   active architecture.** Every stage is designed as a memoized query keyed on
   inputs. This is how the [vision.md §7](../docs/vision.md#7-compile-time-as-a-contract)
   budget (incremental < 1s, `keel check` < 300ms) stays achievable. The salsa
-  integration currently lives in `keelc-driver` and routes `keel check` through
-  source/config inputs plus parse, resolve, typecheck, and diagnostic queries.
-  Build/run/test still drive later stages directly until byte-identical output
-  is locked. Retrofitting incrementality is the single most expensive mistake a
-  compiler project makes (see: rustc).
+  integration currently lives in `keelc-driver` and routes check/build/run/test
+  through source/config inputs plus parse, resolve, typecheck, KIR lowering,
+  backend-emission, and diagnostic queries. Retrofitting incrementality is the
+  single most expensive mistake a compiler project makes (see: rustc).
 - **Lexer/parser:** hand-written recursive descent. Parser must recover from
   errors (parse the whole file, report many diagnostics, never crash).
 - **AST → name resolution + type checking:** `keelc-resolve` performs name
