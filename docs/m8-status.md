@@ -168,6 +168,8 @@ left out of the release; do not advertise partial semantic LSP capabilities.
   layout (`keelc-query`, `keelc-lsp`), and query-core constraints.
 - [Root agent rules](../AGENTS.md) — concern separation, dependency discipline,
   determinism, no panics, and executable definition of done.
+- [M8 build-time profile](m8-build-time-profile.md) — where `keel_build_cold`
+  spends its time and what slice 4 needs before `--enforce` can turn on.
 
 ## Validation snapshot
 
