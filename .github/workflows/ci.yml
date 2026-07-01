@@ -122,10 +122,29 @@ jobs:
     needs: changes
     if: needs.changes.outputs.compiler == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Pin GOCACHE to a workspace path so actions/cache can persist Go build
+    # artifacts across runs. KDR-0019's "cold build" is a cold *keelc* build on
+    # a warmed toolchain (what a developer hits building their first Keel
+    # program on an existing Go install) — NOT a first-ever Go std-lib compile.
+    # Without this, every run recompiled the Go std lib from scratch and the
+    # metric mostly measured Go bootstrap, not keelc. See docs/m8-build-time-profile.md.
+    env:
+      GOCACHE: ${{ github.workspace }}/.gocache
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Cache Go build artifacts
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.gocache
+          # go version keys the cache: std objects are invalidated on Go upgrades.
+          # Rolling per-sha key with a stable restore prefix so each run starts
+          # from the latest warmed cache and refreshes it.
+          key: m8-gocache-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ github.sha }}
+          restore-keys: |
+            m8-gocache-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-
+            m8-gocache-${{ runner.os }}-
       - name: Record reference machine profile
         run: |
           echo "## CPU"; nproc; lscpu | grep -E 'Model name|^CPU\(s\)' || true
@@ -137,6 +156,11 @@ jobs:
           echo "## keelc commit"; git rev-parse HEAD
       - name: Build keelc (release)
         run: cargo build --release -p keelc-driver
+      # Pre-warm the Go std-lib build cache with the SAME flags the benchmark's
+      # `go build` uses. `-trimpath` (hermetic build, spec ch.18) has its own
+      # cache namespace, so a non-trimpath warm would not be reused.
+      - name: Warm Go std-lib build cache
+        run: go build -trimpath std
       - name: Run M8 performance fixture
         run: scripts/m8-benchmark.sh --mode full --known-gap keel_build_incremental
 
