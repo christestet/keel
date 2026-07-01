@@ -46,11 +46,10 @@ transcript fixture.
 
 1. **Decision PR.** Done in [`KDR-0103`](kdr/0103-lsp-server.md): accept the
    M8 base LSP capability set and the `lsp-server`/`lsp-types` protocol stack.
-2. **Spec PR.** Chapter 16 predates the numbered M8 roadmap and labels optional
-   capabilities `M8+`/`M9+`. Replace those relative labels with an explicit base
-   and future capability split; otherwise assigning M8 would accidentally pull
-   references, formatting, code actions, and workspace symbols into the exit
-   gate.
+2. **Spec PR.** Done in [`docs/spec/16-lsp.md`](spec/16-lsp.md): chapter 16 now
+   names the M8 base capability set explicitly and marks references,
+   formatting, code actions, workspace symbols, rename, and inlay hints as
+   deferred.
 3. **Protocol-fixture PR.** Add deterministic JSON-RPC transcripts for
    initialize, incremental open/change, diagnostics, definition, hover,
    completion, document symbols, shutdown, and malformed requests. Positions
