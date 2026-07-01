@@ -1,18 +1,44 @@
 # KDR-0103: LSP Server — protocol-driven editor integration
 
-- **Status:** proposed
-- **Date:** 2026-06-14
+- **Status:** accepted
+- **Date:** 2026-07-01
 - **Scope:** toolchain
 
 ## Decision
 
 Build a Language Server Protocol (LSP) server as a new compiler crate
-(`keelc-lsp`) that exposes `keel check` diagnostics, go-to-definition,
-completions, hover type/doc info, and document symbols through the standardized
-LSP interface. The server connects to the compiler's future salsa-style query
-database for incremental responses. Deferred to **M7+** — no LSP work begins
-until the toolchain skeleton (M4) and language completion wave 1 (M5) exit
-criteria are met, and the salsa-based incremental core is operational.
+(`keelc-lsp`) exposed only through the `keel lsp` subcommand. The M8 base
+server advertises exactly these LSP 3.17 capabilities:
+
+- incremental text-document synchronization;
+- diagnostics with stable `K####` codes;
+- go-to-definition;
+- completion;
+- hover;
+- document symbols.
+
+References, formatting, code actions, workspace symbols, rename, inlay hints,
+and semantic tokens are deferred beyond M8 unless a later KDR and spec change
+pull one of them forward.
+
+The server must be backed by the same in-process Salsa query graph accepted in
+[`KDR-0106`](0106-query-engine.md). It must not shell out to `keelc check` on
+document changes, and it must not introduce a second parser, resolver,
+typechecker, formatter, or diagnostic renderer. The query surface may be exposed
+from `keelc-driver` or moved into a separately justified compiler crate, but
+protocol handlers must consume the same pure stage outputs used by `keel check`.
+
+Use the synchronous Rust LSP stack:
+
+- `lsp-server` for JSON-RPC framing, stdio transport, initialization, and the
+  explicit dispatch loop;
+- `lsp-types` for protocol data structures;
+- `serde` and `serde_json` for request/response encoding.
+
+Do not add `tower-lsp`, `tokio`, or another async runtime for the M8 base
+server. The M8 server has one client connection over stdio and a deliberately
+small capability set; an explicit synchronous loop is easier to keep
+deterministic, test with golden transcripts, and bound to one logical CPU.
 
 The LSP server is explicitly **not** a language feature. It is a toolchain
 server that speaks a wire protocol; it must not drive compiler design decisions
@@ -33,11 +59,13 @@ modern language that achieved editor integration without a dedicated team built
 an LSP server first (Go's `gopls`, Rust's `rust-analyzer`, TypeScript's `tsserver`,
 Zig's `zls`).
 
-The Rust LSP ecosystem is mature. The [`tower-lsp`](https://github.com/ebkalderon/tower-lsp)
-crate provides an async LSP framework built on `tower` and `tokio`, used by
-several production language servers. It handles protocol negotiation, JSON-RPC
-transport, and capability advertisement — Keel's server implements only the
-backend callbacks.
+The Rust LSP ecosystem has two viable directions. [`tower-lsp`](https://docs.rs/tower-lsp/latest/tower_lsp/)
+provides an async service abstraction with Tokio integration. [`lsp-server`](https://docs.rs/lsp-server/latest/lsp_server/)
+provides a synchronous crossbeam-channel-based scaffold derived from the
+rust-analyzer ecosystem: it handles protocol handshaking and message parsing
+while the language server owns dispatch. Keel chooses `lsp-server` for M8
+because the base server needs deterministic request handling and transcript
+fixtures more than async service composition.
 
 ## Alternatives considered
 
@@ -49,29 +77,38 @@ backend callbacks.
   `:make` / `compiler` plugins is the minimum viable path but yields no
   go-to-definition, no completions, no hover docs — the features teams expect
   from a modern language.
-- **Shelling out to `keelc check` on each LSP event.** Rejected for M7+
-  production; acceptable as an M5/M6 scaffolding path. The final server must
+- **Shelling out to `keelc check` on each LSP event.** Rejected for M8. It would
+  create a second observable driver path, lose query reuse, and make the editor
+  latency budget depend on process startup. The server must
   maintain an in-process compiler database for sub-ms queries.
-- **Embedding a full `keelc` as a library.** Accepted — this is the plan.
-  The driver library (`keelc-driver`) already separates CLI from logic; the
-  LSP crate calls into the same pipeline.
+- **Embedding compiler stages as a library.** Accepted. The LSP crate calls the
+  same query-backed compiler pipeline as the CLI, with filesystem/process
+  effects kept out of query functions.
+- **`tower-lsp` plus `tokio`.** Rejected for M8. It is a capable stack, but it
+  would make async/runtime dependencies part of the compiler before Keel has a
+  server workload that needs them. Reopen if transcript testing, cancellation,
+  or client compatibility shows the synchronous stack is the wrong boundary.
+- **Custom JSON-RPC implementation.** Rejected: parsing/framing LSP messages is
+  protocol plumbing, not a Keel differentiator.
 
 ## Consequences
 
-- A new `keelc-lsp` crate is added to the workspace, depending on `tower-lsp`,
-  `tokio`, `serde_json`, and the existing `keelc-driver` library.
-- `tower-lsp` and `tokio` are the first async/runtime dependencies in the
-  compiler — this KDR explicitly justifies them (per hard rule 5 in
-  [`AGENTS.md`](../../AGENTS.md)).
+- A future implementation PR may add a `keelc-lsp` crate to the workspace and
+  may add direct dependencies on `lsp-server`, `lsp-types`, `serde`, and
+  `serde_json`. Their transitive dependencies are justified by this KDR, but
+  unrelated dependencies are not.
 - The LSP binary (`keel lsp`) runs as a long-lived daemon. It must handle
-  workspace open/close, file change notifications, and cancellation.
+  workspace open/close, file change notifications, request cancellation where
+  the protocol requires it, and shutdown.
 - `keel check` output must be structured (diagnostic codes, spans, and messages)
   for reliable LSP mapping — this is already the design (see
   [`compiler/ARCHITECTURE.md`](../../compiler/ARCHITECTURE.md) §Diagnostics).
-- The salsa query core (target architecture) becomes a hard dependency for
-  LSP performance: every keystroke triggers a re-check of the affected file
-  and its dependents. Without incrementality, the LSP server cannot meet the
-  vision.md §7 budget.
+- The Salsa query core is a hard dependency for LSP performance: every document
+  change invalidates source inputs and reuses unaffected query results. Without
+  incrementality, the LSP server cannot meet the vision.md §7 budget.
+- Protocol behavior must be locked with deterministic JSON-RPC transcripts
+  before large protocol handlers land. Transcript tests are the conformance
+  equivalent for the LSP surface.
 - The crate layout grows by one entry:
 
   ```
@@ -80,8 +117,14 @@ backend callbacks.
 
 ## Reopening clause
 
-Evidence that the Rust LSP ecosystem (`tower-lsp`) imposes unacceptable
-constraints (e.g., performance ceiling, maintenance burden, or licensing
-conflict) sufficient to justify either a custom LSP implementation or a
-non-LSP editor integration strategy. Also reopenable if the salsa query core
-proves unable to meet the < 300 ms `keel check` budget with LSP overhead.
+Reopen this decision if one of the following is demonstrated:
+
+- `lsp-server` prevents correct LSP 3.17 behavior, request cancellation,
+  transcript testing, or common editor interoperability;
+- the synchronous dispatch loop cannot meet the M8 latency budget even after
+  query-level profiling identifies protocol handling, rather than compiler
+  stage work, as the blocker;
+- an async stack such as `tower-lsp` materially reduces implementation risk
+  without violating determinism, one-CPU, and dependency-discipline constraints;
+- the Salsa query core proves unable to meet the < 300 ms `keel check` budget
+  with LSP overhead.

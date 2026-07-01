@@ -14,8 +14,10 @@ accepts Salsa as the query engine and fixes the M8 input/query boundary. M7 is
 green at 221 passed, 0 failed, 4 intentionally gated Core rejections. `keel
 check`, `keel run`, `keel test`, and `keel build` now route parse, resolve,
 typecheck, KIR lowering, diagnostics, and Go emission through a driver-internal
-Salsa database. There is no public performance baseline, CI benchmark,
-`keelc-lsp` crate, or `keel lsp` subcommand.
+Salsa database. [`KDR-0103`](kdr/0103-lsp-server.md) now accepts the M8 LSP
+server boundary and synchronous protocol stack. There is no public performance
+baseline, CI benchmark, `keelc-lsp` crate, `keel lsp` subcommand, or LSP
+transcript fixture.
 
 ## Ordered slices
 
@@ -42,8 +44,8 @@ Salsa database. There is no public performance baseline, CI benchmark,
 
 ### M8b — LSP
 
-1. **Decision PR.** Accept or supersede proposed KDR-0103. No LSP dependency or
-   crate lands while its decision remains proposed.
+1. **Decision PR.** Done in [`KDR-0103`](kdr/0103-lsp-server.md): accept the
+   M8 base LSP capability set and the `lsp-server`/`lsp-types` protocol stack.
 2. **Spec PR.** Chapter 16 predates the numbered M8 roadmap and labels optional
    capabilities `M8+`/`M9+`. Replace those relative labels with an explicit base
    and future capability split; otherwise assigning M8 would accidentally pull
@@ -79,8 +81,8 @@ M8 exits only when all of the following hold:
 - [KDR-0019](kdr/0019-compile-time-contract.md) — budgets and query-core mandate.
 - [KDR-0106](kdr/0106-query-engine.md) — accepted Salsa query engine and query
   boundaries.
-- [KDR-0103](kdr/0103-lsp-server.md) — proposed LSP decision; must be accepted or
-  superseded before implementation.
+- [KDR-0103](kdr/0103-lsp-server.md) — accepted M8 LSP decision, capability
+  boundary, and protocol dependency stack.
 - [Spec chapter 16](spec/16-lsp.md) — protocol surface and lifecycle.
 - [Compiler architecture](../compiler/ARCHITECTURE.md) — pipeline and query-core
   constraints.

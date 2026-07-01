@@ -50,7 +50,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0042](0042-sqlite-driver-modernc.md) | SQLite driver for the Go backend (`modernc.org/sqlite`) | proposed |
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
-| [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | proposed |
+| [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | accepted |
 | [0104](0104-keel-gen-codegen-surface.md) | `keel gen` — schema-driven codegen in the core toolchain | accepted |
 | [0105](0105-hermetic-reproducible-builds.md) | Hermetic, reproducible builds | accepted |
 | [0106](0106-query-engine.md) | Salsa query engine for keelc | accepted |
