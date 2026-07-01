@@ -24,9 +24,12 @@ database, public performance corpus, CI benchmark, `keelc-lsp` crate, or
    its input/query boundaries. This is the dependency-justification PR required
    by the root harness; KDR-0019 mandates incrementality but does not authorize
    a particular crate version or integration surface.
-2. **Performance-fixture PR.** Add the public reference corpus, reference-machine
-   description, benchmark command, and 5% regression comparison. Keep benchmark
-   fixtures separate from compiler implementation.
+2. **Performance-fixture PR.** Started by
+   [`tests/performance/m8-reference/README.md`](../tests/performance/m8-reference/README.md):
+   add the public reference corpus, reference-machine description, benchmark
+   command, and 5% regression comparison. Keep benchmark fixtures separate from
+   compiler implementation. Baselines are still zero and the gate is not wired
+   into CI.
 3. **Query implementation PRs.** Introduce source/config inputs and wrap the
    existing parse, resolve/typecheck, and KIR stages as deterministic queries.
    Repoint `keel check` first; repoint build/run only after check output is

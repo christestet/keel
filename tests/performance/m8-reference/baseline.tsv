@@ -1,0 +1,4 @@
+# metric budget_ms baseline_ms
+keel_check 300 0
+keel_build_cold 10000 0
+keel_build_incremental 1000 0

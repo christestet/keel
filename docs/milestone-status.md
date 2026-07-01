@@ -159,7 +159,7 @@ rejections bounded to ≤M4/≤M6.
 | Area | State |
 |---|---|
 | Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary; no query crate has been added yet. |
-| Performance harness | Not started. No public reference corpus, reference-machine baseline, or 5% CI regression gate exists yet. |
+| Performance harness | Started. [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison; no nonzero baseline or CI gate exists yet. |
 | LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) remains proposed and must be accepted or superseded. |
 | LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) is landed; its old relative milestone labels need a spec-only rebase before M8 fixtures. |
 | Implementation | No query database, `keelc-lsp` crate, or `keel lsp` subcommand. |
