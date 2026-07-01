@@ -1,16 +1,15 @@
 [package]
-name = "keelc-driver"
+name = "keelc-query"
 version = "0.1.0"
 edition = "2021"
-description = "Keel CLI driver library and binaries for build, run, fmt, and test."
+description = "Salsa-backed query core shared by the keel CLI driver and keel lsp (M8, KDR-0106)."
 
 [dependencies]
 keelc-ast = { path = "../keelc-ast" }
 keelc-backend-go = { path = "../keelc-backend-go" }
 keelc-diag = { path = "../keelc-diag" }
 keelc-kir = { path = "../keelc-kir" }
-keelc-lsp = { path = "../keelc-lsp" }
 keelc-parse = { path = "../keelc-parse" }
-keelc-query = { path = "../keelc-query" }
 keelc-resolve = { path = "../keelc-resolve" }
 keelc-span = { path = "../keelc-span" }
+salsa = { version = "0.27.2", default-features = false, features = ["inventory", "macros"] }

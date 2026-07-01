@@ -1,0 +1,134 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "009-incremental-change-diagnostics",
+  "description": "An incremental textDocument/didChange edit re-checks through the query database and republishes diagnostics; reverting the edit clears them.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel",
+            "languageId": "keel",
+            "version": 1,
+            "text": "fn main() -> Unit {\n    print(\"hi\")\n}\n"
+          }
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "notification",
+      "expect": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {
+          "uri": "file:///workspace/main.keel",
+          "diagnostics": []
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel",
+            "version": 2
+          },
+          "contentChanges": [
+            {
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 15
+                },
+                "end": {
+                  "line": 1,
+                  "character": 15
+                }
+              },
+              "text": ";"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "notification",
+      "expect": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {
+          "uri": "file:///workspace/main.keel",
+          "diagnostics": [
+            {
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 15
+                },
+                "end": {
+                  "line": 1,
+                  "character": 16
+                }
+              },
+              "severity": 1,
+              "code": "K0102",
+              "source": "keelc",
+              "message": "Keel uses newline-based statement termination; semicolons are not allowed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didChange",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/main.keel",
+            "version": 3
+          },
+          "contentChanges": [
+            {
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 15
+                },
+                "end": {
+                  "line": 1,
+                  "character": 16
+                }
+              },
+              "text": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "notification",
+      "expect": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/publishDiagnostics",
+        "params": {
+          "uri": "file:///workspace/main.keel",
+          "diagnostics": []
+        }
+      }
+    }
+  ]
+}

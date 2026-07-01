@@ -61,7 +61,7 @@ landed. M8 implementation has started, but there is no 0.1.0 release yet.
 | `keel fmt` | Implemented | canonical stdout formatter; does not edit files |
 | `keel audit` | Implemented slice | deterministic explicit-package capability report |
 | `keel gen` | Partial | proto3 data subset only; OpenAPI/client/server generation is M10 |
-| `keel lsp` | Planned (M8) | KDR/spec/initial transcripts exist; LSP crate and command absent |
+| `keel lsp` | Partial | `keelc-lsp` crate + subcommand implemented; all ten base-capability protocol fixtures pass byte-for-byte; definition/hover/completion/documentSymbol resolve module-level `fn`/`struct` declarations only, not local scopes |
 | `keel build --image` | Planned (M9) | no OCI image output |
 | `keel lint` | Not implemented | waiver/lint design is not a command today |
 | `keel fix` | Trigger-gated | requires a concrete edition migration |
@@ -72,17 +72,19 @@ landed. M8 implementation has started, but there is no 0.1.0 release yet.
 
 - Spec chapters 2, 3, 5, 12, and 13 are not authored as standalone full
   chapters; Core and conformance cover existing behavior where applicable.
-- Chapter 16 has been rebased to an explicit M8 base/deferred split. Initial
-  protocol fixtures exist, but semantic LSP capability transcripts are still
-  incomplete.
+- Chapter 16 has been rebased to an explicit M8 base/deferred split. All base
+  capability protocol fixtures exist and pass against the real `keel lsp`
+  server; local-scope (parameter/`let`-binding) symbol resolution is not yet
+  implemented, since `keelc-resolve` has no name/definition index.
 - Structured log arguments are accepted by current code but remain explicitly
   aspirational in chapter 15 and lack conformance coverage.
 - The strong no-network hermetic-build prose conflicts with current SQL module
   resolution. Documentation treats the implementation as the present limit;
   the normative/implementation gap still needs resolution.
-- 0.1.0 release readiness is blocked on nonzero M8 performance baselines, CI
-  enforcement, release/install/version reporting, and a decision to either
-  finish or omit `keel lsp`.
+- 0.1.0 release readiness is blocked on nonzero M8 performance baselines and
+  CI enforcement (`keel lsp` itself now ships the full base capability set,
+  so [`docs/0.1-release-readiness.md`](0.1-release-readiness.md)'s LSP choice
+  is "ship it," not "omit it") and on release/install/version reporting.
 
 When a row changes, update this page in the same concern as the status change;
 do not present roadmap intent as implemented behavior.

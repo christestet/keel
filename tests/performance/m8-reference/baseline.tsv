@@ -1,4 +1,10 @@
 # metric budget_ms baseline_ms
-keel_check 300 0
-keel_build_cold 10000 0
-keel_build_incremental 1000 0
+#
+# baseline_ms captured on the m8-benchmark CI job's own ubuntu-latest runner,
+# workflow run 28533408054, commit 4283835 (2026-07-01). All three metrics
+# exceed their KDR-0019 budget_ms on that run — see docs/m8-status.md for why
+# --enforce is not turned on for the budget comparison yet. baseline_ms still
+# lets the 5% regression check catch further slowdowns from this point.
+keel_check 300 794
+keel_build_cold 10000 18770
+keel_build_incremental 1000 1701

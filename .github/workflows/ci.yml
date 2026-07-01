@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 # Determinism and honesty: CI uses the same commands contributors run locally,
 # but scopes expensive jobs to the files that changed. scripts/preflight.sh
@@ -111,6 +112,33 @@ jobs:
         env:
           KEEL_MILESTONE: ${{ vars.KEEL_MILESTONE || 'M5' }}
         run: cargo run -p conformance-runner -- --keelc target/release/keelc
+
+  # M8a / KDR-0019 compile-time contract. This job's own machine is the
+  # published reference machine (tests/performance/m8-reference/reference-machine.md)
+  # precisely so the gate never depends on a contributor's local hardware.
+  # `--enforce` stays off until docs/m8-status.md records this job's own
+  # output as the checked-in baseline (see that file for current status).
+  m8-benchmark:
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Record reference machine profile
+        run: |
+          echo "## CPU"; nproc; lscpu | grep -E 'Model name|^CPU\(s\)' || true
+          echo "## RAM"; free -h
+          echo "## Disk"; df -h /
+          echo "## OS"; uname -a; cat /etc/os-release 2>/dev/null || true
+          echo "## Rust"; rustc --version
+          echo "## Go"; go version
+          echo "## keelc commit"; git rev-parse HEAD
+      - name: Build keelc (release)
+        run: cargo build --release -p keelc-driver
+      - name: Run M8 performance fixture
+        run: scripts/m8-benchmark.sh --mode full --known-gap keel_build_incremental
 
   # The agent harness (nested AGENTS.md/CLAUDE.md, preflight, .claude config)
   # is code: it must not drift as the repo grows. See AGENTS.md "The agent harness".

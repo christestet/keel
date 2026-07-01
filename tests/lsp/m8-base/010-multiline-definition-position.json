@@ -1,0 +1,62 @@
+{
+  "schema": "keel-lsp-transcript/v1",
+  "case": "010-multiline-definition-position",
+  "description": "Go-to-definition maps a call site many lines below its declaration to the correct line, not just column, exercising multi-line position tracking.",
+  "messages": [
+    {
+      "direction": "client",
+      "kind": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/geometry.keel",
+            "languageId": "keel",
+            "version": 1,
+            "text": "struct Point {\n    x: Int\n    y: Int\n}\n\nfn distance(a: Point, b: Point) -> Int {\n    let dx = a.x - b.x\n    let dy = a.y - b.y\n    return dx + dy\n}\n\nfn main() {\n    let origin = Point{ x: 0, y: 0 }\n    let target = Point{ x: 3, y: 4 }\n    let d = distance(origin, target)\n    print(\"{d}\")\n}\n"
+          }
+        }
+      }
+    },
+    {
+      "direction": "client",
+      "kind": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "textDocument/definition",
+        "params": {
+          "textDocument": {
+            "uri": "file:///workspace/geometry.keel"
+          },
+          "position": {
+            "line": 14,
+            "character": 16
+          }
+        }
+      }
+    },
+    {
+      "direction": "server",
+      "kind": "response",
+      "expect": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "uri": "file:///workspace/geometry.keel",
+          "range": {
+            "start": {
+              "line": 5,
+              "character": 3
+            },
+            "end": {
+              "line": 5,
+              "character": 11
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -29,10 +29,14 @@ source --> lexer --> parser --> AST --> resolver --> typechecker --> KIR --> bac
   active architecture.** Every stage is designed as a memoized query keyed on
   inputs. This is how the [vision.md §7](../docs/vision.md#7-compile-time-as-a-contract)
   budget (incremental < 1s, `keel check` < 300ms) stays achievable. The salsa
-  integration currently lives in `keelc-driver` and routes check/build/run/test
-  through source/config inputs plus parse, resolve, typecheck, KIR lowering,
-  backend-emission, and diagnostic queries. Retrofitting incrementality is the
-  single most expensive mistake a compiler project makes (see: rustc).
+  integration lives in `keelc-query` — its own crate, not inside `keelc-driver`,
+  so `keel lsp` (in `keelc-lsp`) and the `keel` CLI (in `keelc-driver`) can both
+  depend on it without a cycle (`keelc-driver` depends on `keelc-lsp` for the
+  `lsp` subcommand). `keel check/run/test/build` and `keel lsp` route through
+  the same `keelc-query::SourceFile` input plus parse, resolve, typecheck, KIR
+  lowering, backend-emission, and diagnostic queries. Retrofitting
+  incrementality is the single most expensive mistake a compiler project makes
+  (see: rustc).
 - **Lexer/parser:** hand-written recursive descent. Parser must recover from
   errors (parse the whole file, report many diagnostics, never crash).
 - **AST → name resolution + type checking:** `keelc-resolve` performs name
@@ -70,12 +74,17 @@ compiler/
                     declaration tables/queries (TypeContext)
   keelc-kir         IR + lowering (AST -> KIR)
   keelc-backend-go  Go emission (consumes KIR)
-  keelc-driver      CLI entry; owns the current in-process query database and
-                    side-effect boundary; builds both the user-facing `keel`
-                    binary and the `keelc` binary used by the conformance runner
-  keelc-lsp         (planned, M8) LSP server — protocol handlers, workspace state,
-                    capability table; see [KDR-0103](../docs/kdr/0103-lsp-server.md)
-                    and [spec ch. 16](../docs/spec/16-lsp.md)
+  keelc-query       Salsa query core (M8, KDR-0106): SourceFile input plus
+                    parse/resolve/typecheck/lower/emit/diagnostic queries,
+                    shared by keelc-driver and keelc-lsp
+  keelc-driver      CLI entry; owns the side-effect boundary (filesystem,
+                    process execution); builds both the user-facing `keel`
+                    binary (including its `lsp` subcommand) and the `keelc`
+                    binary used by the conformance runner
+  keelc-lsp         M8 base LSP server — protocol handlers, workspace state,
+                    capability table, invoked by `keel lsp`; see
+                    [KDR-0103](../docs/kdr/0103-lsp-server.md) and
+                    [spec ch. 16](../docs/spec/16-lsp.md)
   conformance-runner  test harness for tests/conformance/
 ```
 

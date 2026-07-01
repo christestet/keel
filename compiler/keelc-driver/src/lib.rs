@@ -2,7 +2,6 @@
 
 mod gen;
 mod manifest;
-mod query;
 
 use keelc_ast::pretty::pretty_print;
 use keelc_diag::{Diagnostic, Severity};
@@ -11,8 +10,14 @@ use keelc_span::{LineIndex, SourceId};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
+
+/// `keel lsp` always checks against the highest implemented Core milestone
+/// (M7 exit) so editor diagnostics reflect the full current language, unlike
+/// file commands whose `--milestone` flag defaults conservatively to M1.
+const LSP_MILESTONE: u32 = 7;
 
 pub fn main() -> ExitCode {
     let mut args = env::args_os();
@@ -22,6 +27,11 @@ pub fn main() -> ExitCode {
         usage();
         return ExitCode::from(2);
     };
+
+    if command.as_os_str().to_str() == Some("lsp") {
+        return run_lsp();
+    }
+
     let Some(path) = args.next() else {
         usage();
         return ExitCode::from(2);
@@ -76,8 +86,8 @@ pub fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let db = query::QueryDatabase::default();
-    let source = query::SourceFile::new(&db, text.clone(), milestone);
+    let db = keelc_query::QueryDatabase::default();
+    let source = keelc_query::SourceFile::new(&db, text.clone(), milestone);
     if !emit_check_diagnostics(path, &text, &db, source) {
         return ExitCode::FAILURE;
     }
@@ -102,8 +112,25 @@ pub fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>"
+        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>\n       keel lsp"
     );
+}
+
+/// `keel lsp`: run the M8 base LSP server over stdio (spec ch. 16, KDR-0103).
+/// A long-lived daemon, not a file command — it takes no path argument and
+/// reads/writes JSON-RPC frames on stdin/stdout until `exit`.
+fn run_lsp() -> ExitCode {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut reader = stdin.lock();
+    let mut writer = stdout.lock();
+    match keelc_lsp::serve(&mut reader, &mut writer, LSP_MILESTONE) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("keel lsp: {err}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// `keel gen`: emit Keel source from a schema (spec ch17). The format is chosen
@@ -159,10 +186,10 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
 fn emit_check_diagnostics(
     path: &Path,
     text: &str,
-    db: &query::QueryDatabase,
-    source: query::SourceFile,
+    db: &keelc_query::QueryDatabase,
+    source: keelc_query::SourceFile,
 ) -> bool {
-    let diagnostics = query::check_diagnostics(db, source);
+    let diagnostics = keelc_query::check_diagnostics(db, source);
     let has_error = diagnostics.iter().any(is_error);
     let index = LineIndex::new(text);
     for diagnostic in diagnostics.iter() {
@@ -347,24 +374,24 @@ fn run_go(go_source: String, temp_prefix: &str) -> ExitCode {
 }
 
 fn query_go_source(
-    db: &query::QueryDatabase,
-    source: query::SourceFile,
+    db: &keelc_query::QueryDatabase,
+    source: keelc_query::SourceFile,
     tests: bool,
 ) -> Result<String, ExitCode> {
     let emitted = if tests {
-        query::go_test_source(db, source)
+        keelc_query::go_test_source(db, source)
     } else {
-        query::go_source(db, source)
+        keelc_query::go_source(db, source)
     };
     emitted
         .as_ref()
         .clone()
         .map_err(|diagnostic| match diagnostic {
-            query::EmitDiagnostic::Lowering(message) => {
+            keelc_query::EmitDiagnostic::Lowering(message) => {
                 eprintln!("lowering error: {message}");
                 ExitCode::FAILURE
             }
-            query::EmitDiagnostic::Backend(message) => {
+            keelc_query::EmitDiagnostic::Backend(message) => {
                 eprintln!("backend error: {message}");
                 ExitCode::FAILURE
             }

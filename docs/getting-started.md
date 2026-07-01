@@ -112,7 +112,10 @@ test "addition holds" ... ok
 
 - Package dependencies are local paths; there is no package registry.
 - The Go toolchain remains a build dependency until the M11 native backend.
-- `keel lsp`, `keel lint`, and `keel fix` are not implemented.
+- `keel lsp` implements the M8 base capabilities (diagnostics, definition,
+  hover, completion, document symbols) at module scope only — see
+  [CLI reference](cli-reference.md#keel-lsp). `keel lint` and `keel fix` are
+  not implemented.
 - C FFI and OpenAPI generation are planned for M10.
 
 Continue with the [language tour](language-tour.md), then use the

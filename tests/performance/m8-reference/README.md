@@ -31,8 +31,14 @@ The script writes `target/m8-reference-metrics.tsv` with:
 metric	elapsed_ms	budget_ms	baseline_ms	status
 ```
 
-`baseline.tsv` carries the KDR-0019 budgets and starts with `0` baselines. The
-M8 gate PR must replace those zeros with measurements from the
-[reference machine](reference-machine.md) and run the script with `--enforce`.
-Until then, this fixture is informational and is intentionally not wired into
-CI.
+`baseline.tsv` carries the KDR-0019 budgets. `--known-gap METRIC` (repeatable)
+records and reports a metric without letting `--enforce` fail on it — use this
+only for a budget that is honestly unenforceable today for a documented reason
+(see [`docs/m8-status.md`](../../../docs/m8-status.md)), not to quietly widen
+the gate.
+
+The `m8-benchmark` job in [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml)
+runs this fixture on every PR that touches `compiler/` (and on demand via
+`workflow_dispatch`), on the [reference machine](reference-machine.md). See
+`docs/m8-status.md` for whether `--enforce` is currently on and which metrics,
+if any, are `--known-gap`.

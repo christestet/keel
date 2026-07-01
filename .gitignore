@@ -10,3 +10,6 @@ Cargo.lock.orig
 
 # Conformance build-mode artifacts (compiled test binaries)
 tests/conformance/*/main
+
+# Agent-harness runtime state (per-session lock file, not repo content)
+.agents/scheduled_tasks.lock

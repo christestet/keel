@@ -39,6 +39,21 @@ files remain ASCII while still locking LSP UTF-16 behavior.
 - `003-publish-diagnostics-utf16-crlf.json`: diagnostic publication for a CRLF
   document containing a non-BMP character before the error span.
 - `004-error-responses.json`: malformed JSON and unsupported-method errors.
+- `005-go-to-definition.json`: a call-site identifier resolves to its function
+  declaration span.
+- `006-hover-type-signature.json`: hover on a call-site identifier renders the
+  resolved function signature.
+- `007-completion-identifier.json`: completion on a partial identifier prefix
+  offers a matching built-in function.
+- `008-document-symbols-outline.json`: module-level struct fields and
+  functions are enumerated with name selection ranges.
+- `009-incremental-change-diagnostics.json`: an incremental
+  `textDocument/didChange` edit re-checks the document and republishes
+  diagnostics; reverting the edit clears them.
+- `010-multiline-definition-position.json`: a call site many lines below its
+  declaration resolves to the correct line, exercising multi-line position
+  tracking beyond adjacent-line cases.
 
-Definition, hover, completion, and document-symbol transcripts must land before
-`keel lsp` advertises those capabilities in an implementation PR.
+Every M8 base capability from spec chapter 16 now has at least one golden
+transcript. An implementation PR must match these fixtures exactly before
+`keel lsp` advertises the corresponding capability.

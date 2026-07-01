@@ -12,6 +12,7 @@ baseline="tests/performance/m8-reference/baseline.tsv"
 metrics="target/m8-reference-metrics.tsv"
 mode="check"
 enforce=false
+known_gaps=()
 
 usage() {
   cat <<'EOF'
@@ -24,7 +25,20 @@ Options:
   --metrics PATH     TSV metrics output (default: target/m8-reference-metrics.tsv)
   --mode check|full  check runs `keelc check`; full also runs two `keelc build`s
   --enforce          fail when a metric exceeds its budget or baseline +5%
+  --known-gap METRIC record and report METRIC, but never let --enforce fail on
+                      it. Repeatable. Use for a budget that is honestly
+                      unenforceable today and documented as such (see
+                      docs/m8-status.md) rather than silently gating on it.
 EOF
+}
+
+is_known_gap() {
+  local metric="$1"
+  local candidate
+  for candidate in "${known_gaps[@]+"${known_gaps[@]}"}"; do
+    [ "$candidate" = "$metric" ] && return 0
+  done
+  return 1
 }
 
 while [ "$#" -gt 0 ]; do
@@ -52,6 +66,10 @@ while [ "$#" -gt 0 ]; do
     --enforce)
       enforce=true
       shift
+      ;;
+    --known-gap)
+      known_gaps+=("$2")
+      shift 2
       ;;
     -h|--help)
       usage
@@ -162,6 +180,10 @@ record_metric() {
   printf "%s\t%s\t%s\t%s\t%s\n" "$metric" "$elapsed" "$budget" "$previous" "$status" >> "$metrics"
 
   if [ "$enforce" = true ] && [ "$status" != "ok" ]; then
+    if is_known_gap "$metric"; then
+      echo "m8 benchmark: $metric $status (${elapsed}ms, budget ${budget}ms, baseline ${previous}ms) — known gap, not enforced (docs/m8-status.md)" >&2
+      return 0
+    fi
     echo "m8 benchmark: $metric $status (${elapsed}ms, budget ${budget}ms, baseline ${previous}ms)" >&2
     return 1
   fi
