@@ -36,7 +36,7 @@ while IFS= read -r agents; do
 done < <(find . -path ./target -prune -o -name AGENTS.md -print | sort)
 
 # 3. Entry points the guidance tells agents to run must exist and be executable.
-for s in scripts/preflight.sh scripts/check-harness.sh scripts/check-docs.sh; do
+for s in scripts/preflight.sh scripts/check-harness.sh scripts/check-docs.sh scripts/check-lsp-fixtures.sh; do
   [ -x "$s" ] || err "$s missing or not executable"
 done
 [ -f scripts/check-docs.rs ] || err "scripts/check-docs.rs missing"
