@@ -162,7 +162,7 @@ jobs:
       - name: Warm Go std-lib build cache
         run: go build -trimpath std
       - name: Run M8 performance fixture
-        run: scripts/m8-benchmark.sh --mode full --known-gap keel_build_incremental
+        run: scripts/m8-benchmark.sh --mode full --enforce --known-gap keel_build_incremental
 
   # The agent harness (nested AGENTS.md/CLAUDE.md, preflight, .claude config)
   # is code: it must not drift as the repo grows. See AGENTS.md "The agent harness".
