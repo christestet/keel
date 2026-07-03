@@ -1,0 +1,61 @@
+# Release artifacts for the 0.1.0 developer-preview gate
+# (docs/0.1-release-readiness.md, docs/release-process.md).
+#
+# Triggered by a version tag. Builds keel/keelc for Linux x86_64 and macOS
+# arm64 with the release commit embedded (KEEL_BUILD_COMMIT -> `keel
+# --version`), packages tarballs with checksums, and attaches them to a DRAFT
+# GitHub release. Publishing the draft is a human decision, per the release
+# process — CI never announces a release on its own.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            slug: linux-x86_64
+          - os: macos-latest
+            slug: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binaries
+        env:
+          KEEL_BUILD_COMMIT: ${{ github.sha }}
+        run: cargo build --release -p keelc-driver
+      - name: Verify version reporting
+        run: |
+          out="$(target/release/keel --version)"
+          echo "$out"
+          echo "$out" | grep -F "commit ${GITHUB_SHA}" \
+            || { echo "release binary does not report the release commit"; exit 1; }
+      - name: Package tarball with checksum
+        run: |
+          staging="keel-${GITHUB_REF_NAME}-${{ matrix.slug }}"
+          mkdir "$staging"
+          cp target/release/keel target/release/keelc LICENSE README.md "$staging/"
+          tar czf "$staging.tar.gz" "$staging"
+          shasum -a 256 "$staging.tar.gz" > "$staging.tar.gz.sha256"
+      - name: Attach to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          staging="keel-${GITHUB_REF_NAME}-${{ matrix.slug }}"
+          # Both matrix jobs may race to create the draft; losing the race is fine,
+          # the upload below is what each job actually owns.
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 \
+            || gh release create "${GITHUB_REF_NAME}" --draft --verify-tag \
+                 --title "keel ${GITHUB_REF_NAME}" \
+                 --notes "Draft. Publishing requires the docs/0.1-release-readiness.md gate and the validation snapshot from docs/release-process.md." \
+            || true
+          gh release upload "${GITHUB_REF_NAME}" \
+            "$staging.tar.gz" "$staging.tar.gz.sha256" --clobber
