@@ -1,7 +1,26 @@
 # Getting started with Keel
 
 Keel is pre-1.0. The current toolchain is built from this repository and uses
-Go as its backend. There are no published installers or release binaries yet.
+Go as its backend. No release has been published yet; when one is, it appears
+on the repository's GitHub Releases page as described below.
+
+## Install from a release (macOS/Linux)
+
+Once a tagged release exists, download the tarball for your platform
+(`keel-v<version>-linux-x86_64.tar.gz` or `keel-v<version>-macos-arm64.tar.gz`)
+from GitHub Releases, verify it against the published `.sha256` file, unpack
+it, and put `keel` on your `PATH`:
+
+```sh
+shasum -a 256 -c keel-v0.1.0-macos-arm64.tar.gz.sha256
+tar xzf keel-v0.1.0-macos-arm64.tar.gz
+install keel-v0.1.0-macos-arm64/keel keel-v0.1.0-macos-arm64/keelc ~/.local/bin/
+keel --version   # keel 0.1.0 (commit <release commit>)
+```
+
+Go remains a required backend dependency even for released binaries: `keel
+run|build|test` invoke the Go toolchain (see prerequisites). Until a release
+is published, build from source instead.
 
 ## Prerequisites
 
