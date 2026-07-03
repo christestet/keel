@@ -69,6 +69,13 @@ A package's **declared** capabilities are its manifest's `capabilities` set
 
 > A package may exercise a capability only if it declares that capability.
 
+Enforcement applies to **explicit packages only**. An implicit package
+(§06.1) is exempt: it can only be the compilation root — never a dependency
+(`K1106`) — so it is the build's trust anchor, not a supply-chain boundary
+([`KDR-0043`](../kdr/0043-implicit-package-capability-trust-anchor.md)). Its
+capability set is *derived*, not declared (§11.4), and `keel audit` reports it
+(§11.5).
+
 Enforcement is static, at compile time, in two parts:
 
 1. **Direct use.** Importing or calling a `std` module obligates its §11.2
@@ -103,6 +110,12 @@ package — the rollup never *exceeds* the declaration. The effective set is wha
 `keel audit` reports, and the recursion is evaluated in the deterministic
 topological order of §06.4.
 
+An **implicit package** (§06.1) has no manifest, so its capability set is
+**derived**: the union of the §11.2 obligations of every `std` module its
+source uses. It has no dependencies, so its derived set is also its effective
+set. The derived set is a *report*, not a gate — §11.3 enforcement does not
+apply ([`KDR-0043`](../kdr/0043-implicit-package-capability-trust-anchor.md)).
+
 ## 11.5 `keel audit`
 
 `keel audit` prints, for the package being built, its effective capability set
@@ -128,6 +141,20 @@ warnings:
 The exact column formatting is implementation-defined; the **content and
 ordering** are normative. `--verbose` is reserved for the per-function report
 that function-level annotations (§11.6) will enable.
+
+For an **implicit package**, `keel audit` reports the derived set (§11.4) with
+the contributor marked `self (derived)` — it must never report a capability as
+absent while the source can exercise it
+([`KDR-0043`](../kdr/0043-implicit-package-capability-trust-anchor.md)).
+Capabilities outside the derived set are reported not present, in the same
+form as the explicit-package report:
+
+```text
+$ keel audit          # main.keel contains `use std.http`, no keel.toml
+main (implicit)
+  net: self (derived)
+  (fs, exec, env, ffi, unsafe-memory: not present)
+```
 
 ## 11.6 Deferred: function-level annotations
 
@@ -165,6 +192,7 @@ surfaced by `keel audit`, not one of these errors.
 | `824-unknown-capability` | reject `K1111` | `capabilities = ["network"]` (not one of the six) |
 | `825-transitive-undeclared` | reject `K1112` | dependency declares `net`, dependent does not |
 | `826-sql-missing-fs` | reject `K1110` | `use std.sql` with only `["net"]` declared |
+| `829-audit-implicit-derived` | audit | implicit package using `std.http` reports `net: self (derived)`, never `not present` |
 
 ## 11.9 Dependencies
 

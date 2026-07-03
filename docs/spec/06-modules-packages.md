@@ -29,9 +29,13 @@ into) any subdirectory that roots its own manifest.
 
 A program compiled as a single file — `keelc run main.keel` with no manifest in
 its directory — is an **implicit package**: name derived from the file stem,
-empty capability set, no dependencies. This preserves all M0–M6 behavior. The
-moment a directory contains a `keel.toml`, its files form an **explicit
-package** governed by that manifest.
+**derived capability set** ([`11-capabilities.md`](11-capabilities.md) §11.4,
+[`KDR-0043`](../kdr/0043-implicit-package-capability-trust-anchor.md)), no
+dependencies. An implicit package can only be the compilation root — a
+dependency path without a manifest is `K1106` (§6.4) — so it is the build's
+**trust anchor**, not a supply-chain boundary. This preserves all M0–M6
+behavior. The moment a directory contains a `keel.toml`, its files form an
+**explicit package** governed by that manifest.
 
 A package has exactly one manifest. A directory containing two manifest files,
 or a `.keel` file that belongs to no package and no implicit single-file
