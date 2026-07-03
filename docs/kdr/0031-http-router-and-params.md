@@ -1,6 +1,6 @@
 # KDR-0031: `std.http` — Router and parameter extraction
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-19
 - **Scope:** stdlib
 - **Supersedes:** [KDR-0028](0028-http-server-surface.md)

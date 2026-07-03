@@ -1,6 +1,6 @@
 # KDR-0042: SQLite driver for the Go backend (`modernc.org/sqlite`)
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** toolchain
 

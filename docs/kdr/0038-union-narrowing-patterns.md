@@ -1,6 +1,6 @@
 # KDR-0038: Union-narrowing patterns
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** language
 - **Amends:** [0005](0005-no-exceptions.md)

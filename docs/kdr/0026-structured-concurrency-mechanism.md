@@ -1,6 +1,6 @@
 # KDR-0026: Structured concurrency mechanism — spawn results, fail-fast, deadline propagation
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-18
 - **Scope:** language
 

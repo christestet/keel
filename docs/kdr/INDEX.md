@@ -31,23 +31,23 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0023](0023-impls-on-primitive-types.md) | User `impl` blocks on primitive types | accepted |
 | [0024](0024-ai-infrastructure-and-agent-positioning.md) | AI-infrastructure and agent positioning | proposed |
 | [0025](0025-structured-generation.md) | Type-driven structured generation | proposed |
-| [0026](0026-structured-concurrency-mechanism.md) | Structured concurrency mechanism (spawn results, fail-fast, deadlines) | proposed |
+| [0026](0026-structured-concurrency-mechanism.md) | Structured concurrency mechanism (spawn results, fail-fast, deadlines) | accepted |
 | [0027](0027-json-boundary-mapping.md) | Typed JSON boundary mapping | accepted |
 | [0028](0028-http-server-surface.md) | Typed HTTP server surface (`std.http`) | superseded-by-0031 |
-| [0029](0029-sql-database-access.md) | Database access surface (`std.sql`) | proposed |
-| [0030](0030-config-loading-surface.md) | Configuration loading surface (`std.config`) | proposed |
-| [0031](0031-http-router-and-params.md) | HTTP Router and parameter extraction (`std.http`) | proposed |
-| [0032](0032-call-site-type-args.md) | Type parameters and arguments use `<T>` | proposed |
-| [0033](0033-universal-error-type.md) | Universal `Error` type — opaque boundary error sink | proposed |
-| [0034](0034-core-boundary-scalars.md) | Core boundary scalars (`Uuid`, `Timestamp`, `Email`) | proposed |
-| [0035](0035-multiline-string-literals.md) | Multi-line string literals (newlines inside `"..."`) | proposed |
-| [0036](0036-default-function-parameters.md) | Default function parameters (`limit: Int = 50`) | proposed |
-| [0037](0037-sql-error-classification-patterns.md) | `sql.Error` classification patterns + catch propagation | proposed |
-| [0038](0038-union-narrowing-patterns.md) | Union narrowing patterns (typed bindings, `()`) | proposed |
-| [0039](0039-option-unwrap.md) | `Option<T>.unwrap()` | proposed |
-| [0040](0040-json-write-returns-string.md) | `json.write` returns `String` | proposed |
-| [0041](0041-http-error-helpers-accept-error.md) | HTTP error response helpers accept `Error` | proposed |
-| [0042](0042-sqlite-driver-modernc.md) | SQLite driver for the Go backend (`modernc.org/sqlite`) | proposed |
+| [0029](0029-sql-database-access.md) | Database access surface (`std.sql`) | accepted |
+| [0030](0030-config-loading-surface.md) | Configuration loading surface (`std.config`) | accepted |
+| [0031](0031-http-router-and-params.md) | HTTP Router and parameter extraction (`std.http`) | accepted |
+| [0032](0032-call-site-type-args.md) | Type parameters and arguments use `<T>` | accepted |
+| [0033](0033-universal-error-type.md) | Universal `Error` type — opaque boundary error sink | accepted |
+| [0034](0034-core-boundary-scalars.md) | Core boundary scalars (`Uuid`, `Timestamp`, `Email`) | accepted |
+| [0035](0035-multiline-string-literals.md) | Multi-line string literals (newlines inside `"..."`) | accepted |
+| [0036](0036-default-function-parameters.md) | Default function parameters (`limit: Int = 50`) | accepted |
+| [0037](0037-sql-error-classification-patterns.md) | `sql.Error` classification patterns + catch propagation | accepted |
+| [0038](0038-union-narrowing-patterns.md) | Union narrowing patterns (typed bindings, `()`) | accepted |
+| [0039](0039-option-unwrap.md) | `Option<T>.unwrap()` | accepted |
+| [0040](0040-json-write-returns-string.md) | `json.write` returns `String` | accepted |
+| [0041](0041-http-error-helpers-accept-error.md) | HTTP error response helpers accept `Error` | accepted |
+| [0042](0042-sqlite-driver-modernc.md) | SQLite driver for the Go backend (`modernc.org/sqlite`) | accepted |
 | [0043](0043-implicit-package-capability-trust-anchor.md) | Implicit packages are the capability trust anchor; `keel audit` reports derived capabilities | accepted |
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |

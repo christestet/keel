@@ -1,6 +1,6 @@
 # KDR-0037: sql.Error classification patterns and catch propagation
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** language
 - **Amends:** [0029](0029-sql-database-access.md), [0033](0033-universal-error-type.md)

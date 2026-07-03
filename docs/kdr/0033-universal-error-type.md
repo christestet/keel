@@ -1,6 +1,6 @@
 # KDR-0033: Universal `Error` type
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-20
 - **Scope:** language
 

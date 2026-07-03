@@ -1,6 +1,6 @@
 # KDR-0039: `Option<T>.unwrap()`
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** language
 

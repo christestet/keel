@@ -1,6 +1,6 @@
 # KDR-0029: `std.sql` — database access surface
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-19
 - **Scope:** stdlib
 
