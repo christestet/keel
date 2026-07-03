@@ -135,22 +135,6 @@ fn version_line(program: Option<&OsStr>) -> String {
     format!("{name} {} (commit {commit})", env!("CARGO_PKG_VERSION"))
 }
 
-#[cfg(test)]
-mod version_tests {
-    use super::version_line;
-    use std::ffi::OsStr;
-
-    #[test]
-    fn version_line_uses_binary_name_and_crate_version() {
-        let line = version_line(Some(OsStr::new("/usr/local/bin/keelc")));
-        assert_eq!(
-            line,
-            format!("keelc {} (commit unknown)", env!("CARGO_PKG_VERSION"))
-        );
-        assert!(version_line(None).starts_with("keel "));
-    }
-}
-
 /// `keel lsp`: run the M8 base LSP server over stdio (spec ch. 16, KDR-0103).
 /// A long-lived daemon, not a file command — it takes no path argument and
 /// reads/writes JSON-RPC frames on stdin/stdout until `exit`.
@@ -438,4 +422,20 @@ fn file_label(path: &Path) -> String {
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::version_line;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn version_line_uses_binary_name_and_crate_version() {
+        let line = version_line(Some(OsStr::new("/usr/local/bin/keelc")));
+        assert_eq!(
+            line,
+            format!("keelc {} (commit unknown)", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(version_line(None).starts_with("keel "));
+    }
 }
