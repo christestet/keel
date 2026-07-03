@@ -1,6 +1,6 @@
 # KDR-0043: Implicit packages are the capability trust anchor; `keel audit` reports their derived capabilities
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-07-03
 - **Scope:** language
 
