@@ -10,9 +10,15 @@ currently accepts the same arguments.
 keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]
 keel gen <schema.proto>
 keel lsp
+keel --version
 ```
 
-The CLI does not yet implement `--help`, `--version`, response files, global
+`keel --version` (also `-V`) prints one line — `keel 0.1.0 (commit <hash>)` —
+and exits 0. The commit is embedded from `KEEL_BUILD_COMMIT` at build time by
+the release build; source builds report `commit unknown`. `keelc --version`
+reports as `keelc`.
+
+The CLI does not yet implement `--help`, response files, global
 configuration, or shell completion. Missing/invalid arguments print usage to
 stderr and exit 2.
 

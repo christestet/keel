@@ -1,0 +1,3 @@
+main (implicit)
+  net: self (derived)
+  (fs, exec, env, ffi, unsafe-memory: not present)

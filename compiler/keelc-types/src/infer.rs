@@ -81,6 +81,16 @@ pub struct TypeContext {
     current_return_type: Option<TypeInfo>,
 }
 
+/// Binary-search a name-sorted slice (every `collect_*` sorts by name).
+/// Returns the first match, exactly what `iter().find` returned on the sorted
+/// vec — but in O(log n), which is what keeps `keel check` inside its
+/// KDR-0019 budget on declaration-heavy modules.
+#[must_use]
+pub fn find_by_name<'a, T>(items: &'a [T], name: &str, key: fn(&T) -> &str) -> Option<&'a T> {
+    let idx = items.partition_point(|item| key(item) < name);
+    items.get(idx).filter(|item| key(item) == name)
+}
+
 impl TypeContext {
     #[must_use]
     pub fn new(module: &Module) -> Self {
@@ -183,10 +193,7 @@ impl TypeContext {
             };
         }
         if let TypeInfo::Named(name) = scrutinee_ty {
-            return self
-                .enums
-                .iter()
-                .find(|info| info.name == *name)
+            return find_by_name(&self.enums, name, |info| &info.name)
                 .and_then(|info| {
                     info.variants
                         .iter()
@@ -230,9 +237,7 @@ impl TypeContext {
 
     #[must_use]
     pub fn function_return_type(&self, name: &str) -> Option<TypeInfo> {
-        self.functions
-            .iter()
-            .find(|function| function.name == name)
+        self.function_info(name)
             .map(|function| function.return_type.clone())
     }
 
@@ -261,9 +266,7 @@ impl TypeContext {
         let TypeInfo::Named(name) = target_ty else {
             return None;
         };
-        self.structs
-            .iter()
-            .find(|info| info.name == *name)?
+        find_by_name(&self.structs, name, |info| &info.name)?
             .fields
             .iter()
             .find(|field| field.name == field_name)
@@ -272,17 +275,22 @@ impl TypeContext {
 
     #[must_use]
     pub fn is_struct(&self, name: &str) -> bool {
-        self.structs.iter().any(|info| info.name == name)
+        find_by_name(&self.structs, name, |info| &info.name).is_some()
+    }
+
+    #[must_use]
+    pub fn is_enum(&self, name: &str) -> bool {
+        find_by_name(&self.enums, name, |info| &info.name).is_some()
     }
 
     #[must_use]
     pub fn interface_info(&self, name: &str) -> Option<&InterfaceInfo> {
-        self.interfaces.iter().find(|info| info.name == name)
+        find_by_name(&self.interfaces, name, |info| &info.name)
     }
 
     #[must_use]
     pub fn function_info(&self, name: &str) -> Option<&FunctionInfo> {
-        self.functions.iter().find(|function| function.name == name)
+        find_by_name(&self.functions, name, |function| &function.name)
     }
 
     #[must_use]
@@ -300,15 +308,12 @@ impl TypeContext {
             ]),
             TypeInfo::Named(name) if name == "http.Error" => Some(vec!["BindFailed".to_string()]),
             TypeInfo::Named(name) => {
-                self.enums
-                    .iter()
-                    .find(|info| info.name == *name)
-                    .map(|info| {
-                        info.variants
-                            .iter()
-                            .map(|variant| variant.name.clone())
-                            .collect()
-                    })
+                find_by_name(&self.enums, name, |info| &info.name).map(|info| {
+                    info.variants
+                        .iter()
+                        .map(|variant| variant.name.clone())
+                        .collect()
+                })
             }
             TypeInfo::Generic { name, .. } if name == "Option" => {
                 Some(vec!["Some".to_string(), "None".to_string()])
@@ -367,10 +372,7 @@ impl TypeContext {
                     && args[0] == TypeInfo::String
                     && self.is_json_representable(&args[1])
             }
-            TypeInfo::Named(name) => {
-                self.structs.iter().any(|info| info.name == *name)
-                    || self.enums.iter().any(|info| info.name == *name)
-            }
+            TypeInfo::Named(name) => self.is_struct(name) || self.is_enum(name),
             TypeInfo::Unit
             | TypeInfo::Interface(_)
             | TypeInfo::TypeParam { .. }
@@ -390,7 +392,7 @@ impl TypeContext {
 
     fn resolve_type_inner(&self, ty: TypeInfo) -> TypeInfo {
         match &ty {
-            TypeInfo::Named(name) if self.interfaces.iter().any(|info| info.name == *name) => {
+            TypeInfo::Named(name) if self.interface_info(name).is_some() => {
                 TypeInfo::Interface(name.clone())
             }
             TypeInfo::Generic { name, args } => TypeInfo::Generic {

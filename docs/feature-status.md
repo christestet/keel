@@ -30,7 +30,7 @@ landed. M8 implementation has started, but there is no 0.1.0 release yet.
 | Arenas | Partial | syntax and tail escape check; Go backend uses an ordinary block, not a region allocator |
 | Modules | Partial | headers/imports parse; executable compilation remains single-source-module |
 | Packages | Partial | local path graph/import validation; dependency source is not linked into the root module |
-| Package capabilities | Partial | enforced for explicit manifests; implicit packages bypass enforcement |
+| Package capabilities | Implemented | enforced for explicit packages; implicit packages are the root-only trust anchor whose derived set `keel audit` reports (KDR-0043) |
 | Editions | Partial | edition 1 selection and unknown-edition error only |
 | C FFI / `extern` | Planned (M10) | rejected with `K0905` today |
 | Function-level capabilities | Unscheduled | proposed KDR-0017, no syntax/implementation |

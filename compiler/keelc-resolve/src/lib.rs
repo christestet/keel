@@ -272,7 +272,9 @@ impl<'a> Resolver<'a> {
         name: &Spanned<String>,
         fields: &[keelc_ast::StructLiteralField],
     ) {
-        let Some(info) = self.structs.iter().find(|info| info.name == name.value) else {
+        let Some(info) =
+            keelc_types::infer::find_by_name(&self.structs, &name.value, |info| &info.name)
+        else {
             return;
         };
 
@@ -1686,7 +1688,7 @@ impl<'a> Typechecker<'a> {
 
         // K0403: warn on wildcard `_` against a same-module enum
         if let TypeInfo::Named(name) = scrutinee_type {
-            if self.ctx.enums().iter().any(|info| info.name == *name) {
+            if self.ctx.is_enum(name) {
                 if let Some(arm) = arms
                     .iter()
                     .find(|arm| arm.guard.is_none() && matches!(arm.pattern, Pattern::Wildcard(_)))

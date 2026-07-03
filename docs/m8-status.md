@@ -39,33 +39,34 @@ sufficient for the ten base-capability fixtures but is a known gap for a real
 editor session; extending it needs a resolver-side name index, which is
 `keelc-resolve` work, not `keelc-lsp` work.
 
-**M8a performance gate: captured, and currently failing all three budgets.**
-The `m8-benchmark` job in `.github/workflows/ci.yml` runs
-`scripts/m8-benchmark.sh --mode full` on every compiler-touching PR, on the
-standard GitHub-hosted `ubuntu-latest` runner — now the documented reference
-machine (see
+**M8a performance gate: enforced.** The `m8-benchmark` job in
+`.github/workflows/ci.yml` runs
+`scripts/m8-benchmark.sh --mode full --enforce --known-gap keel_build_incremental`
+on every compiler-touching PR, on the standard GitHub-hosted `ubuntu-latest`
+runner — the documented reference machine (see
 [`tests/performance/m8-reference/reference-machine.md`](../tests/performance/m8-reference/reference-machine.md)),
-not a contributor's local hardware. That job's own [workflow run
-28533408054](https://github.com/christestet/keel/actions/runs/28533408054)
-(commit `4283835`) produced the first real baseline, now checked into
-`baseline.tsv`:
+not a contributor's local hardware. Two fixes closed the original gap
+(first baseline: 794 / 18 770 / 1 701 ms, run 28533408054): the #18 GOCACHE
+pre-warm removed the Go std-lib bootstrap from `keel_build_cold`, and PR #24
+replaced quadratic per-expression name lookups in resolve/typecheck with
+binary search over the already name-sorted symbol tables. [Workflow run
+28676356124](https://github.com/christestet/keel/actions/runs/28676356124)
+(PR #24) captured the enforced baseline now in `baseline.tsv`:
 
 ```text
 metric                   elapsed_ms  budget_ms  status
-keel_check               794         300        over-budget
-keel_build_cold          18770       10000      over-budget
-keel_build_incremental   1701        1000       over-budget
+keel_check               228         300        ok
+keel_build_cold          9451        10000      ok
+keel_build_incremental   1121        1000       over-budget (--known-gap)
 ```
 
-This is not a noisy-sandbox artifact — it is the actual reference machine.
-**All three KDR-0019 budgets are currently unmet**, so `--enforce` stays off
-in CI: turning it on today would fail every future compiler PR on a
-pre-existing gap instead of catching a new regression. `baseline.tsv` still
-records these numbers so the 5% regression comparison catches further
-slowdowns from this point. Closing the budget gap is real compiler
-performance work (see the incrementality note below for `keel_check`'s and
-`keel_build_incremental`'s likely largest lever; `keel_build_cold`'s 18.8 s
-against a 10 s budget needs its own investigation — profiling hasn't started).
+`--enforce` now fails any compiler PR that exceeds a budget or regresses >5%
+over this baseline. Two caveats stay documented rather than hidden:
+`keel_build_cold` sits within 6% of its budget, so a variance-tripped failure
+without a compiler change is a signal to right-size the corpus or budget via
+KDR, not to widen silently; and `keel_build_incremental` remains a
+`--known-gap` (see below) until the query core gets per-declaration
+granularity — it is reported on every run but never fails the job.
 
 **Known limitation: `keel_build_incremental` does not measure real
 incrementality yet.** `keelc-query::SourceFile` has one `text: String` field
@@ -103,15 +104,12 @@ long-lived `QueryDatabase` per session.
    typecheck, KIR-lowering, Go-emission, and diagnostic queries. Stage
    functions remain free of I/O and global state; filesystem/process effects
    remain in the driver.
-4. **Gate PR.** Not started — and not just a flag flip. The captured baseline
-   shows `keel_check` (794 ms), `keel_build_cold` (18.8 s), and
-   `keel_build_incremental` (1.7 s) all over their KDR-0019 budgets on the
-   reference machine itself. Enabling `--enforce` requires closing that gap
-   first (compiler performance work — profiling `keel_check`'s hot path and
-   `keel build`'s Go-toolchain-invocation cost, plus the query-granularity
-   work noted above for the incremental number), not just recording numbers.
-   `keel_build_incremental` stays `--known-gap` even after that, until the
-   query core gets per-declaration granularity.
+4. **Gate PR.** Done. The gap-closing work landed first (the #18 GOCACHE
+   pre-warm for `keel_build_cold`, the PR #24 binary-search lookups for
+   `keel_check`: 794 ms → 228 ms), then this PR flipped `--enforce` on with
+   the run-28676356124 baseline in `baseline.tsv`. `keel_build_incremental`
+   stays `--known-gap`, until the query core gets per-declaration
+   granularity.
 
 ### M8b — LSP
 
@@ -186,13 +184,12 @@ fixtures against the real keel-lsp dispatch loop)
 KEEL_MILESTONE=M7 scripts/preflight.sh
 221 passed, 0 failed, 4 skipped
 
-m8-benchmark CI job, workflow run 28533408054, commit 4283835, ubuntu-latest
+m8-benchmark CI job, workflow run 28676356124 (PR #24), ubuntu-latest
 (2 vCPU / 7.8 GiB / AMD EPYC 7763), scripts/m8-benchmark.sh --mode full --known-gap keel_build_incremental
-keel_check               794    300    0    over-budget
-keel_build_cold          18770  10000  0    over-budget
-keel_build_incremental   1701   1000   0    over-budget
-(--enforce not yet passed to this CI invocation — see "Goal and status" above
-for why: all three metrics are over budget on the reference machine itself,
-so enforcing today's KDR-0019 budgets would block every future compiler PR,
-not catch a new regression)
+keel_check               228    300    794    ok
+keel_build_cold          9451   10000  18770  ok
+keel_build_incremental   1121   1000   1701   over-budget (--known-gap)
+(--enforce is on in CI as of the gate PR: budget or >5%-over-baseline
+regressions fail compiler-touching PRs; keel_build_incremental is reported
+but exempt as the documented known gap)
 ```
