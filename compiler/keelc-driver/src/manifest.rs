@@ -76,11 +76,23 @@ pub fn audit(entry: &Path, milestone: u32) -> Result<String, Vec<ManifestDiag>> 
         .unwrap_or("package");
 
     if !dir.join("keel.toml").is_file() {
-        // Implicit single-file package: empty capability set (spec §6.1).
-        let not_present = CAPABILITIES.join(", ");
-        return Ok(format!(
-            "{stem} (implicit)\n  ({not_present}: not present)\n"
-        ));
+        // Implicit single-file package: report the *derived* capability set —
+        // the §11.2 obligations of its own std uses — never a blanket
+        // "not present" (spec §11.4/§11.5, KDR-0043).
+        let derived = derived_caps(entry, milestone);
+        let mut out = format!("{stem} (implicit)\n");
+        let mut not_present = Vec::new();
+        for cap in CAPABILITIES {
+            if derived.contains(cap) {
+                out.push_str(&format!("  {cap}: self (derived)\n"));
+            } else {
+                not_present.push(cap);
+            }
+        }
+        if !not_present.is_empty() {
+            out.push_str(&format!("  ({}: not present)\n", not_present.join(", ")));
+        }
+        return Ok(out);
     }
 
     let mut graph = Graph::new(milestone);
@@ -476,6 +488,31 @@ impl Graph {
         }
         out
     }
+}
+
+/// The derived capability set of an implicit package (spec §11.4): the union
+/// of the §11.2 obligations of the entry file's `std` uses. An unreadable or
+/// unparseable file derives the empty set — a diagnostic is the compile
+/// pipeline's job, not the audit's.
+fn derived_caps(entry: &Path, milestone: u32) -> BTreeSet<&'static str> {
+    let mut caps = BTreeSet::new();
+    let Ok(text) = std::fs::read_to_string(entry) else {
+        return caps;
+    };
+    let module = parse_with_milestone(SourceId::new(0), &text, milestone).module;
+    for item in &module.items {
+        if let keelc_ast::Item::Use(decl) = item {
+            if decl.path.first().map(|s| s.value.as_str()) == Some("std") {
+                let module = decl
+                    .path
+                    .get(1)
+                    .map(|s| s.value.as_str())
+                    .unwrap_or_default();
+                caps.extend(std_module_caps(module));
+            }
+        }
+    }
+    caps
 }
 
 /// Collect every `use` path of every `.keel` file in the package's directory
