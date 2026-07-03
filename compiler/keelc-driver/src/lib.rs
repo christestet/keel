@@ -21,12 +21,17 @@ const LSP_MILESTONE: u32 = 7;
 
 pub fn main() -> ExitCode {
     let mut args = env::args_os();
-    let _program = args.next();
+    let program = args.next();
 
     let Some(command) = args.next() else {
         usage();
         return ExitCode::from(2);
     };
+
+    if matches!(command.as_os_str().to_str(), Some("--version" | "-V")) {
+        println!("{}", version_line(program.as_deref()));
+        return ExitCode::SUCCESS;
+    }
 
     if command.as_os_str().to_str() == Some("lsp") {
         return run_lsp();
@@ -112,8 +117,38 @@ pub fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>\n       keel lsp"
+        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version"
     );
+}
+
+/// The `--version` line: binary name (from argv[0], so `keel` and `keelc`
+/// report as themselves), crate version, and the commit the release was built
+/// from. `KEEL_BUILD_COMMIT` is set by the release build; source builds
+/// honestly report `unknown`.
+fn version_line(program: Option<&OsStr>) -> String {
+    let name = program
+        .map(Path::new)
+        .and_then(Path::file_stem)
+        .and_then(OsStr::to_str)
+        .unwrap_or("keel");
+    let commit = option_env!("KEEL_BUILD_COMMIT").unwrap_or("unknown");
+    format!("{name} {} (commit {commit})", env!("CARGO_PKG_VERSION"))
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::version_line;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn version_line_uses_binary_name_and_crate_version() {
+        let line = version_line(Some(OsStr::new("/usr/local/bin/keelc")));
+        assert_eq!(
+            line,
+            format!("keelc {} (commit unknown)", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(version_line(None).starts_with("keel "));
+    }
 }
 
 /// `keel lsp`: run the M8 base LSP server over stdio (spec ch. 16, KDR-0103).
