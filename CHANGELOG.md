@@ -8,27 +8,66 @@ development record.
 
 ## Unreleased
 
+Nothing yet.
+
+## [0.1.0] — 2026-07-03 (developer preview)
+
+First tagged version. A **developer preview**, not production infrastructure:
+the gate and honest limitations are
+[`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
+
+### Language and toolchain
+
+- Full M7 language surface: Core (functions, structs, enums, exhaustive
+  `match`, `Option`/`Result`/`?`/`catch`, union errors), interfaces,
+  constrained generics, `scope`/`spawn` structured concurrency, arenas
+  (tail escape check), packages with manifests and capabilities, editions
+  (edition 1), stdlib slice (`std.http`, `std.json`, `std.sql` SQLite,
+  `std.log`, `std.config`, `std.time`, boundary scalars).
+- Tool commands: `build`, `run`, `fmt`, `test`, `check`, `audit`,
+  proto3-subset `gen`, `lsp` (M8 base capabilities, module-level symbol
+  resolution only), and `--version`/`-V` reporting version + build commit.
+- `keel audit` now reports an implicit (manifest-less) package's **derived**
+  capability set (`net: self (derived)`) instead of `not present`
+  (KDR-0043; conformance case 829).
+- Compile-time contract (KDR-0019) enforced in CI on the reference machine:
+  `keel check` 228 ms (budget 300), cold build 9451 ms (budget 10 000);
+  `keel_build_incremental` remains a documented known gap (1121 ms vs 1000).
+- Release artifacts: tag-triggered workflow builds Linux x86_64 and macOS
+  arm64 tarballs with SHA-256 checksums, attached to a draft GitHub release.
+
 ### Documentation
 
-- Added source-build onboarding and a conformance-backed language tour.
-- Added current CLI, standard-library, diagnostics, package/capability,
-  deployment, troubleshooting, compatibility, security, syntax, and feature
-  status references.
-- Added explicit positioning and idiomatic Keel guidance.
-- Corrected public status from stale M6 claims to the completed M7 gate.
-- Documented implementation/specification gaps instead of presenting planned
-  behavior as available.
-- Added an explicit 0.1.0 release-readiness gate and linked it from public
-  roadmap, status, compatibility, and release-process docs.
+- Source-build onboarding, conformance-backed language tour, CLI,
+  standard-library, diagnostics, package/capability, deployment,
+  troubleshooting, compatibility, security, syntax, and feature-status
+  references; positioning and idiomatic Keel guidance.
+- Spec chapters 02 (types), 03 (declarations), and 05 (errors) authored as
+  consolidations of conformance-backed behavior; chapters 12 (FFI) and 13
+  (testing) remain unauthored.
+- Release-tarball install path documented for macOS/Linux.
 
-### Current implementation baseline
+### Known limitations
 
-- M7 conformance gate: 221 passed, 0 failed, 4 intentionally skipped
-  earlier-milestone rejection cases.
-- Implemented tool commands: `build`, `run`, `fmt`, `test`, `check`, `audit`,
-  and proto3-subset `gen`.
-- Executable generation still uses the Go backend; M8 is in progress and
-  M9–M11 remain roadmap work.
+No package registry, no native backend (Go toolchain required), no OCI
+output, no FFI, no `keel fix`; LSP resolves module-level declarations only;
+`std.sql` builds may resolve `modernc.org/sqlite` via the Go module proxy.
+See [`docs/feature-status.md`](docs/feature-status.md).
+
+### Validation snapshot (release commit)
+
+```text
+scripts/preflight.sh                       → green (91 passed, 0 failed, 135 skipped)
+KEEL_MILESTONE=M7 scripts/preflight.sh     → green (221 passed, 0 failed, 5 skipped;
+                                             the 5th skip is the M8-gated case 829)
+KEEL_MILESTONE=M8 conformance-runner       → 222 passed, 0 failed, 4 skipped
+M1–M6 gates                                → 91/91/95/97/122/194 passed, 0 failed
+scripts/m8-benchmark.sh --mode full --enforce --known-gap keel_build_incremental
+  (local Apple Silicon; canonical numbers are the CI reference machine's)
+  keel_check 115 ok · keel_build_cold 2741 ok · keel_build_incremental 573 ok
+  CI reference machine (run 28676356124): 228 / 9451 / 1121
+SQL cases resolved modernc.org/sqlite from the warm local Go module cache.
+```
 
 ## Changelog policy
 

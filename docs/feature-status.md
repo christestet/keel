@@ -14,9 +14,10 @@ Status meanings:
   insufficient.
 - **Planned** — roadmap work; do not write production source against it.
 
-Current M7 gate: **221 passed, 0 failed, 4 intentionally skipped**. The skipped
-cases are earlier-milestone rejection traps for features that subsequently
-landed. M8 implementation has started, but there is no 0.1.0 release yet.
+Current M7 gate: **221 passed, 0 failed, 5 intentionally skipped**. Four
+skipped cases are earlier-milestone rejection traps for features that
+subsequently landed; the fifth is the M8-gated audit case 829. The M8 gate is
+**222 passed, 0 failed, 4 skipped**. There is no published 0.1.0 release yet.
 
 ## Language
 
