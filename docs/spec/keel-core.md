@@ -150,6 +150,9 @@ as-keywords trap (`K0908` with a pointer to [KDR-0002](../kdr/0002-no-async-awai
 | Chapter | Covers |
 |---|---|
 | [`01-lexical.md`](01-lexical.md) | Brace escaping in string interpolation (`K0004`) — KDR-0014 |
+| [`02-types.md`](02-types.md) | Type forms after M7, equivalence/coercion, inference boundary (consolidation, no new behavior) |
+| [`03-declarations.md`](03-declarations.md) | Declaration forms after M7, defaults, bindings (consolidation, no new behavior) |
 | [`04-expressions.md`](04-expressions.md) | Operator set, precedence, integer division, overflow (`K0202`–`K0204`, `K0003`) — KDR-0013 |
+| [`05-errors.md`](05-errors.md) | Error model after M7: `?`, `catch`, unions, opaque errors, `Error` (consolidation, no new behavior) |
 
 See [`00-spec-plan.md`](00-spec-plan.md) for the full chapter roadmap.

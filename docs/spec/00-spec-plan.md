@@ -8,10 +8,10 @@ conformance tests (spec PR → test PR → implementation PR, per AGENTS.md).
 | # | Topic | Governing KDR(s) |
 |---|-------|------------------|
 | 01 | Lexical structure | [KDR-0014](../kdr/0014-interpolation-brace-escaping.md) |
-| 02 | Types | — |
-| 03 | Declarations | [KDR-0003](../kdr/0003-no-inheritance.md) |
+| 02 | Types | **landed** (consolidation, no new behavior), see [`02-types.md`](02-types.md) |
+| 03 | Declarations | [KDR-0003](../kdr/0003-no-inheritance.md) — **landed** (consolidation, no new behavior), see [`03-declarations.md`](03-declarations.md) |
 | 04 | Expressions | [KDR-0013](../kdr/0013-core-operators-and-integer-division.md), [KDR-0009](../kdr/0009-no-operator-overloading.md) |
-| 05 | Errors | [KDR-0005](../kdr/0005-no-exceptions.md) |
+| 05 | Errors | [KDR-0005](../kdr/0005-no-exceptions.md) — **landed** (consolidation, no new behavior), see [`05-errors.md`](05-errors.md) |
 | 06 | Modules / packages | [KDR-0011](../kdr/0011-package-capabilities.md), [KDR-0017](../kdr/0017-function-capabilities.md) — **implemented**, see [`06-modules-packages.md`](06-modules-packages.md) |
 | 07 | Interfaces | [KDR-0003](../kdr/0003-no-inheritance.md) — **landed**, see [`07-interfaces.md`](07-interfaces.md) and [`docs/milestone-status.md`](../milestone-status.md) §M5 |
 | 08 | Generics | [KDR-0022](../kdr/0022-interface-constrained-generics.md) — **landed**, see [`08-generics.md`](08-generics.md) and [`docs/generics-implementation.md`](../generics-implementation.md) |

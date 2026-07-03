@@ -70,8 +70,9 @@ landed. M8 implementation has started, but there is no 0.1.0 release yet.
 
 ## Documentation/specification gaps
 
-- Spec chapters 2, 3, 5, 12, and 13 are not authored as standalone full
+- Spec chapters 12 (FFI) and 13 (testing) are not authored as standalone full
   chapters; Core and conformance cover existing behavior where applicable.
+  Chapters 2, 3, and 5 are authored as consolidations of existing behavior.
 - Chapter 16 has been rebased to an explicit M8 base/deferred split. All base
   capability protocol fixtures exist and pass against the real `keel lsp`
   server; local-scope (parameter/`let`-binding) symbol resolution is not yet
