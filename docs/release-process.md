@@ -104,19 +104,21 @@ the release pass.
 
 ## 6. Build artifacts
 
-The current supported deliverable is source. The repository has no automated,
-cross-platform binary release pipeline, checksums/signing policy, SBOM output,
-or OCI publisher. Do not manually upload an ad-hoc binary and call it an
-official supported toolchain.
+`.github/workflows/release.yml` is the only sanctioned artifact path: a `v*`
+tag builds `keel`/`keelc` for Linux x86_64 and macOS arm64 with the release
+commit embedded (verified against `keel --version` in the job), packages
+tarballs with SHA-256 checksums, and attaches them to a **draft** GitHub
+release. Publishing the draft is a human decision gated on this process and
+[0.1.0 release readiness](0.1-release-readiness.md). Do not manually upload an
+ad-hoc binary and call it an official supported toolchain.
 
-Binary releases require a separate accepted process covering:
+Still missing, and required before anything stronger than a developer preview
+is claimed:
 
-- supported targets and build hosts;
-- reproducible release builders;
-- cryptographic checksums/signatures and key ownership;
+- cryptographic signatures (incl. macOS notarization) and key ownership;
 - provenance/SBOM generation;
-- installation and upgrade paths;
-- security backport lifetime.
+- upgrade paths and security backport lifetime;
+- an OCI publisher (M9).
 
 M9 owns reproducible OCI images; M11 owns removal of the Go backend dependency.
 
