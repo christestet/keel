@@ -1,6 +1,6 @@
 # KDR-0032: Type parameters and arguments use `<T>`
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-20
 - **Scope:** language
 

@@ -1,6 +1,6 @@
 # KDR-0035: Multi-line string literals
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-20
 - **Scope:** language
 

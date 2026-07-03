@@ -1,6 +1,6 @@
 # KDR-0041: HTTP error response helpers accept `Error`
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** stdlib
 

@@ -1,6 +1,6 @@
 # KDR-0034: Core boundary scalars
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-20
 - **Scope:** language
 

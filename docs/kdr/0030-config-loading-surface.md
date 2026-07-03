@@ -1,6 +1,6 @@
 # KDR-0030: `std.config` — configuration loading surface
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-19
 - **Scope:** stdlib
 

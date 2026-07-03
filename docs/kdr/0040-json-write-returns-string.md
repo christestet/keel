@@ -1,6 +1,6 @@
 # KDR-0040: `json.write` returns `String`
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-06-21
 - **Scope:** stdlib
 
