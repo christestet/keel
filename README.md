@@ -3,11 +3,14 @@
 > A typed, compiled, garbage-collected language for backend services that should
 > still be readable, reviewable, and deployable after five years of team churn.
 
-**Status: M7 complete — 221 conformance cases pass and 4 earlier-milestone
-rejection cases are intentionally skipped. M8 (incremental compiler core + LSP)
-is in progress. No public 0.1.0 release has been cut.** See
-[`ROADMAP.md`](ROADMAP.md), [`docs/milestone-status.md`](docs/milestone-status.md),
-and [`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
+**Status: 0.1.0 developer preview released (2026-07-03) — 222 conformance
+cases pass, 0 fail, 4 earlier-milestone rejection cases are intentionally
+skipped.** Install from the
+[GitHub releases page](https://github.com/christestet/keel/releases) — see
+[`docs/getting-started.md`](docs/getting-started.md). For scope and honest
+limitations see [`CHANGELOG.md`](CHANGELOG.md), [`ROADMAP.md`](ROADMAP.md),
+[`docs/milestone-status.md`](docs/milestone-status.md), and
+[`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
 
 ## What Keel is
 
