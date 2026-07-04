@@ -14,7 +14,7 @@ conformance tests (spec PR → test PR → implementation PR, per AGENTS.md).
 | 05 | Errors | [KDR-0005](../kdr/0005-no-exceptions.md) — **landed** (consolidation, no new behavior), see [`05-errors.md`](05-errors.md) |
 | 06 | Modules / packages | [KDR-0011](../kdr/0011-package-capabilities.md), [KDR-0017](../kdr/0017-function-capabilities.md) — **implemented**, see [`06-modules-packages.md`](06-modules-packages.md) |
 | 07 | Interfaces | [KDR-0003](../kdr/0003-no-inheritance.md) — **landed**, see [`07-interfaces.md`](07-interfaces.md) and [`docs/milestone-status.md`](../milestone-status.md) §M5 |
-| 08 | Generics | [KDR-0022](../kdr/0022-interface-constrained-generics.md) — **landed**, see [`08-generics.md`](08-generics.md) and [`docs/generics-implementation.md`](../generics-implementation.md) |
+| 08 | Generics | [KDR-0022](../kdr/0022-interface-constrained-generics.md) — **landed**, see [`08-generics.md`](08-generics.md) and [`docs/milestone-status.md`](../milestone-status.md) §M5 |
 | 09 | Concurrency (scope/spawn) | [KDR-0002](../kdr/0002-no-async-await.md), [KDR-0026](../kdr/0026-structured-concurrency-mechanism.md) — **specified** (impl pending), see [`09-concurrency.md`](09-concurrency.md) |
 | 10 | Memory (GC + arena) | [KDR-0012](../kdr/0012-gc-plus-scoped-arenas.md), [KDR-0016](../kdr/0016-scope-implicit-arenas.md) — **implemented** (tail-position escape check), see [`10-memory.md`](10-memory.md) |
 | 11 | Capabilities | [KDR-0011](../kdr/0011-package-capabilities.md), [KDR-0017](../kdr/0017-function-capabilities.md) — **implemented**, see [`11-capabilities.md`](11-capabilities.md) |

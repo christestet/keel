@@ -37,9 +37,8 @@ keel_build_incremental   1701        1000       over-budget
 
 All three metrics exceed their KDR-0019 budget on this run — this is a real
 compiler-performance gap on the reference machine itself, not a measurement
-artifact of a noisy or underpowered local sandbox. See
-[`docs/m8-status.md`](../../../docs/m8-status.md) for why `--enforce` stays
-off (enforcing budgets none of the three metrics currently meet would just
-block every future compiler PR, not signal a new regression) and for what
-closing this gap needs. `baseline.tsv` records these numbers so the 5%
-regression check still catches further slowdowns from here.
+artifact of a noisy or underpowered local sandbox. `baseline.tsv` records the
+current reference-machine numbers, and CI runs `--enforce` against them with
+`keel_build_incremental` as a documented `--known-gap`; the 5% regression check
+catches further slowdowns from here. See
+[`docs/milestone-status.md`](../../../docs/milestone-status.md) §M8.

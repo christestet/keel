@@ -1,5 +1,5 @@
-# Release artifacts for the 0.1.0 developer-preview gate
-# (docs/0.1-release-readiness.md, docs/release-process.md).
+# Release artifacts for the developer-preview gate
+# (docs/release-process.md, docs/compatibility.md).
 #
 # Triggered by a version tag. Builds keel/keelc for Linux x86_64 and macOS
 # arm64 with the release commit embedded (KEEL_BUILD_COMMIT -> `keel
@@ -65,7 +65,7 @@ jobs:
           gh release view "${TAG}" >/dev/null 2>&1 \
             || gh release create "${TAG}" --draft --verify-tag \
                  --title "keel ${TAG}" \
-                 --notes "Draft. Publishing requires the docs/0.1-release-readiness.md gate and the validation snapshot from docs/release-process.md." \
+                 --notes "Draft. Publishing requires the docs/release-process.md gate and its validation snapshot." \
             || true
           gh release upload "${TAG}" \
             "$staging.tar.gz" "$staging.tar.gz.sha256" --clobber

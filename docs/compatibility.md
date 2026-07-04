@@ -1,10 +1,11 @@
 # Compatibility policy
 
-Keel is pre-1.0 and has no published release line. This document distinguishes
+Keel is pre-1.0. The published `0.1.x` line (`v0.1.0`, `v0.1.1`) is a
+**developer preview**, not production infrastructure. This document distinguishes
 the compatibility mechanisms already enforced by the repository from the
-long-term promises in the language design. The first public developer-preview
-bar is tracked separately in
-[`0.1.0 release readiness`](0.1-release-readiness.md).
+long-term promises in the language design; the preview's honest scope and limits
+are the [Developer-preview scope](#developer-preview-scope-and-limits) section
+below.
 
 ## Current support level
 
@@ -17,10 +18,9 @@ No change may silently contradict an accepted KDR, normative specification, or
 passing conformance case. That process is the current compatibility control; it
 is not semantic-versioning stability for users.
 
-When 0.1.0 is published, it should be described as a developer preview unless a
-separate compatibility KDR creates a stronger support window. Do not infer
-production support, package ecosystem stability, or backports from the `0.1.0`
-version number.
+`0.1.x` is described as a developer preview; a stronger support window would
+require a separate compatibility KDR. Do not infer production support, package
+ecosystem stability, or backports from the `0.1.x` version number.
 
 ## Language compatibility
 
@@ -116,5 +116,24 @@ A 1.0 compatibility declaration still needs explicit decisions for:
 Those policies must be decided before release rather than inferred from this
 development implementation.
 
-For the narrower first-release checklist, see
-[`0.1.0 release readiness`](0.1-release-readiness.md).
+## Developer-preview scope and limits
+
+`0.1.x` is a developer preview. Its conformance-backed surface is listed in
+[`feature-status.md`](feature-status.md); its release mechanics are governed by
+[`release-process.md`](release-process.md).
+
+Honest limitations that must stay prominent in any preview presentation:
+
+- **Go toolchain required.** Executable generation still shells out to `go build`;
+  the native backend is M11. SQL cases may resolve `modernc.org/sqlite` from a
+  module cache or the network.
+- **Incremental build known-gap.** `keel build` creates a fresh query database
+  per invocation, so `keel_build_incremental` stays over budget and is a
+  documented `--known-gap` in the enforced KDR-0019 performance gate (see
+  [`milestone-status.md`](milestone-status.md) §M8).
+- **LSP is base-capability only.** `keel lsp` resolves module-level `fn`/`struct`
+  declarations by name; parameters and `let` bindings (local scopes) are not
+  indexed yet.
+- **Not in `0.1.x`:** package registry/publishing, native backend, reproducible
+  OCI image output, C FFI, OpenAPI client/server generation, dependency
+  lockfiles/version resolution, and any production support/backport window.

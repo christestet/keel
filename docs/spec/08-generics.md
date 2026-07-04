@@ -11,8 +11,7 @@ Implementation status: implemented end-to-end at M5 — parser, typechecker
 (`K0802`, `K0803`), KIR lowering, and Go backend. The backend erases each type
 parameter to its bound interface (KDR-0022 §2's dictionary passing, realized via
 Go interface tables; no monomorphization) and boxes primitives that carry
-`impl`s. See [`docs/milestone-status.md`](../milestone-status.md) §M5 and
-[`docs/generics-implementation.md`](../generics-implementation.md).
+`impl`s. See [`docs/milestone-status.md`](../milestone-status.md) §M5.
 
 Generics in Keel are structurally constrained by interfaces:
 

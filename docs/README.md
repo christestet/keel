@@ -52,8 +52,8 @@ normative prose, stop and file an issue rather than reconciling either silently.
   and compiler invariants.
 - [Conformance guide](../tests/conformance/README.md) — executable case format.
 
-Non-normative implementation notes live alongside this file as `*-status.md`,
-`*-implementation.md`, and `*-audit.md`. They record work; they do not define
+Non-normative implementation history is consolidated in
+[`milestone-status.md`](milestone-status.md); it records work and does not define
 the language.
 
 ## Contribute
@@ -65,7 +65,6 @@ the language.
 ## Releases and compatibility
 
 - [Compatibility policy](compatibility.md)
-- [0.1.0 release readiness](0.1-release-readiness.md)
 - [Changelog](../CHANGELOG.md)
 - [Release process](release-process.md)
 

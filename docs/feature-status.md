@@ -3,8 +3,8 @@
 This is the user-facing implementation snapshot. It summarizes implementation,
 not future design intent. Normative behavior lives in the specification and
 conformance suite; detailed work history lives in
-[milestone status](milestone-status.md). The first-release gate is tracked in
-[`0.1.0 release readiness`](0.1-release-readiness.md).
+[milestone status](milestone-status.md). The developer-preview scope and limits
+are in [`compatibility.md`](compatibility.md).
 
 Status meanings:
 
@@ -17,7 +17,8 @@ Status meanings:
 Current M7 gate: **221 passed, 0 failed, 5 intentionally skipped**. Four
 skipped cases are earlier-milestone rejection traps for features that
 subsequently landed; the fifth is the M8-gated audit case 829. The M8 gate is
-**222 passed, 0 failed, 4 skipped**. There is no published 0.1.0 release yet.
+**222 passed, 0 failed, 4 skipped**. `v0.1.0` and `v0.1.1` are published
+developer-preview releases (see [`compatibility.md`](compatibility.md)).
 
 ## Language
 
@@ -83,10 +84,11 @@ subsequently landed; the fifth is the M8-gated audit case 829. The M8 gate is
 - The strong no-network hermetic-build prose conflicts with current SQL module
   resolution. Documentation treats the implementation as the present limit;
   the normative/implementation gap still needs resolution.
-- 0.1.0 release readiness is blocked on nonzero M8 performance baselines and
-  CI enforcement (`keel lsp` itself now ships the full base capability set,
-  so [`docs/0.1-release-readiness.md`](0.1-release-readiness.md)'s LSP choice
-  is "ship it," not "omit it") and on release/install/version reporting.
+- The KDR-0019 performance gate is enforced in CI against checked-in baselines
+  (`keel_build_incremental` a documented `--known-gap`), `keel lsp` ships the
+  full base capability set, and `keel --version` reports version + commit. The
+  `0.1.x` developer-preview scope and remaining limits are in
+  [`compatibility.md`](compatibility.md).
 
 When a row changes, update this page in the same concern as the status change;
 do not present roadmap intent as implemented behavior.

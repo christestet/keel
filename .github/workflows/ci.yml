@@ -122,8 +122,8 @@ jobs:
   # M8a / KDR-0019 compile-time contract. This job's own machine is the
   # published reference machine (tests/performance/m8-reference/reference-machine.md)
   # precisely so the gate never depends on a contributor's local hardware.
-  # `--enforce` stays off until docs/m8-status.md records this job's own
-  # output as the checked-in baseline (see that file for current status).
+  # `--enforce` is on against tests/performance/m8-reference/baseline.tsv;
+  # keel_build_incremental is a documented --known-gap (docs/milestone-status.md §M8).
   m8-benchmark:
     needs: changes
     if: needs.changes.outputs.compiler == 'true' || github.event_name == 'workflow_dispatch'
@@ -133,7 +133,7 @@ jobs:
     # a warmed toolchain (what a developer hits building their first Keel
     # program on an existing Go install) — NOT a first-ever Go std-lib compile.
     # Without this, every run recompiled the Go std lib from scratch and the
-    # metric mostly measured Go bootstrap, not keelc. See docs/m8-build-time-profile.md.
+    # metric mostly measured Go bootstrap, not keelc.
     env:
       GOCACHE: ${{ github.workspace }}/.gocache
     steps:
