@@ -11,6 +11,13 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # release-please.yml calls this after it pushes the version tag, so the same
+  # build serves both the automated path and a manual `git push origin vX.Y.Z`.
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -25,6 +32,9 @@ jobs:
           - os: macos-latest
             slug: macos-arm64
     runs-on: ${{ matrix.os }}
+    # On a tag push this is the tag; on workflow_call the caller passes it in.
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -40,7 +50,7 @@ jobs:
             || { echo "release binary does not report the release commit"; exit 1; }
       - name: Package tarball with checksum
         run: |
-          staging="keel-${GITHUB_REF_NAME}-${{ matrix.slug }}"
+          staging="keel-${TAG}-${{ matrix.slug }}"
           mkdir "$staging"
           cp target/release/keel target/release/keelc LICENSE README.md "$staging/"
           tar czf "$staging.tar.gz" "$staging"
@@ -49,13 +59,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          staging="keel-${GITHUB_REF_NAME}-${{ matrix.slug }}"
+          staging="keel-${TAG}-${{ matrix.slug }}"
           # Both matrix jobs may race to create the draft; losing the race is fine,
           # the upload below is what each job actually owns.
-          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 \
-            || gh release create "${GITHUB_REF_NAME}" --draft --verify-tag \
-                 --title "keel ${GITHUB_REF_NAME}" \
+          gh release view "${TAG}" >/dev/null 2>&1 \
+            || gh release create "${TAG}" --draft --verify-tag \
+                 --title "keel ${TAG}" \
                  --notes "Draft. Publishing requires the docs/0.1-release-readiness.md gate and the validation snapshot from docs/release-process.md." \
             || true
-          gh release upload "${GITHUB_REF_NAME}" \
+          gh release upload "${TAG}" \
             "$staging.tar.gz" "$staging.tar.gz.sha256" --clobber

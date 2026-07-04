@@ -1,10 +1,16 @@
 # Maintains a "chore(main): release X.Y.Z" PR with the version bump
 # (all workspace Cargo.toml files) and CHANGELOG.md entry, derived from
-# Conventional Commits since the last release. Merging that PR pushes the
-# `vX.Y.Z` tag directly (skip-github-release: true — no GitHub Release
-# object here); the existing tag-triggered release.yml then builds binaries
-# and opens the DRAFT release, per docs/release-process.md's human-publishes
-# gate.
+# Conventional Commits since the last release.
+#
+# skip-github-release: true means release-please itself creates NO tag and NO
+# GitHub Release (it only owns the PR). When that PR merges, the manifest on
+# main flips to the new version; the tag step below pushes `vX.Y.Z` and then
+# calls release.yml to build binaries and open the DRAFT release. Publishing
+# the draft stays a human decision, per docs/release-process.md.
+#
+# The tag is pushed with GITHUB_TOKEN, which deliberately does NOT re-trigger
+# release.yml's `on: push tags` (avoids a double build); we invoke release.yml
+# explicitly via workflow_call instead.
 name: release-please
 
 on:
@@ -18,8 +24,37 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      tagged: ${{ steps.tag.outputs.tagged }}
     steps:
       - uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - uses: actions/checkout@v7
+      - name: Push version tag when the release PR just merged
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(jq -r '."."' .release-please-manifest.json)"
+          tag="v${version}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "${tag} already exists — no release PR merged on this push."
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git tag -a "${tag}" -m "keel ${tag}" "${GITHUB_SHA}"
+          git push origin "${tag}"
+          echo "tagged=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: release-please
+    if: needs.release-please.outputs.tagged == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag }}
