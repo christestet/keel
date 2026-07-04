@@ -199,7 +199,7 @@ pub fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel build --image <file.keel> [-o <path>] [--arch amd64|arm64]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version\n\n--milestone defaults to the latest implemented milestone (M7); pass an\nearlier M<N> only to check conformance against that milestone's gate.\n--image packages the built binary as an OCI Image Layout instead of a plain\nbinary (spec ch19); -o defaults to <file-stem>.oci beside the source.\n--arch selects the image's target CPU architecture (default amd64)."
+        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel build <file.keel> --image [-o <path>] [--arch amd64|arm64]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version\n\n--milestone defaults to the latest implemented milestone (M7); pass an\nearlier M<N> only to check conformance against that milestone's gate.\n--image packages the built binary as an OCI Image Layout instead of a plain\nbinary (spec ch19); -o defaults to <file-stem>.oci beside the source.\n--arch selects the image's target CPU architecture (default amd64)."
     );
 }
 
