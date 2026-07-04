@@ -352,6 +352,12 @@ fn build_image(source_path: &Path, go_source: &str, output: Option<&Path>) -> Re
     let mut command = Command::new("go");
     command
         .env("GOOS", "linux")
+        // Pin GOARCH so the layer is a pure function of the forced target
+        // platform (spec §19.2/§19.5: byte-identical "on any host"), and so the
+        // binary matches the config's hardcoded architecture (image.rs). Without
+        // this, an arm64 build host emits a linux/arm64 binary labeled amd64 —
+        // exec-format-error under emulation on that same host's runtime.
+        .env("GOARCH", "amd64")
         .env("CGO_ENABLED", "0")
         .arg("build")
         .arg("-trimpath")
