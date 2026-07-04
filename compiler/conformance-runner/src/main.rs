@@ -454,14 +454,14 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
             {
                 Ok(o) => o,
                 Err(e) => {
-                    let _ = fs::remove_file(&binary);
+                    remove_build_artifacts(&binary);
                     return Outcome::Fail(format!(
                         "could not run built binary `{}`: {e}",
                         binary.display()
                     ));
                 }
             };
-            let _ = fs::remove_file(&binary);
+            remove_build_artifacts(&binary);
             let stdout = normalize(&String::from_utf8_lossy(&run.stdout));
             let stderr = String::from_utf8_lossy(&run.stderr).to_string();
             (run, stdout, stderr)
@@ -586,6 +586,18 @@ fn run_gen_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Out
 
 /// `mode = "repro"`: two clean `keelc build`s must be byte-identical, then one
 /// binary is run and its stdout matched (spec ch18, hermetic builds).
+/// Remove a `keel build` output and its up-to-date stamp (the driver's build
+/// cache, keelc-driver/src/build_cache.rs): checked-in case directories must
+/// stay clean, and every conformance build must be a real build, never a
+/// cached no-op.
+fn remove_build_artifacts(binary: &Path) {
+    let _ = fs::remove_file(binary);
+    if let (Some(dir), Some(name)) = (binary.parent(), binary.file_name().and_then(|n| n.to_str()))
+    {
+        let _ = fs::remove_file(dir.join(format!(".{name}.keelstamp")));
+    }
+}
+
 fn run_repro_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome {
     let exe = format!("main{}", std::env::consts::EXE_SUFFIX);
     let binary = case.dir.join(&exe);
@@ -608,19 +620,24 @@ fn run_repro_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> O
         fs::read(&binary).map_err(|e| Outcome::Fail(format!("could not read built binary: {e}")))
     };
 
+    // Strip any leftover artifacts so build 1 is real, not a cached no-op.
+    remove_build_artifacts(&binary);
     let first = match build("build 1") {
         Ok(bytes) => bytes,
         Err(o) => return o,
     };
+    // Build 2 must also be a real build: the byte-identical contract is about
+    // rebuilding (spec ch18), not about the driver's up-to-date cutoff.
+    remove_build_artifacts(&binary);
     let second = match build("build 2") {
         Ok(bytes) => bytes,
         Err(o) => {
-            let _ = fs::remove_file(&binary);
+            remove_build_artifacts(&binary);
             return o;
         }
     };
     if first != second {
-        let _ = fs::remove_file(&binary);
+        remove_build_artifacts(&binary);
         return Outcome::Fail(format!(
             "two clean builds are not byte-identical ({} vs {} bytes)",
             first.len(),
@@ -635,7 +652,7 @@ fn run_repro_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> O
         .current_dir(&case.dir)
         .stdin(Stdio::null())
         .output();
-    let _ = fs::remove_file(&binary);
+    remove_build_artifacts(&binary);
     let run = match run {
         Ok(o) => o,
         Err(e) => return Outcome::Fail(format!("could not run built binary: {e}")),
