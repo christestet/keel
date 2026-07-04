@@ -75,6 +75,14 @@ go build -trimpath -buildvcs=false -o <artifact>
 The artifact is written beside the input and named after its file stem
 (`service.keel` produces `service`, plus the platform executable suffix).
 
+A clean, diagnostic-free build also writes a hidden stamp beside the artifact
+(`.service.keelstamp`) recording the build inputs (source, compiler, Go
+toolchain, milestone, artifact hash). Re-running `keel build` with identical
+inputs verifies the stamp and the artifact's contents, then exits without
+recompiling — delete the stamp (or the artifact) to force a full rebuild. A
+build that emits any diagnostic never writes a stamp, so warnings are
+reprinted on every build.
+
 The reproducibility conformance case verifies byte-identical output for the
 same Core input. Programs importing `std.sql` currently cause the driver to
 create a Go module and run `go mod tidy` for `modernc.org/sqlite`; that operation

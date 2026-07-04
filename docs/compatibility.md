@@ -127,9 +127,10 @@ Honest limitations that must stay prominent in any preview presentation:
 - **Go toolchain required.** Executable generation still shells out to `go build`;
   the native backend is M11. SQL cases may resolve `modernc.org/sqlite` from a
   module cache or the network.
-- **Incremental build = whole-build cutoff only.** An unchanged `keel build`
-  is a verified no-op (a stamp beside the output binary records the source,
-  compiler, and Go-toolchain inputs), which is what the enforced
+- **Incremental build = whole-build cutoff only.** On the development branch
+  (post-`v0.1.1`; the published preview binaries always rebuild), an unchanged
+  `keel build` is a verified no-op (a stamp beside the output binary records
+  the source, compiler, and Go-toolchain inputs), which is what the enforced
   `keel_build_incremental` budget measures. An *edited* source still reruns
   the full pipeline: the query database is fresh per invocation, and
   per-module reuse across invocations is future work (see
