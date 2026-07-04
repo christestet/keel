@@ -24,19 +24,21 @@ conformance, compiler, or harness changes into the release commit.
 
 ## 2. Choose the version
 
-Before 1.0, use `0.MINOR.PATCH`:
+`release-please` (`.github/workflows/release-please.yml`,
+`release-please-config.json`) does this mechanically from
+[Conventional Commits](https://www.conventionalcommits.org/) merged to `main`
+since the last tag, and keeps every workspace crate version and
+`CHANGELOG.md` in sync via a standing `chore(main): release X.Y.Z` PR. Before
+1.0 it treats `feat` as `MINOR` and `fix`/`docs`/etc. as `PATCH`:
 
-- increment `MINOR` for a completed feature milestone or intentional language
-  surface addition;
-- increment `PATCH` for fixes/documentation that preserve the conformance-backed
+- `MINOR` for a completed feature milestone or intentional language surface
+  addition;
+- `PATCH` for fixes/documentation that preserve the conformance-backed
   surface.
 
-The repository currently contains Cargo package version `0.1.0`, but that value
-has not been published and is not evidence of a release.
-
-Update every workspace crate version consistently or document why an internal
-crate differs. Package-manifest versions in conformance fixtures are test data
-and are not release versions.
+Review the proposed version and changelog for accuracy before merging; a
+mis-typed commit type produces a wrong bump. Package-manifest versions in
+conformance fixtures are test data and are not release versions.
 
 ## 3. Freeze observable inputs
 
@@ -91,8 +93,9 @@ the release pass.
 
 ## 5. Update release documentation
 
-- Move relevant `CHANGELOG.md` entries from `Unreleased` to
-  `## [VERSION] — YYYY-MM-DD`.
+- `release-please` moves `CHANGELOG.md` entries out of `Unreleased` into
+  `## [VERSION] — YYYY-MM-DD` as part of its release PR; review the generated
+  section for accuracy rather than writing it by hand.
 - Update `README.md`, [feature status](feature-status.md), milestone status, and
   compatibility/support statements to the exact released state.
 - Verify all CLI examples against the release binary.
@@ -124,15 +127,15 @@ M9 owns reproducible OCI images; M11 owns removal of the Go backend dependency.
 
 ## 7. Tag and announce
 
-After the release commit is reviewed and validation evidence is attached:
-
-```sh
-git tag -a vVERSION -m "Keel vVERSION"
-```
-
-Tagging/pushing is a maintainer action. The announcement links the changelog,
-compatibility policy, security policy, installation instructions, and exact
-validation summary. It distinguishes implemented behavior from roadmap work.
+After the release commit is reviewed and validation evidence is attached,
+merge the standing `chore(main): release X.Y.Z` PR that `release-please`
+opened. Merging pushes the `vVERSION` tag directly (it does not create a
+GitHub Release itself), which triggers `release.yml` to build binaries and
+open the DRAFT GitHub release. Publishing that draft remains a manual,
+reviewed step — CI never announces a release on its own. The announcement
+links the changelog, compatibility policy, security policy, installation
+instructions, and exact validation summary. It distinguishes implemented
+behavior from roadmap work.
 
 ## 8. After release
 

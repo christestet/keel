@@ -51,8 +51,14 @@ task seems to require violating milestone order, the task is mis-scoped — say 
 - Rust: default rustfmt + clippy::pedantic (no per-crate clippy.toml exists
   yet; suppress locally or open a KDR for project-wide rules). No `unsafe` in
   keelc without a KDR.
-- Commit messages: `m2: typecheck exhaustive match (K0301, K0302)` — milestone
-  prefix, imperative, error codes when relevant.
+- Commit messages: [Conventional Commits](https://www.conventionalcommits.org/),
+  e.g. `feat(m2): typecheck exhaustive match (K0301, K0302)`. Type is
+  `feat|fix|docs|refactor|test|chore|perf`; scope is the milestone or area
+  (`m8`, `harness`, `pages`); error codes go in the summary when relevant.
+  `!` after the type/scope (`feat(m9)!: ...`) marks a breaking change —
+  pre-1.0, that means a language-surface removal, not an addition.
+  release-please derives version bumps and `CHANGELOG.md` from these, so the
+  type must match the actual change, not just read well.
 
 ## What "done" means
 

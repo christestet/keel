@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-component-in-tag": false,
+  "skip-github-release": true,
+  "changelog-path": "CHANGELOG.md",
+  "packages": {
+    ".": {
+      "package-name": "keel",
+      "extra-files": [
+        { "type": "toml", "path": "compiler/conformance-runner/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-driver/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-span/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-diag/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-lex/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-ast/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-parse/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-types/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-resolve/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-kir/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-backend-go/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-query/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "toml", "path": "compiler/keelc-lsp/Cargo.toml", "jsonpath": "$.package.version" }
+      ]
+    }
+  }
+}
