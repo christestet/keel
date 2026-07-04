@@ -29,6 +29,16 @@ of build host. A dependency that cannot be statically linked for Linux under
 these constraints fails the image build with **`K1901`** rather than silently
 producing a dynamically linked or host-targeted artifact.
 
+The target CPU architecture is selected by `--arch`, one of `amd64` or `arm64`,
+defaulting to `amd64` when the flag is omitted
+([`KDR-0108`](../kdr/0108-image-arch-selection.md)). The selected value sets
+**both** the backend's `GOARCH` and the emitted image config's `architecture`
+field (§19.3), so the binary and its declared platform can never disagree — the
+architecture is never derived from the build host. Each invocation produces a
+single-architecture image; targeting both platforms is two invocations
+(`--arch amd64`, then `--arch arm64`). An unrecognized `--arch` value is a usage
+error (exit code 2), not a Keel-program diagnostic.
+
 ## 19.3 Image contents: one layer, no base
 
 The produced image has exactly **one filesystem layer**: the built binary at a
@@ -43,7 +53,8 @@ hand-written Dockerfile:
   `/etc/passwd` entries. A service that needs any of these declares them as
   ordinary build inputs; the toolchain does not add them implicitly.
 - The image config's `Entrypoint` is the built binary; `WorkingDir` is `/`;
-  `User` is a fixed non-root numeric UID:GID. No health-probe wiring,
+  `User` is a fixed non-root numeric UID:GID; `architecture` is the value
+  selected by `--arch` (§19.2) and `os` is `linux`. No health-probe wiring,
   SIGTERM-handling installation, or Helm/manifest generation happens here —
   those are explicitly out of scope for M9 (`ROADMAP.md`).
 
@@ -70,7 +81,8 @@ Media types used are the plain OCI ones, uncompressed:
 
 Extending §18.1 property 4 (byte-identical rebuild) to the image artifact means
 every constructor of every layout file is a pure function of the §18.1 inputs
-plus the forced target platform (§19.2):
+plus the selected target platform (§19.2 — `GOOS=linux` and the `--arch` value),
+never of the build host:
 
 - Tar entries (the one layer) use a fixed mtime (Unix epoch 0) and fixed
   numeric uid/gid (0:0), regardless of the build host's clock or the invoking
@@ -83,8 +95,9 @@ plus the forced target platform (§19.2):
 - `index.json` and the manifest reference blobs by their sha256 digest only —
   no embedded build path, hostname, or VCS metadata, matching §18.2.
 
-Two clean `keel build --image` invocations of the same inputs on the same
-toolchain version, on any host, produce a byte-identical layout: identical
+Two clean `keel build --image` invocations of the same inputs and the same
+`--arch` on the same toolchain version, on any host, produce a byte-identical
+layout: identical
 `oci-layout`, identical `index.json` bytes, identical manifest and config blobs,
 identical layer blob, and therefore an identical top-level image digest. This is
 a **testable contract**, exactly as chapter 18 states for the plain binary: a
@@ -126,19 +139,24 @@ that cannot exist.
 | Case | Kind | Asserts |
 |---|---|---|
 | `860-image-reproducible` | accept (`mode = "image"`) | two clean `keel build --image` runs of the same program produce a byte-identical OCI layout (identical top-level digest); the layout parses as valid per the OCI Image Spec (`oci-layout` marker, `index.json`, manifest, config all present and consistent); the manifest lists exactly one layer and the config's `rootfs.diff_ids` has exactly one entry |
+| `861-image-arch-arm64` | accept (`mode = "image"`, `arch = "arm64"`) | two clean `keel build --image --arch arm64` runs produce a byte-identical layout (per-`--arch` reproducibility, §19.5), and the config's `architecture` field is `arm64` — confirming `--arch` drives both the cross-compiled binary and the config's declared platform (§19.2) |
 
 The `image` runner mode invokes `keelc build --image` twice into distinct
 output paths (mirroring the `repro` mode chapter 18 introduced for the plain
 binary), asserts the two layouts are byte-identical, and structurally
-validates one of them against §19.3/§19.4. One case combining these
-assertions matches how `850-build-reproducible` already combines
-byte-identity and stdout-correctness in a single case — the properties are
-one behavior (the §19.1 contract), not three.
+validates one of them against §19.3/§19.4. A case may set `arch = "<value>"`,
+which the runner passes as `--arch <value>` to both invocations and against
+which it checks the emitted config's `architecture` field; omitting it exercises
+the default (`amd64`). One case combining these assertions matches how
+`850-build-reproducible` already combines byte-identity and stdout-correctness
+in a single case — the properties are one behavior (the §19.1 contract).
 
 ## 19.9 Dependencies
 
 - Decision: [`KDR-0107`](../kdr/0107-oci-image-build.md) (daemonless,
   reproducible OCI image build).
+- Decision: [`KDR-0108`](../kdr/0108-image-arch-selection.md) (`--arch`
+  target-architecture selection).
 - Extends: [`18-hermetic-builds.md`](18-hermetic-builds.md) and
   [`KDR-0105`](../kdr/0105-hermetic-reproducible-builds.md) (the binary-level
   hermetic/reproducible contract this chapter scopes up to an image).
