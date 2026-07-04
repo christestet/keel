@@ -16,6 +16,13 @@ development record.
 - Added a `Dockerfile` (`docker build -t keel . && docker run --rm keel`) so
   the developer preview can be tried with no local Rust/Go install.
 
+## [0.1.1](https://github.com/christestet/keel/compare/v0.1.0...v0.1.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* **docs:** enable hidden files in pages artifact for Jekyll cache compatibility ([#39](https://github.com/christestet/keel/issues/39)) ([f864e2c](https://github.com/christestet/keel/commit/f864e2c407bcc449f39bfb00cf1f0556f38c23d0))
+
 ## [0.1.0] — 2026-07-03 (developer preview)
 
 First tagged version. A **developer preview**, not production infrastructure:
