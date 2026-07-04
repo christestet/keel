@@ -1,0 +1,4 @@
+[package]
+name = "pricing"
+version = "0.1.0"
+# capabilities omitted -> [] : pure arithmetic, provably harmless

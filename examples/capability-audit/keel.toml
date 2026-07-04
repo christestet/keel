@@ -1,0 +1,8 @@
+[package]
+name = "checkout_service"
+version = "0.1.0"
+capabilities = ["net"]
+
+[dependencies]
+payments = { path = "payments" }
+pricing = { path = "pricing" }

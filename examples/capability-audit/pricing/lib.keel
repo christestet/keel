@@ -1,0 +1,3 @@
+fn quote(unit_price_cents: Int, quantity: Int) -> Int {
+    unit_price_cents * quantity
+}

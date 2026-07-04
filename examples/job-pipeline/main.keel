@@ -1,0 +1,77 @@
+// main.keel — concurrent job pipeline (0.1.0 developer preview showcase)
+//
+// Targets M6: structured concurrency (`scope`/`spawn`, M5) fanning out three
+// jobs behind an interface + generic constraint, bounded by a deadline from
+// `std.time`, reported through `std.json` and `std.log`. No network,
+// database, or filesystem access — builds and runs anywhere the Go toolchain
+// (keelc's only backend dependency) is available.
+
+use std.time
+use std.json
+use std.log
+
+interface Job {
+    fn label(self) -> String
+    fn run(self) -> Result<Int, JobError>
+}
+
+enum JobError {
+    Failed(reason: String),
+}
+
+struct FetchJob {
+    name: String
+    input: Int
+}
+
+impl Job for FetchJob {
+    fn label(self) -> String {
+        self.name
+    }
+
+    fn run(self) -> Result<Int, JobError> {
+        if self.input < 0 {
+            return Err(Failed("negative input: {self.name}"))
+        }
+        Ok(self.input * self.input)
+    }
+}
+
+fn execute<T: Job>(job: T) -> Result<Int, JobError> {
+    job.run()
+}
+
+struct Report {
+    alpha: Int
+    beta: Int
+    gamma: Int
+    total: Int
+}
+
+fn pipeline() -> Result<Report, JobError> {
+    let job_a = FetchJob { name: "alpha", input: 3 }
+    let job_b = FetchJob { name: "beta", input: 5 }
+    let job_c = FetchJob { name: "gamma", input: 7 }
+
+    let report = scope(deadline: time.seconds(1)) {
+        let a = spawn execute(job_a)
+        let b = spawn execute(job_b)
+        let c = spawn execute(job_c)
+        Report { alpha: a.value, beta: b.value, gamma: c.value, total: a.value + b.value + c.value }
+    } catch err {
+        Cancelled => return Err(Failed("deadline exceeded")),
+        other      => return Err(other),
+    }
+
+    log.info("pipeline finished")
+    Ok(report)
+}
+
+fn main() {
+    log.info("pipeline starting")
+
+    match pipeline() {
+        Ok(report)           => print(json.write(report)),
+        Err(Failed(reason))  => log.error("pipeline failed: {reason}"),
+    }
+}

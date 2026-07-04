@@ -1,0 +1,20 @@
+// checkout_service — capability-audit showcase (0.1.0 developer preview).
+//
+// `payments` reaches a payment gateway over the network and declares `net`;
+// `pricing` is a pure helper that declares no capabilities at all. Building
+// this workspace and running `keel audit` proves, from the manifests alone,
+// exactly which package can open a socket, before a single line runs.
+//
+// Cross-package function calls are not yet linked into the executable by the
+// Go backend (a documented M7 boundary: `docs/feature-status.md` lists
+// "Packages | Partial | ... dependency source is not linked into the root
+// module"). This example exercises what IS implemented today: manifest
+// capability declaration, static enforcement (K1110/K1112), and the
+// deterministic `keel audit` report — see README.md for the enforcement demo.
+use std.log
+use payments.charge
+use pricing.quote
+
+fn main() {
+    log.info("checkout service ready")
+}

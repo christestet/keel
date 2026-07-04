@@ -1,0 +1,13 @@
+// payments — reaches an external payment gateway, hence `net`.
+use std.http
+
+enum PaymentError {
+    Declined(reason: String),
+}
+
+fn charge(cents: Int) -> Result<Int, PaymentError> {
+    if cents <= 0 {
+        return Err(Declined("nothing to charge"))
+    }
+    Ok(cents)
+}

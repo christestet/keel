@@ -24,6 +24,8 @@ point; contributor-only reading order remains in [`AGENTS.md`](../AGENTS.md).
 - [Deployment](deployment.md)
 - [Troubleshooting](troubleshooting.md)
 - [Users-service example](../examples/users-service/README.md)
+- [Job-pipeline example](../examples/job-pipeline/README.md)
+- [Capability-audit example](../examples/capability-audit/README.md)
 - [Security policy](../SECURITY.md)
 
 ## Understand the language
