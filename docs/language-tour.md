@@ -1,3 +1,4 @@
+{% raw %}
 # A tour of Keel
 
 This tour describes the language implemented through M7. The normative sources
@@ -322,3 +323,4 @@ and [capability specification](spec/11-capabilities.md).
 These boundaries are design choices or scheduled work, not invitations for the
 parser to accept unratified syntax. Consult the [roadmap](../ROADMAP.md) and
 [KDR index](kdr/INDEX.md) before proposing language surface.
+{% endraw %}

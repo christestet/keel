@@ -1,3 +1,4 @@
+{% raw %}
 # KDR-0035: Multi-line string literals
 
 - **Status:** accepted
@@ -71,3 +72,4 @@ at least three independent services, and a narrower rule (e.g. requiring an
 explicit continuation or a distinct raw-string form) measurably improves error
 locality without rejecting the deployed multi-line programs. Preference for
 another language's string syntax is not sufficient.
+{% endraw %}

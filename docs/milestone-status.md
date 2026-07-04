@@ -1,3 +1,4 @@
+{% raw %}
 # Milestone status
 
 Non-normative implementation status for the current milestone-based build-out.
@@ -256,3 +257,4 @@ Compiler-local rules: [`compiler/AGENTS.md`](../compiler/AGENTS.md)
 Spec rules: [`docs/spec/AGENTS.md`](spec/AGENTS.md)  
 KDR rules: [`docs/kdr/AGENTS.md`](kdr/AGENTS.md)  
 Conformance rules: [`tests/conformance/AGENTS.md`](../tests/conformance/AGENTS.md)
+{% endraw %}

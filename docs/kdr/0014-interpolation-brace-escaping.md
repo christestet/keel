@@ -1,3 +1,4 @@
+{% raw %}
 # KDR-0014: Brace escaping in string interpolation
 
 - **Status:** accepted
@@ -45,3 +46,4 @@ A measured, recurring readability or correctness bug class caused by doubling in
 real Keel code (e.g. brace-dense templates), OR the introduction of a raw-string
 literal that makes brace-doubling redundant. Aesthetic preference for backslashes
 is not evidence.
+{% endraw %}

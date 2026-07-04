@@ -1,3 +1,4 @@
+{% raw %}
 # 01 — Lexical structure
 
 This chapter is **normative**. It is the literate, testable form of the lexical
@@ -80,3 +81,4 @@ Per the three-PR rule, these cases land in the following conformance PR (band
 - Code registry: `K0004` registered in
   [`compiler/keelc-diag/src/registry.rs`](../../compiler/keelc-diag/src/registry.rs)
   at spec-writing time (spec discipline, [`docs/spec/AGENTS.md`](AGENTS.md)).
+{% endraw %}

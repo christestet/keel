@@ -59,8 +59,13 @@ defaults:
       type: pages
     values:
       layout: page
-      # Keel's own docs contain literal `{{ }}` (its interpolation syntax, see
-      # docs/kdr/0014-interpolation-brace-escaping.md and the spec) — Liquid
-      # tries to parse those as template tags and fails to build. Nothing in
-      # these docs needs Liquid, so turn it off for all page content.
-      render_with_liquid: false
+
+# The github-pages gem pins Jekyll 3.10, whose Liquid pass is unconditional:
+# any file containing a literal `{{` or `{%` gets run through the Liquid
+# parser regardless of front matter (render_with_liquid front matter/defaults
+# is not consulted in this Jekyll version — verified against
+# jekyll-3.10.0/lib/jekyll/convertible.rb). A few Keel docs describe Keel's
+# own `{{`/`}}` brace-escaping syntax and are wrapped in {% raw %}/{% endraw %}
+# for exactly that reason: docs/kdr/0014-interpolation-brace-escaping.md,
+# docs/kdr/0035-multiline-string-literals.md, docs/language-tour.md,
+# docs/milestone-status.md, docs/spec/01-lexical.md.
