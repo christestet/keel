@@ -10,20 +10,22 @@
 
 use crate::sha256::hex_digest;
 use crate::tar::TarBuilder;
+use crate::ImageArch;
 use std::fs;
 use std::path::Path;
 
 /// Path the binary is written to inside the image, and its `Entrypoint`.
 const ENTRYPOINT_PATH: &str = "app/main";
 
-pub fn write_oci_image(binary: &[u8], out: &Path) -> Result<(), String> {
+pub fn write_oci_image(binary: &[u8], out: &Path, arch: ImageArch) -> Result<(), String> {
     let mut layer_tar = TarBuilder::new();
     layer_tar.add_file(ENTRYPOINT_PATH, 0o755, binary);
     let layer_bytes = layer_tar.finish();
     let layer_digest = hex_digest(&layer_bytes);
 
+    let architecture = arch.oci_name();
     let config_bytes = format!(
-        r#"{{"architecture":"amd64","config":{{"Entrypoint":["/{ENTRYPOINT_PATH}"],"User":"65532:65532","WorkingDir":"/"}},"os":"linux","rootfs":{{"diff_ids":["sha256:{layer_digest}"],"type":"layers"}}}}"#
+        r#"{{"architecture":"{architecture}","config":{{"Entrypoint":["/{ENTRYPOINT_PATH}"],"User":"65532:65532","WorkingDir":"/"}},"os":"linux","rootfs":{{"diff_ids":["sha256:{layer_digest}"],"type":"layers"}}}}"#
     )
     .into_bytes();
     let config_digest = hex_digest(&config_bytes);
@@ -86,4 +88,48 @@ fn write_archive(files: &[(String, Vec<u8>)], out: &Path) -> Result<(), String> 
         }
     }
     fs::write(out, archive.finish()).map_err(|e| format!("could not write {out:?}: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_oci_image;
+    use crate::ImageArch;
+    use std::fs;
+
+    /// `--arch` reaches the config's `architecture` field, and different arches
+    /// yield different layouts (config digest differs → index.json differs).
+    #[test]
+    fn arch_selects_config_architecture() {
+        let base = std::env::temp_dir().join(format!("keel-image-test-{}", std::process::id()));
+        let dir_amd = base.join("amd64");
+        let dir_arm = base.join("arm64");
+        write_oci_image(b"binary bytes", &dir_amd, ImageArch::Amd64).unwrap();
+        write_oci_image(b"binary bytes", &dir_arm, ImageArch::Arm64).unwrap();
+
+        let read_config = |dir: &std::path::Path| -> String {
+            // Exactly two blobs are non-layer JSON (config, manifest); the config
+            // is the one carrying "architecture".
+            let blobs = dir.join("blobs/sha256");
+            for entry in fs::read_dir(&blobs).unwrap() {
+                let bytes = fs::read(entry.unwrap().path()).unwrap();
+                let s = String::from_utf8_lossy(&bytes).into_owned();
+                if s.contains("\"architecture\"") {
+                    return s;
+                }
+            }
+            panic!("no config blob found in {blobs:?}");
+        };
+
+        assert!(read_config(&dir_amd).contains(r#""architecture":"amd64""#));
+        assert!(read_config(&dir_arm).contains(r#""architecture":"arm64""#));
+
+        let index = |dir: &std::path::Path| fs::read(dir.join("index.json")).unwrap();
+        assert_ne!(
+            index(&dir_amd),
+            index(&dir_arm),
+            "different --arch must produce different layouts"
+        );
+
+        let _ = fs::remove_dir_all(&base);
+    }
 }
