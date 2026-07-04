@@ -126,6 +126,7 @@ of preflight and CI) fails the build if this table drifts from the registry.
 | `K1507` | unparseable config target |
 | `K1601` | malformed schema in keel gen |
 | `K1602` | unsupported schema construct in keel gen |
+| `K1901` | --image target cannot produce a static Linux binary |
 <!-- gen:diagnostics:end -->
 
 `K1402` and `K1403` are reserved but intentionally untriggered: Keel has no
