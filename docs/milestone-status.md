@@ -156,7 +156,7 @@ remain deferred. User-facing detail: [`docs/packages-and-capabilities.md`](packa
 (`KEEL_MILESTONE=M7 scripts/preflight.sh`). The 4 skips are not-in-Core
 rejections bounded to ≤M4/≤M6.
 
-## M8 — Incremental compiler core + LSP (implementation slice started)
+## M8 — Incremental compiler core + LSP (EXIT REACHED)
 
 | Area | State |
 |---|---|
@@ -167,9 +167,19 @@ rejections bounded to ≤M4/≤M6.
 | LSP fixtures | Done. [`tests/lsp/m8-base`](../tests/lsp/m8-base) covers all ten base-capability transcripts: initialize, diagnostics (ASCII + UTF-16/CRLF), shutdown, JSON-RPC errors, go-to-definition, hover, completion, document symbols, incremental `didChange`, and multi-line position mapping. |
 | Implementation | `keel check`, `run`, `test`, and `build` route parse, resolve, typecheck, KIR, Go emission, and diagnostics through Salsa queries. `keelc-lsp` and `keel lsp` are implemented and pass all ten fixtures byte-for-byte; module-level symbol resolution only (no local/parameter scope yet). |
 
-M8a delivers the query core and enforced KDR-0019 performance gate; M8b delivers
-the base LSP capabilities. The developer-preview scope and limits are in
-[`docs/compatibility.md`](compatibility.md).
+**Exit reached** (per [`ROADMAP.md`](../ROADMAP.md) §M8, all four criteria):
+M7 conformance remains byte-identical (222 passed, 0 failed, 4 bounded skips);
+the three KDR-0019 budgets are enforced green in CI (`keel_check` 237 ms /
+budget 300, `keel_build_cold` 1882 ms / budget 10 000, `keel_build_incremental`
+16 ms / budget 1000 — workflow run 28715698750, PR #43); golden transcripts
+pass for all ten advertised base capabilities; malformed JSON-RPC and malformed
+Keel source produce errors, never crashes (locked by the same fixtures).
+
+M8a delivered the query core and enforced KDR-0019 performance gate; M8b
+delivered the base LSP capabilities. The published `0.1.x` developer preview
+predates M8 exit (no build cutoff in `v0.1.1`); scope and limits are in
+[`docs/compatibility.md`](compatibility.md). Next milestone: M9 (reproducible
+OCI images).
 
 ## Planned milestones
 
@@ -239,6 +249,14 @@ builds, and edition selection; validate with:
 ```sh
 KEEL_MILESTONE=M7 scripts/preflight.sh
 # → 221 passed, 0 failed, 4 skipped
+```
+
+M8 routes the driver through the Salsa query core, adds `keel lsp`, the
+KDR-0019 benchmark gate, and the `keel build` up-to-date cutoff; validate with:
+
+```sh
+KEEL_MILESTONE=M8 scripts/preflight.sh
+# → 222 passed, 0 failed, 4 skipped
 ```
 
 ## Dependency chain

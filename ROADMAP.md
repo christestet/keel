@@ -161,6 +161,11 @@ pass in CI; a golden initialize/open/change/query/shutdown transcript passes for
 each advertised capability; malformed requests and malformed Keel source never
 crash the server.
 
+**Exit reached:** 222 passed, 0 failed, 4 intentionally gated Core rejections;
+all three KDR-0019 budgets enforced green in CI (the incremental budget via the
+`keel build` up-to-date cutoff). See
+[`docs/milestone-status.md`](docs/milestone-status.md) §M8.
+
 ## M9 — Reproducible OCI images
 
 Extend the chapter-18 hermetic build contract from the binary to its minimal
