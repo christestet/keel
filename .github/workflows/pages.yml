@@ -38,6 +38,8 @@ jobs:
           source: ./
           destination: ./_site
       - uses: actions/upload-pages-artifact@v5
+        with:
+          include-hidden-files: true
 
   deploy:
     needs: build
