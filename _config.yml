@@ -59,3 +59,8 @@ defaults:
       type: pages
     values:
       layout: page
+      # Keel's own docs contain literal `{{ }}` (its interpolation syntax, see
+      # docs/kdr/0014-interpolation-brace-escaping.md and the spec) — Liquid
+      # tries to parse those as template tags and fails to build. Nothing in
+      # these docs needs Liquid, so turn it off for all page content.
+      render_with_liquid: false
