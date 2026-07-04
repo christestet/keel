@@ -2,7 +2,10 @@
 
 mod build_cache;
 mod gen;
+mod image;
 mod manifest;
+mod sha256;
+mod tar;
 
 use keelc_ast::pretty::pretty_print;
 use keelc_diag::{Diagnostic, Severity};
@@ -45,20 +48,35 @@ pub fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let mut milestone = LATEST_MILESTONE;
+    let mut image_target = false;
+    let mut output_path: Option<PathBuf> = None;
     while let Some(arg) = args.next() {
-        if arg != OsStr::new("--milestone") {
+        if arg == OsStr::new("--milestone") {
+            let Some(value) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+            let Some(parsed) = parse_milestone(&value) else {
+                usage();
+                return ExitCode::from(2);
+            };
+            milestone = parsed;
+        } else if arg == OsStr::new("--image") {
+            image_target = true;
+        } else if arg == OsStr::new("-o") {
+            let Some(value) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+            output_path = Some(PathBuf::from(value));
+        } else {
             usage();
             return ExitCode::from(2);
         }
-        let Some(value) = args.next() else {
-            usage();
-            return ExitCode::from(2);
-        };
-        let Some(parsed) = parse_milestone(&value) else {
-            usage();
-            return ExitCode::from(2);
-        };
-        milestone = parsed;
+    }
+    if image_target && command.as_os_str().to_str() != Some("build") {
+        eprintln!("--image is only valid with `keel build`");
+        return ExitCode::from(2);
     }
 
     let path = Path::new(&path);
@@ -97,8 +115,9 @@ pub fn main() -> ExitCode {
     // Up-to-date cutoff (KDR-0019 incremental budget): when nothing that
     // feeds the binary changed since the last clean `keel build`, skip the
     // frontend and `go build` entirely. Runs after the manifest gate so an
-    // invalid workspace still fails every time.
-    let build_stamp = if command.as_os_str().to_str() == Some("build") {
+    // invalid workspace still fails every time. Skipped for `--image`: the
+    // stamp is keyed to a single binary output path, not an OCI layout.
+    let build_stamp = if command.as_os_str().to_str() == Some("build") && !image_target {
         build_cache::BuildStamp::compute(path, &text, milestone)
     } else {
         None
@@ -125,6 +144,13 @@ pub fn main() -> ExitCode {
             Ok(go_source) => run_go(go_source, "keelc-go-tests"),
             Err(code) => code,
         },
+        Some("build") if image_target => match query_go_source(&db, source, false) {
+            Ok(go_source) => match build_image(path, &go_source, output_path.as_deref()) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(code) => code,
+            },
+            Err(code) => code,
+        },
         Some("build") => match query_go_source(&db, source, false) {
             Ok(go_source) => match build_go_source(path, &go_source) {
                 Ok(()) => {
@@ -148,7 +174,7 @@ pub fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version\n\n--milestone defaults to the latest implemented milestone (M7); pass an\nearlier M<N> only to check conformance against that milestone's gate."
+        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel build --image <file.keel> [-o <path>]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version\n\n--milestone defaults to the latest implemented milestone (M7); pass an\nearlier M<N> only to check conformance against that milestone's gate.\n--image packages the built binary as an OCI Image Layout instead of a plain\nbinary (spec ch19); -o defaults to <file-stem>.oci beside the source."
     );
 }
 
@@ -300,6 +326,88 @@ fn build_go_source(source_path: &Path, go_source: &str) -> Result<(), ExitCode> 
         eprint!("{}", String::from_utf8_lossy(&output.stderr));
         Err(ExitCode::FAILURE)
     }
+}
+
+/// `keel build --image`: forces the static Linux target (spec §19.2) and
+/// packages the resulting binary into an OCI Image Layout (spec ch19,
+/// KDR-0107) instead of leaving a plain binary at `output_binary_path`.
+fn build_image(source_path: &Path, go_source: &str, output: Option<&Path>) -> Result<(), ExitCode> {
+    let temp_dir = env::temp_dir().join(format!("keelc-image-{}", std::process::id()));
+    if let Err(err) = fs::create_dir_all(&temp_dir) {
+        eprintln!(
+            "could not create Go build directory {}: {err}",
+            temp_dir.display()
+        );
+        return Err(ExitCode::from(2));
+    }
+    let _guard = TempDir(temp_dir.clone());
+
+    let module_mode = write_go_project(&temp_dir, go_source)?;
+    let binary_path = temp_dir.join("keel-image-binary");
+
+    let mut command = Command::new("go");
+    command
+        .env("GOOS", "linux")
+        .env("CGO_ENABLED", "0")
+        .arg("build")
+        .arg("-trimpath")
+        .arg("-buildvcs=false")
+        .arg("-o")
+        .arg(&binary_path);
+    if module_mode {
+        command.arg(".").current_dir(&temp_dir);
+    } else {
+        command.arg(temp_dir.join("main.go"));
+    }
+    let output_result = match command.stdin(Stdio::null()).output() {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("could not invoke Go toolchain: {err}");
+            return Err(ExitCode::from(2));
+        }
+    };
+    if !output_result.status.success() {
+        // Spec §19.2/§19.7: a dependency that can't be statically linked for
+        // Linux under CGO_ENABLED=0 fails loudly with K1901 rather than
+        // silently producing a dynamically linked or host-targeted artifact.
+        eprintln!("error[K1901]: --image target cannot produce a static Linux binary");
+        eprint!("{}", String::from_utf8_lossy(&output_result.stderr));
+        return Err(ExitCode::FAILURE);
+    }
+
+    let binary = match fs::read(&binary_path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!(
+                "could not read built binary {}: {err}",
+                binary_path.display()
+            );
+            return Err(ExitCode::from(2));
+        }
+    };
+
+    let out_path = match output {
+        Some(path) => path.to_path_buf(),
+        None => default_image_path(source_path),
+    };
+    image::write_oci_image(&binary, &out_path).map_err(|err| {
+        eprintln!("could not write OCI image: {err}");
+        ExitCode::from(2)
+    })
+}
+
+/// Default `--image` output when `-o` is omitted: source file stem plus
+/// `.oci`, beside the source, mirroring `build_cache::output_binary_path`.
+fn default_image_path(source_path: &Path) -> PathBuf {
+    let stem = source_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("keel-out");
+    let dir = source_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    dir.join(format!("{stem}.oci"))
 }
 
 fn parse_milestone(value: &OsStr) -> Option<u32> {
