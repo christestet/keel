@@ -28,6 +28,9 @@
 //!
 //! Exit codes: 0 = all green (or structure ok), 1 = failures, 2 = suite malformed.
 
+mod json;
+
+use json::Value;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -66,6 +69,10 @@ enum RunMode {
     /// `keelc build` run twice: the two binaries must be byte-identical, then
     /// one is run and its stdout matched (spec ch18, hermetic builds).
     Repro,
+    /// `keelc build --image` run twice: the two OCI Image Layouts must be
+    /// byte-identical, then one is validated structurally (spec ch19,
+    /// KDR-0107).
+    Image,
 }
 
 #[derive(Debug)]
@@ -163,7 +170,9 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             continue;
         }
 
-        let is_build_mode_no_stdout = mode == RunMode::Build;
+        // Image mode has no way to "run" the produced OCI artifact directly,
+        // so like Build it may omit expected output and just assert success.
+        let is_build_mode_no_stdout = mode == RunMode::Build || mode == RunMode::Image;
 
         let stdout_p = dir.join("expected.stdout");
         let error_p = dir.join("expected.error");
@@ -325,6 +334,7 @@ fn parse_case_toml(p: &Path) -> Result<(Option<u32>, Option<u32>, RunMode), Stri
                 "audit" => RunMode::Audit,
                 "gen" => RunMode::Gen,
                 "repro" => RunMode::Repro,
+                "image" => RunMode::Image,
                 other => return Err(format!("unrecognized mode `{other}`")),
             };
             continue;
@@ -416,15 +426,24 @@ fn run_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome
         }
         return run_repro_case(case, keelc, current_milestone);
     }
+    if case.mode == RunMode::Image {
+        if current_milestone < Some(9) {
+            return Outcome::Skip(format!(
+                "requires M9 image mode, running at M{}",
+                current_milestone.unwrap_or(0)
+            ));
+        }
+        return run_image_case(case, keelc, current_milestone);
+    }
 
     let command = match case.mode {
         RunMode::Test => "test",
         RunMode::Build => "build",
         RunMode::Run => "run",
         RunMode::Audit => "audit",
-        // Gen/Repro return above; the match stays exhaustive without a panic.
-        RunMode::Gen | RunMode::Repro => {
-            return Outcome::Fail("internal: gen/repro fell through".into())
+        // Gen/Repro/Image return above; the match stays exhaustive without a panic.
+        RunMode::Gen | RunMode::Repro | RunMode::Image => {
+            return Outcome::Fail("internal: gen/repro/image fell through".into())
         }
     };
     let out = match invoke_keelc(case, keelc, command, current_milestone) {
@@ -671,6 +690,187 @@ fn run_repro_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> O
             Outcome::Fail("repro mode does not support expected.error".into())
         }
     }
+}
+
+/// `mode = "image"`: two clean `keelc build --image` runs must produce a
+/// byte-identical OCI Image Layout, which must also be structurally valid
+/// per spec ch19 / KDR-0107 (one layer, one `diff_ids` entry). Reproducibility
+/// is the only expectation supported; `expected.stdout`/`expected.error` do
+/// not apply (there is no running the image outside a container runtime).
+fn run_image_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome {
+    if case.expectation != Expectation::BuildOnly {
+        return Outcome::Fail(
+            "image mode only supports BuildOnly (no expected.stdout/error)".into(),
+        );
+    }
+    let out1 = case.dir.join("image1.oci");
+    let out2 = case.dir.join("image2.oci");
+    let cleanup = || {
+        let _ = fs::remove_dir_all(&out1);
+        let _ = fs::remove_dir_all(&out2);
+    };
+
+    // `-o` is a bare, case-relative name: the child's cwd is already
+    // `case.dir` (`current_dir` below), so a full path here would resolve
+    // twice and nest under the case directory.
+    let build = |label: &str, out_name: &str| -> Result<(), Outcome> {
+        let mut cmd = Command::new(keelc);
+        cmd.arg("build")
+            .arg("main.keel")
+            .arg("--image")
+            .arg("-o")
+            .arg(out_name)
+            .current_dir(&case.dir);
+        milestone_args(&mut cmd, current_milestone);
+        let out = cmd
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| Outcome::Fail(format!("could not invoke `{keelc}`: {e}")))?;
+        if !out.status.success() {
+            return Err(Outcome::Fail(format!(
+                "expected successful image build ({label}), keelc exited {:?}\n--- stderr ---\n{}",
+                out.status.code(),
+                String::from_utf8_lossy(&out.stderr)
+            )));
+        }
+        Ok(())
+    };
+
+    if let Err(o) = build("build 1", "image1.oci") {
+        cleanup();
+        return o;
+    }
+    if let Err(o) = build("build 2", "image2.oci") {
+        cleanup();
+        return o;
+    }
+
+    let (files1, files2) = match (read_layout_files(&out1), read_layout_files(&out2)) {
+        (Ok(a), Ok(b)) => (a, b),
+        (Err(e), _) | (_, Err(e)) => {
+            cleanup();
+            return Outcome::Fail(e);
+        }
+    };
+    if files1 != files2 {
+        cleanup();
+        return Outcome::Fail("two clean `--image` builds are not byte-identical".into());
+    }
+
+    let validated = validate_oci_layout(&out1, &files1);
+    cleanup();
+    match validated {
+        Ok(()) => Outcome::Pass,
+        Err(e) => Outcome::Fail(e),
+    }
+}
+
+/// Recursively reads an OCI layout directory into a sorted `(relative path,
+/// bytes)` list, so two layouts can be compared without depending on
+/// filesystem iteration order (AGENTS.md hard rule 7).
+fn read_layout_files(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let abs = dir.join(&rel);
+        let entries = fs::read_dir(&abs).map_err(|e| format!("could not read {abs:?}: {e}"))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("could not read entry in {abs:?}: {e}"))?;
+            let rel_path = rel.join(entry.file_name());
+            let file_type = entry
+                .file_type()
+                .map_err(|e| format!("could not stat {:?}: {e}", entry.path()))?;
+            if file_type.is_dir() {
+                stack.push(rel_path);
+            } else {
+                let bytes = fs::read(entry.path())
+                    .map_err(|e| format!("could not read {:?}: {e}", entry.path()))?;
+                out.push((rel_path.to_string_lossy().replace('\\', "/"), bytes));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
+/// Structural validation per spec §19.3/§19.4: `oci-layout` marker and
+/// `index.json` present; the chain `index -> manifest -> config` resolves;
+/// exactly one layer in the manifest and exactly one `diff_ids` entry in the
+/// config.
+fn validate_oci_layout(dir: &Path, files: &[(String, Vec<u8>)]) -> Result<(), String> {
+    if !files.iter().any(|(p, _)| p == "oci-layout") {
+        return Err("image layout is missing the `oci-layout` marker file".into());
+    }
+    let index_bytes = &files
+        .iter()
+        .find(|(p, _)| p == "index.json")
+        .ok_or("image layout is missing `index.json`")?
+        .1;
+    let index = json::parse(&String::from_utf8_lossy(index_bytes))?;
+    let manifest_desc = index
+        .get("manifests")
+        .and_then(Value::as_array)
+        .and_then(|m| m.first())
+        .ok_or("index.json: missing manifests[0]")?;
+
+    let manifest_bytes = read_descriptor(dir, manifest_desc, "index.json: manifests[0]")?;
+    let manifest = json::parse(&String::from_utf8_lossy(&manifest_bytes))?;
+    let layers = manifest
+        .get("layers")
+        .and_then(Value::as_array)
+        .ok_or("manifest: missing `layers` array")?;
+    if layers.len() != 1 {
+        return Err(format!(
+            "manifest must list exactly one layer (spec §19.3), found {}",
+            layers.len()
+        ));
+    }
+    read_descriptor(dir, &layers[0], "manifest: layers[0]")?;
+
+    let config_desc = manifest.get("config").ok_or("manifest: missing `config`")?;
+    let config_bytes = read_descriptor(dir, config_desc, "manifest: config")?;
+    let config = json::parse(&String::from_utf8_lossy(&config_bytes))?;
+    let diff_ids = config
+        .get("rootfs")
+        .and_then(|r| r.get("diff_ids"))
+        .and_then(Value::as_array)
+        .ok_or("config: missing rootfs.diff_ids")?;
+    if diff_ids.len() != 1 {
+        return Err(format!(
+            "config rootfs.diff_ids must have exactly one entry, found {}",
+            diff_ids.len()
+        ));
+    }
+    Ok(())
+}
+
+/// Reads the blob a descriptor `{digest, size}` references and checks its
+/// byte length against the declared `size` — the descriptor's own
+/// self-consistency check, not just that the file exists.
+fn read_descriptor(dir: &Path, desc: &Value, what: &str) -> Result<Vec<u8>, String> {
+    let digest = desc
+        .get("digest")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{what}: missing digest"))?;
+    let size = desc
+        .get("size")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("{what}: missing size"))?;
+    let (algo, hex) = digest
+        .split_once(':')
+        .ok_or_else(|| format!("{what}: malformed digest `{digest}`"))?;
+    if algo != "sha256" {
+        return Err(format!("{what}: unsupported digest algorithm `{algo}`"));
+    }
+    let bytes = fs::read(dir.join("blobs/sha256").join(hex))
+        .map_err(|e| format!("{what}: could not read blob {digest}: {e}"))?;
+    if bytes.len() as u64 != size {
+        return Err(format!(
+            "{what}: descriptor size {size} does not match blob length {}",
+            bytes.len()
+        ));
+    }
+    Ok(bytes)
 }
 
 fn check_m2_semantics(case: &Case, keelc: &str, current_milestone: Option<u32>) -> Outcome {
