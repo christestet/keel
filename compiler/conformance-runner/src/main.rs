@@ -89,6 +89,9 @@ struct Case {
     expected_warning: Option<WarningCheck>,
     /// How to execute an accept-case: `keelc run` (default) or `keelc test`.
     mode: RunMode,
+    /// Image mode only: target arch passed as `--arch <v>` and asserted against
+    /// the config's `architecture` field (spec §19.2/§19.8). `None` = default.
+    arch: Option<String>,
 }
 
 #[derive(Debug)]
@@ -148,11 +151,12 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
         }
         seen_numbers.push((number, name.clone()));
 
-        // optional case.toml — `milestone = "MN"`, `until = "MN"`, and
-        // `mode = "run|test|build|audit|gen|repro"` are recognized; hand-parsed
-        // to keep the runner dependency-free.
-        let (milestone, until, mode) = match parse_case_toml(&dir.join("case.toml")) {
-            Ok(triple) => triple,
+        // optional case.toml — `milestone = "MN"`, `until = "MN"`,
+        // `mode = "run|test|build|audit|gen|repro|image"`, and (image only)
+        // `arch = "amd64|arm64"` are recognized; hand-parsed to stay
+        // dependency-free.
+        let (milestone, until, mode, arch) = match parse_case_toml(&dir.join("case.toml")) {
+            Ok(parsed) => parsed,
             Err(p) => {
                 err(format!("case.toml: {p}"));
                 continue;
@@ -234,6 +238,7 @@ fn discover(suite: &Path) -> Result<Vec<Case>, Vec<StructureError>> {
             until,
             expected_warning,
             mode,
+            arch,
         });
     }
 
@@ -291,13 +296,17 @@ fn parse_diagnostic_code(text: &str) -> Result<Expectation, String> {
     Ok(Expectation::Error { code, line })
 }
 
-fn parse_case_toml(p: &Path) -> Result<(Option<u32>, Option<u32>, RunMode), String> {
+#[allow(clippy::type_complexity)]
+fn parse_case_toml(
+    p: &Path,
+) -> Result<(Option<u32>, Option<u32>, RunMode, Option<String>), String> {
     if !p.is_file() {
-        return Ok((None, None, RunMode::Run));
+        return Ok((None, None, RunMode::Run, None));
     }
     let mut milestone = None;
     let mut until = None;
     let mut mode = RunMode::Run;
+    let mut arch = None;
     for raw in read(p).lines() {
         let l = raw.split('#').next().unwrap_or("").trim();
         if l.is_empty() {
@@ -339,11 +348,26 @@ fn parse_case_toml(p: &Path) -> Result<(Option<u32>, Option<u32>, RunMode), Stri
             };
             continue;
         }
+        if let Some(v) = l.strip_prefix("arch") {
+            let v = v
+                .trim_start()
+                .strip_prefix('=')
+                .ok_or("expected `arch = \"amd64\"|\"arm64\"`")?;
+            let v = v.trim().trim_matches('"');
+            match v {
+                "amd64" | "arm64" => arch = Some(v.to_string()),
+                other => return Err(format!("unrecognized arch `{other}`")),
+            }
+            continue;
+        }
         return Err(format!(
-            "unrecognized key in `{l}` (only `milestone`, `until`, and `mode` are allowed)"
+            "unrecognized key in `{l}` (only `milestone`, `until`, `mode`, and `arch` are allowed)"
         ));
     }
-    Ok((milestone, until, mode))
+    if arch.is_some() && mode != RunMode::Image {
+        return Err("`arch` is only valid with `mode = \"image\"`".into());
+    }
+    Ok((milestone, until, mode, arch))
 }
 
 fn parse_milestone(s: &str) -> Result<u32, String> {
@@ -721,6 +745,9 @@ fn run_image_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> O
             .arg("-o")
             .arg(out_name)
             .current_dir(&case.dir);
+        if let Some(arch) = &case.arch {
+            cmd.arg("--arch").arg(arch);
+        }
         milestone_args(&mut cmd, current_milestone);
         let out = cmd
             .stdin(Stdio::null())
@@ -757,7 +784,7 @@ fn run_image_case(case: &Case, keelc: &str, current_milestone: Option<u32>) -> O
         return Outcome::Fail("two clean `--image` builds are not byte-identical".into());
     }
 
-    let validated = validate_oci_layout(&out1, &files1);
+    let validated = validate_oci_layout(&out1, &files1, case.arch.as_deref());
     cleanup();
     match validated {
         Ok(()) => Outcome::Pass,
@@ -797,7 +824,11 @@ fn read_layout_files(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
 /// `index.json` present; the chain `index -> manifest -> config` resolves;
 /// exactly one layer in the manifest and exactly one `diff_ids` entry in the
 /// config.
-fn validate_oci_layout(dir: &Path, files: &[(String, Vec<u8>)]) -> Result<(), String> {
+fn validate_oci_layout(
+    dir: &Path,
+    files: &[(String, Vec<u8>)],
+    expected_arch: Option<&str>,
+) -> Result<(), String> {
     if !files.iter().any(|(p, _)| p == "oci-layout") {
         return Err("image layout is missing the `oci-layout` marker file".into());
     }
@@ -840,6 +871,20 @@ fn validate_oci_layout(dir: &Path, files: &[(String, Vec<u8>)]) -> Result<(), St
             "config rootfs.diff_ids must have exactly one entry, found {}",
             diff_ids.len()
         ));
+    }
+    // Spec §19.2: the config's declared architecture must match the requested
+    // `--arch`. Only checked when the case pins one; the default-arch case
+    // asserts only reproducibility and structure.
+    if let Some(want) = expected_arch {
+        let got = config
+            .get("architecture")
+            .and_then(Value::as_str)
+            .ok_or("config: missing `architecture`")?;
+        if got != want {
+            return Err(format!(
+                "config architecture `{got}` does not match requested --arch `{want}` (spec §19.2)"
+            ));
+        }
     }
     Ok(())
 }
