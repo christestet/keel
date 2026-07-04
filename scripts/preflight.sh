@@ -36,7 +36,7 @@ cargo run -p conformance-runner -- --check
 # The runner's built-in default is M1; "done" means the *current* roadmap
 # milestone, so default it here. Bump on every milestone exit (ROADMAP.md);
 # export KEEL_MILESTONE to validate a different gate.
-export KEEL_MILESTONE="${KEEL_MILESTONE:-M8}"
+export KEEL_MILESTONE="${KEEL_MILESTONE:-M9}"
 if cargo metadata --no-deps --format-version 1 | grep -q '"name":"keelc-driver"'; then
   step "build keelc"
   cargo build --release -p keelc-driver
