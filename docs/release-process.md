@@ -1,12 +1,12 @@
 # Release process
 
-Keel has not published a release. This process defines the minimum bar for the
-first source release without pretending binary distribution, signing, support
-windows, or package infrastructure already exists.
+Keel publishes developer-preview releases (`0.1.x`). This process defines the
+minimum bar for a release without pretending binary distribution, signing,
+support windows, or package infrastructure already exists.
 
-For the first public developer-preview release, also apply the explicit
-[`0.1.0 release readiness`](0.1-release-readiness.md) gate. A source-only
-checkpoint and a usable public toolchain release are different claims.
+The developer-preview scope and honest limitations are in
+[`compatibility.md`](compatibility.md). A source-only checkpoint and a usable
+public toolchain release are different claims.
 
 ## 1. Confirm release scope
 
@@ -50,9 +50,8 @@ Record:
 - active language edition(s);
 - conformance count and intentional skips;
 - known implementation/specification gaps from
-  [feature status](feature-status.md).
-- for 0.1.0, the current checklist state from
-  [0.1.0 release readiness](0.1-release-readiness.md).
+  [feature status](feature-status.md) and the developer-preview limits in
+  [compatibility](compatibility.md).
 
 Do not claim support for an untested host/target.
 
@@ -100,8 +99,8 @@ the release pass.
   compatibility/support statements to the exact released state.
 - Verify all CLI examples against the release binary.
 - List known limitations prominently; roadmap items are not release features.
-- Link [0.1.0 release readiness](0.1-release-readiness.md) from the release
-  notes while 0.1.0 is still unreleased.
+- Link the developer-preview limits in [compatibility](compatibility.md) from
+  the release notes.
 - Ensure `SECURITY.md` names a working private reporting route before inviting
   external production use.
 
@@ -111,9 +110,9 @@ the release pass.
 tag builds `keel`/`keelc` for Linux x86_64 and macOS arm64 with the release
 commit embedded (verified against `keel --version` in the job), packages
 tarballs with SHA-256 checksums, and attaches them to a **draft** GitHub
-release. Publishing the draft is a human decision gated on this process and
-[0.1.0 release readiness](0.1-release-readiness.md). Do not manually upload an
-ad-hoc binary and call it an official supported toolchain.
+release. Publishing the draft is a human decision gated on this process and the
+developer-preview scope in [compatibility](compatibility.md). Do not manually
+upload an ad-hoc binary and call it an official supported toolchain.
 
 Still missing, and required before anything stronger than a developer preview
 is claimed:

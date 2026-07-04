@@ -2,7 +2,7 @@
 
 This directory defines the public performance fixture for
 [`KDR-0019`](../../../docs/kdr/0019-compile-time-contract.md) and the M8 query
-core work tracked in [`docs/m8-status.md`](../../../docs/m8-status.md). It is a
+core work tracked in [`docs/milestone-status.md`](../../../docs/milestone-status.md) §M8. It is a
 fixture, not a conformance suite: it measures compiler latency and regression
 risk without defining language behavior.
 
@@ -34,11 +34,11 @@ metric	elapsed_ms	budget_ms	baseline_ms	status
 `baseline.tsv` carries the KDR-0019 budgets. `--known-gap METRIC` (repeatable)
 records and reports a metric without letting `--enforce` fail on it — use this
 only for a budget that is honestly unenforceable today for a documented reason
-(see [`docs/m8-status.md`](../../../docs/m8-status.md)), not to quietly widen
-the gate.
+(see [`docs/milestone-status.md`](../../../docs/milestone-status.md) §M8), not to
+quietly widen the gate.
 
 The `m8-benchmark` job in [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml)
 runs this fixture on every PR that touches `compiler/` (and on demand via
-`workflow_dispatch`), on the [reference machine](reference-machine.md). See
-`docs/m8-status.md` for whether `--enforce` is currently on and which metrics,
-if any, are `--known-gap`.
+`workflow_dispatch`), on the [reference machine](reference-machine.md) with
+`--enforce` on against `baseline.tsv`; `keel_build_incremental` is a documented
+`--known-gap`. See [`docs/milestone-status.md`](../../../docs/milestone-status.md) §M8.

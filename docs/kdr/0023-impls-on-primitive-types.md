@@ -27,7 +27,7 @@ signature," with no carve-out for primitives. The frozen conformance cases
 `impl Stringer for String`, etc., and depend on them. The M5 implementation
 follows both: structural satisfaction reads the type's `impl` blocks (boxing
 primitives into Go wrapper types because Go forbids methods on predeclared
-types — a codegen detail, see [`generics-implementation.md`](../generics-implementation.md)).
+types — a codegen detail, see [`spec/08-generics.md`](../spec/08-generics.md)).
 
 Spec [`08-generics.md`](../spec/08-generics.md) §8.3.1, however, states that
 primitives satisfy bounds via "compiler-built-in methods" and that for a

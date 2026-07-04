@@ -82,7 +82,7 @@ support are complete. See [`docs/milestone-status.md`](docs/milestone-status.md)
 discussion compiles, runs, and passes its test file.
 
 **Exit reached:** the users service runs full CRUD on SQLite; cases 804 and 806
-lock the database path. See [`docs/m6-status.md`](docs/m6-status.md).
+lock the database path. See [`docs/milestone-status.md`](docs/milestone-status.md) §M6.
 
 ## M7 — The differentiators
 
@@ -92,7 +92,7 @@ compiler (must exist before 1.0 even though edition 2 is years away). Specs:
 [`06-modules-packages.md`](docs/spec/06-modules-packages.md) and
 [`11-capabilities.md`](docs/spec/11-capabilities.md) are **specified** (impl
 pending); chapters 10 (arena/memory), 12 (FFI), 14 (editions) follow under the
-same spec → tests → impl discipline. Live note: [`docs/m7-status.md`](docs/m7-status.md).
+same spec → tests → impl discipline. See [`docs/milestone-status.md`](docs/milestone-status.md) §M7.
 
 **Exit (all six must hold — every differentiator demonstrable).** As with M6,
 the demo is aspirational and the compiler grows to meet it: the packaged
@@ -121,17 +121,17 @@ conformance:
    compiler though edition 2 is years away ([KDR-0001](docs/kdr/0001-editions.md)).
 
 **Exit reached:** 221 passed, 0 failed, 4 intentionally gated Core rejections.
-See [`docs/m7-status.md`](docs/m7-status.md).
+See [`docs/milestone-status.md`](docs/milestone-status.md) §M7.
 
 ## M8 — Incremental compiler core + LSP
 
 M8 has two ordered slices. M8a makes compiler work reusable and measurable;
-M8b exposes that work through LSP. The live plan is
-[`docs/m8-status.md`](docs/m8-status.md).
+M8b exposes that work through LSP. See
+[`docs/milestone-status.md`](docs/milestone-status.md) §M8.
 
-The first public 0.1.0 developer-preview release is not identical to M8 exit.
-Its additional release, documentation, installation, and known-limitation gates
-are tracked in [`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
+The published `0.1.x` developer preview is not identical to M8 exit. Its
+release, documentation, installation, and known-limitation scope is in
+[`docs/compatibility.md`](docs/compatibility.md).
 
 ### M8a — Query core and performance gate
 

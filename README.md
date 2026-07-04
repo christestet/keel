@@ -63,7 +63,7 @@ local Rust/Go install needed, or install from the
 [`docs/getting-started.md`](docs/getting-started.md). For scope and honest
 limitations see [`CHANGELOG.md`](CHANGELOG.md), [`ROADMAP.md`](ROADMAP.md),
 [`docs/milestone-status.md`](docs/milestone-status.md), and
-[`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
+[`docs/compatibility.md`](docs/compatibility.md).
 
 ## Repository map
 
@@ -73,7 +73,7 @@ limitations see [`CHANGELOG.md`](CHANGELOG.md), [`ROADMAP.md`](ROADMAP.md),
 | [`docs/getting-started.md`](docs/getting-started.md) | Source-build quickstart. |
 | [`docs/language-tour.md`](docs/language-tour.md) | Implemented language tour. |
 | [`docs/feature-status.md`](docs/feature-status.md) | User-facing implementation matrix. |
-| [`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md) | Honest gate for a first public developer-preview release. |
+| [`docs/compatibility.md`](docs/compatibility.md) | Pre-1.0 compatibility policy and developer-preview scope/limits. |
 | [`docs/vision.md`](docs/vision.md) | The design document (v0.2): why Keel exists. |
 | [`docs/spec/`](docs/spec/00-spec-plan.md) | The normative language specification (in progress). |
 | [`docs/kdr/`](docs/kdr/INDEX.md) | Keel Decision Records — every adopted/rejected decision, with reopening clauses. |

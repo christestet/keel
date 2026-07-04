@@ -5,8 +5,8 @@ Non-normative implementation status for the current milestone-based build-out.
 The governing language definition is [`docs/spec/keel-core.md`](spec/keel-core.md);
 the executable spec is [`tests/conformance/`](../tests/conformance/).
 For milestone scope and exit criteria, see [`ROADMAP.md`](../ROADMAP.md).
-For the first public developer-preview release gate, see
-[`docs/0.1-release-readiness.md`](0.1-release-readiness.md).
+For the developer-preview scope and limits, see
+[`docs/compatibility.md`](compatibility.md).
 
 ## M1 — Frontend: lexer, parser, AST, diagnostics
 
@@ -55,8 +55,7 @@ For the first public developer-preview release gate, see
 **Done:** `keelc-kir` crate introduced; backend emits from explicitly-typed KIR.
 The resolver/typechecker is the single expression-inference owner and KIR
 consumes its span-keyed type results. Shared `TypeContext` declaration tables
-remain in `keelc-types`. See
-[`docs/m6-simplification-audit.md`](m6-simplification-audit.md).
+remain in `keelc-types`.
 
 ## M4 — Toolchain skeleton: CLI, fmt, test
 
@@ -89,7 +88,8 @@ receiver methods and primitive `impl`s become `keelBox_<Prim>` wrapper types
 (Go cannot attach methods to predeclared types). The typechecker emits `K0802`
 (method outside the bound, at the definition site) and `K0803` (type argument
 fails structural constraint satisfaction, at the call site). Cases `223`–`233`
-pass at M5. See [`docs/generics-implementation.md`](generics-implementation.md).
+pass at M5. See [`docs/spec/08-generics.md`](spec/08-generics.md) and
+[`KDR-0022`](kdr/0022-interface-constrained-generics.md).
 
 **Structured concurrency (partially done):** [`docs/spec/09-concurrency.md`](spec/09-concurrency.md)
 is implemented for the initial M5 executable slice. The compiler parses
@@ -119,8 +119,8 @@ all generic syntax.
 | Area | State |
 |---|---|
 | `std.time` / deadline / `check_cancel` | Done. `time.Duration`, `time.milliseconds`, `time.seconds`, `time.sleep`, `check_cancel()`, `scope(deadline: …)`. Conformance cases `716`–`723` pass. See [`docs/spec/15-stdlib-core.md §15.1–15.4`](spec/15-stdlib-core.md). |
-| `std.json` | Done. `json.parse[T]`, `json.write(value)`, strict and tolerant modes, struct/enum/Option/primitive codecs, formatter round-trip, `K1503` compile-time guard. Cases `724`–`735` pass. See [`docs/m6-status.md`](m6-status.md#stdjson). |
-| `std.http` | Done. Router model (`http.Router`, closure handlers, typed `path_param`/`query_param`), `http.serve`, `http.Request`/`Response`, response constructors, `K1504`/`K1505`. Cases `736`–`745`, `767`–`769` pass. See [`KDR-0031`](kdr/0031-http-router-and-params.md) (supersedes 0028) and [`m6-status.md`](m6-status.md). |
+| `std.json` | Done. `json.parse[T]`, `json.write(value)`, strict and tolerant modes, struct/enum/Option/primitive codecs, formatter round-trip, `K1503` compile-time guard. Cases `724`–`735` pass. See [`docs/stdlib-reference.md §std.json`](stdlib-reference.md). |
+| `std.http` | Done. Router model (`http.Router`, closure handlers, typed `path_param`/`query_param`), `http.serve`, `http.Request`/`Response`, response constructors, `K1504`/`K1505`. Cases `736`–`745`, `767`–`769` pass. See [`KDR-0031`](kdr/0031-http-router-and-params.md) (supersedes 0028) and [`docs/stdlib-reference.md §std.http`](stdlib-reference.md). |
 | `std.sql` | Done. `sql.connect`, `pool.query`/`query_one`/`exec`/`migrate`, `RowMapper`, `sql.Error` variants, `K1506`. Cases `770`–`775` pass. See [`KDR-0029`](kdr/0029-sql-database-access.md). |
 | `std.log` | Done. `log.info`, `log.warn`, `log.error` — simple string messages to stdout. Cases `746`–`748` pass. See [`docs/spec/15-stdlib-core.md §15.25–15.27`](spec/15-stdlib-core.md). |
 | `std.config` | Done. `config.load<T>()`, `Secret`/`secret.unwrap`, `config.Error` variants, env-var mapping + typed parsing, `K1507`. Cases `776`–`778` pass. See [`KDR-0030`](kdr/0030-config-loading-surface.md). |
@@ -130,16 +130,15 @@ all generic syntax.
 | `Struct.from_row` + error classification | Done. Auto-derived `from_row`, qualified `sql.NoRows`/`sql.UniqueViolation` patterns, union narrowing. Cases `794`–`796`. See [`KDR-0037`](kdr/0037-sql-error-classification-patterns.md)/[`KDR-0038`](kdr/0038-union-narrowing-patterns.md). |
 | `examples/users-service/main.keel` | Compiles and runs full CRUD on SQLite; cases 804 and 806 lock the execution path. M6 exit criterion reached. |
 
-**Conformance score:** 194 / 194 passed at M6, 3 skipped. The live planning note
-with the step-by-step exit sequence is [`docs/m6-status.md`](m6-status.md).
+**Conformance score:** 194 / 194 passed at M6, 3 skipped. Implemented stdlib
+signatures live in [`docs/stdlib-reference.md`](stdlib-reference.md).
 
 ## M7 — The differentiators (EXIT REACHED)
 
 **Exit (all six must hold).** Per [`ROADMAP.md`](../ROADMAP.md) §M7, every
 differentiator must be demonstrable and locked by conformance. Each is locked by
 standalone conformance cases (the packaged `examples/users-service/` workspace
-remains aspirational; the compiler grows to meet it). Live note:
-[`docs/m7-status.md`](m7-status.md).
+remains aspirational; the compiler grows to meet it).
 
 | Differentiator | Exit demonstrand | State |
 |---|---|---|
@@ -151,7 +150,7 @@ remains aspirational; the compiler grows to meet it). Live note:
 | Editions | manifest `edition` honored; unknown edition diagnosed | **Implemented** ([ch14](spec/14-editions.md), `K1401`–`K1403`; KDR-0001), cases 840–842. |
 
 Function-level capability annotations ([`KDR-0017`](kdr/0017-function-capabilities.md))
-remain deferred. Per-slice detail: [`docs/m7-packages-capabilities.md`](m7-packages-capabilities.md).
+remain deferred. User-facing detail: [`docs/packages-and-capabilities.md`](packages-and-capabilities.md).
 
 **Conformance score:** **221 passed, 0 failed, 4 skipped** at M7
 (`KEEL_MILESTONE=M7 scripts/preflight.sh`). The 4 skips are not-in-Core
@@ -162,16 +161,15 @@ rejections bounded to ≤M4/≤M6.
 | Area | State |
 |---|---|
 | Query decision | [`KDR-0106`](kdr/0106-query-engine.md) accepted Salsa and fixed the query/input boundary. The database lives in its own `keelc-query` crate (not driver-internal), so `keelc-driver` and `keelc-lsp` share it without a dependency cycle. |
-| Performance harness | [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison. The `m8-benchmark` CI job runs it on every compiler PR; `--enforce` and nonzero baselines are not wired in yet. |
+| Performance harness | [`tests/performance/m8-reference`](../tests/performance/m8-reference/README.md) and [`scripts/m8-benchmark.sh`](../scripts/m8-benchmark.sh) define the generated corpus and metric comparison. The `m8-benchmark` CI job runs `--enforce` on every compiler PR against checked-in baselines: `keel_check` 228 ms (budget 300), `keel_build_cold` 9451 ms (budget 10 000); `keel_build_incremental` (1121 ms vs 1000) is a documented `--known-gap` (fresh Salsa database per CLI invocation). |
 | LSP decision | [`KDR-0103`](kdr/0103-lsp-server.md) accepted the M8 base capability set and `lsp-server`/`lsp-types` protocol stack. |
 | LSP spec | [`docs/spec/16-lsp.md`](spec/16-lsp.md) defines the M8 base capability set explicitly and defers non-base capabilities. |
 | LSP fixtures | Done. [`tests/lsp/m8-base`](../tests/lsp/m8-base) covers all ten base-capability transcripts: initialize, diagnostics (ASCII + UTF-16/CRLF), shutdown, JSON-RPC errors, go-to-definition, hover, completion, document symbols, incremental `didChange`, and multi-line position mapping. |
 | Implementation | `keel check`, `run`, `test`, and `build` route parse, resolve, typecheck, KIR, Go emission, and diagnostics through Salsa queries. `keelc-lsp` and `keel lsp` are implemented and pass all ten fixtures byte-for-byte; module-level symbol resolution only (no local/parameter scope yet). |
 
-M8a delivers the query core and KDR-0019 performance gate; M8b delivers the
-base LSP capabilities. A public 0.1.0 preview additionally needs the release
-readiness items in [`docs/0.1-release-readiness.md`](0.1-release-readiness.md).
-See [`docs/m8-status.md`](m8-status.md).
+M8a delivers the query core and enforced KDR-0019 performance gate; M8b delivers
+the base LSP capabilities. The developer-preview scope and limits are in
+[`docs/compatibility.md`](compatibility.md).
 
 ## Planned milestones
 

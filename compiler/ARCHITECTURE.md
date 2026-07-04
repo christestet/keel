@@ -103,13 +103,12 @@ non-compiling Rust workspace or invalid generated Go — both caught late.
 - **Expression-type map keys must identify the complete AST node.** Postfix
   nodes such as `value?` include their postfix token in their span; otherwise
   the node collides with its operand and overwrites its type. Interpolation
-  types use the interpolation's outer source span. See
-  [`docs/m6-simplification-audit.md`](../docs/m6-simplification-audit.md).
+  types use the interpolation's outer source span.
 - **Go forbids methods on predeclared types** (`int64`, `string`, …). Any time
   Keel attaches behaviour to a primitive (interface `impl`s, generic bounds),
   the backend must box it into a defined wrapper type. See the `keelBox_<Prim>`
   pattern and erasure strategy in
-  [`docs/generics-implementation.md`](../docs/generics-implementation.md).
+  [`docs/spec/08-generics.md`](../docs/spec/08-generics.md).
 - **`expr_ty(Name)` is `Unknown` in `keelc-backend-go`.** The backend does not
   re-derive the type of a bare name. Codegen that must know a variable's static
   type (e.g. to box it) currently can't for `Name`s — only literals carry a

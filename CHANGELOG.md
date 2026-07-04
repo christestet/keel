@@ -26,8 +26,8 @@ development record.
 ## [0.1.0] — 2026-07-03 (developer preview)
 
 First tagged version. A **developer preview**, not production infrastructure:
-the gate and honest limitations are
-[`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
+the honest limitations are in
+[`docs/compatibility.md`](docs/compatibility.md).
 
 ### Language and toolchain
 
