@@ -64,7 +64,7 @@ M9 (reproducible OCI images) is the next milestone.
 | `keel audit` | Implemented slice | deterministic explicit-package capability report |
 | `keel gen` | Partial | proto3 data subset only; OpenAPI/client/server generation is M10 |
 | `keel lsp` | Partial | `keelc-lsp` crate + subcommand implemented; all ten base-capability protocol fixtures pass byte-for-byte; definition/hover/completion/documentSymbol resolve module-level `fn`/`struct` declarations only, not local scopes |
-| `keel build --image` | Planned (M9) | no OCI image output |
+| `keel build --image` | Implemented | daemonless, reproducible OCI Image Layout; `--arch amd64\|arm64` target selection; registry push and multi-arch indexes are roadmap |
 | `keel lint` | Not implemented | waiver/lint design is not a command today |
 | `keel fix` | Trigger-gated | requires a concrete edition migration |
 | Package registry/publish | Not implemented | path dependencies only |

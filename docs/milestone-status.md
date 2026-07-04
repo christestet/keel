@@ -178,8 +178,11 @@ Keel source produce errors, never crashes (locked by the same fixtures).
 M8a delivered the query core and enforced KDR-0019 performance gate; M8b
 delivered the base LSP capabilities. The published `0.1.x` developer preview
 predates M8 exit (no build cutoff in `v0.1.1`); scope and limits are in
-[`docs/compatibility.md`](compatibility.md). Next milestone: M9 (reproducible
-OCI images).
+[`docs/compatibility.md`](compatibility.md). Current milestone: M9 (reproducible
+OCI images) — `keel build --image` produces a daemonless, reproducible OCI Image
+Layout with `--arch amd64|arm64` target selection ([KDR-0107](kdr/0107-oci-image-build.md),
+[KDR-0108](kdr/0108-image-arch-selection.md), spec [ch19](spec/19-oci-images.md));
+registry push and multi-arch indexes remain out of scope.
 
 ## Planned milestones
 
