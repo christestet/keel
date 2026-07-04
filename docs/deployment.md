@@ -1,9 +1,10 @@
 # Deploying current Keel programs
 
-This guide describes the M7 implementation, not the complete deployment design
-in `vision.md`. The current compiler emits a host executable through Go. It does
-not build OCI images, cross-compile through a Keel flag, generate SBOMs, expose
-runtime profiles, or provide deployment manifests.
+This guide describes the current implementation, not the complete deployment
+design in `vision.md`. The compiler emits a host executable through Go, and
+`keel build --image` packages a static Linux binary as a reproducible OCI image
+with `--arch` target selection (see below). It does not yet generate SBOMs,
+expose runtime profiles, or provide deployment manifests.
 
 ## Build the executable
 
@@ -19,18 +20,40 @@ The driver invokes Go with `-trimpath` and `-buildvcs=false`. Conformance case
 same toolchain environment. It does not prove cross-host reproducibility for
 every standard-library combination.
 
+## Build an OCI image
+
+```sh
+target/release/keel build service/main.keel --image              # service/main.oci
+target/release/keel build service/main.keel --image -o svc.tar   # oci-archive
+target/release/keel build service/main.keel --image --arch arm64 # arm64 target
+```
+
+`--image` forces a static Linux binary (`GOOS=linux`, `CGO_ENABLED=0`) and writes
+a daemonless, reproducible OCI Image Layout — one `FROM scratch`-style layer, no
+base image, no registry access (spec [ch19](spec/19-oci-images.md), KDR-0107/0108).
+`--arch` selects `amd64` (default) or `arm64` and drives both the cross-compile
+and the image config's declared platform, so the two never disagree. The default
+is host-independent (byte-identical on any build host); pass `--arch arm64` to run
+natively on an arm64 host such as Apple Silicon or Graviton. A `.tar` output path
+writes the `oci-archive` form importable by `docker load`, `podman load`, or
+`skopeo copy`. Registry push and multi-architecture image indexes are not yet
+implemented.
+
 ## Host requirements
 
-Building currently requires the Go toolchain. The produced executable targets
-the build host because `keel build` has no target-selection interface.
+Building currently requires the Go toolchain. A plain `keel build` targets the
+build host (no target-selection interface); `keel build --image` forces static
+Linux and selects the architecture with `--arch`.
 
 Programs importing `std.sql` bundle the pure-Go `modernc.org/sqlite` driver, but
 the compiler first runs `go mod tidy`; the module must already be cached or the
 build host needs Go module proxy access.
 
-Verify the produced artifact on every target platform rather than assuming it
-is static or cross-platform. The driver does not force `CGO_ENABLED=0` or expose
-`GOOS`/`GOARCH` configuration as a Keel contract.
+Verify a plain `keel build` artifact on every target platform rather than
+assuming it is static or cross-platform: that path does not force
+`CGO_ENABLED=0` or expose `GOOS`/`GOARCH` as a Keel contract. `keel build
+--image` does — it always produces a static Linux binary for the `--arch`
+target — so prefer it when you need a portable, reproducible artifact.
 
 ## Configuration
 

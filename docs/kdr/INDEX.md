@@ -56,6 +56,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0105](0105-hermetic-reproducible-builds.md) | Hermetic, reproducible builds | accepted |
 | [0106](0106-query-engine.md) | Salsa query engine for keelc | accepted |
 | [0107](0107-oci-image-build.md) | Daemonless, reproducible OCI image build (`keel build --image`) | accepted |
+| [0108](0108-image-arch-selection.md) | `keel build --image --arch` target-architecture selection (amd64/arm64) | accepted |
 
 All decisions derived from [`docs/vision.md`](../vision.md) are expanded above.
 `proposed` entries are not yet accepted; see [`kdr/AGENTS.md`](AGENTS.md) for

@@ -42,8 +42,9 @@ program if either arm above is removed. More in
   `keel lsp` covers the M8 base capabilities (diagnostics, definition, hover,
   completion, document symbols) at module scope; `lint` and `fix` are not
   implemented.
-- Deployment today: reproducible binaries emitted through the Go backend.
-  Reproducible OCI images are planned for M9.
+- Deployment today: reproducible binaries emitted through the Go backend, and
+  `keel build --image` packages them as daemonless, reproducible OCI images with
+  `--arch amd64|arm64` target selection.
 - Supply chain: package **capabilities** (`net`, `fs`, `exec`, `env`, `ffi`, `unsafe-memory`) enforced by the compiler ([KDR-0011](docs/kdr/0011-package-capabilities.md)).
 - Evolution: Rust-style editions, hardened — old idioms become compile errors in
   new editions, and `keel fix` must migrate the public corpus automatically ([KDR-0001](docs/kdr/0001-editions.md)).

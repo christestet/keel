@@ -8,6 +8,7 @@ currently accepts the same arguments.
 
 ```text
 keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]
+keel build <file.keel> --image [-o <path>] [--arch amd64|arm64]
 keel gen <schema.proto>
 keel lsp
 keel --version
@@ -88,6 +89,31 @@ same Core input. Programs importing `std.sql` currently cause the driver to
 create a Go module and run `go mod tidy` for `modernc.org/sqlite`; that operation
 may access the Go module proxy. Therefore the no-network build guarantee is not
 yet true for every implemented standard-library program.
+
+### `keel build --image`
+
+```sh
+keel build service.keel --image                 # service.oci (directory layout)
+keel build service.keel --image -o out.oci.tar  # single-file oci-archive
+keel build service.keel --image --arch arm64    # target arm64 Linux
+```
+
+Packages the built binary as a daemonless, reproducible [OCI Image
+Layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md)
+instead of a plain binary — one `FROM scratch`-style layer, no base image, no
+registry access (spec [ch19](spec/19-oci-images.md), KDR-0107/0108). The target
+is forced to a static Linux binary (`GOOS=linux`, `CGO_ENABLED=0`); a dependency
+that cannot be statically linked fails with **K1901**.
+
+- `-o <path>` sets the output; it defaults to the source stem plus `.oci` beside
+  the input. A `.tar` extension writes the single-file `oci-archive` form
+  importable by `docker load`, `podman load`, or `skopeo copy`.
+- `--arch` selects the target CPU architecture, `amd64` (default) or `arm64`,
+  and drives both the cross-compile and the image config's `architecture` field.
+  The default is host-independent on purpose (byte-identical on any build host,
+  spec §19.5); to run natively on an arm64 host, pass `--arch arm64` explicitly.
+  Each invocation produces a single-architecture image.
+- `-o` and `--arch` are only valid together with `--image`; misuse exits 2.
 
 ## `keel fmt`
 
@@ -188,5 +214,5 @@ replayed against the real server in `compiler/keelc-lsp/tests/transcripts.rs`.
 
 ## Not implemented
 
-`keel lint`, `keel fix`, `keel init`, package publishing, and OCI image output
-are roadmap work, not hidden commands.
+`keel lint`, `keel fix`, `keel init`, package publishing, registry push, and
+multi-architecture image indexes are roadmap work, not hidden commands.
