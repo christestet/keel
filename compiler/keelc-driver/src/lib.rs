@@ -78,6 +78,10 @@ pub fn main() -> ExitCode {
         eprintln!("--image is only valid with `keel build`");
         return ExitCode::from(2);
     }
+    if output_path.is_some() && !image_target {
+        eprintln!("-o is only valid with `keel build --image`");
+        return ExitCode::from(2);
+    }
 
     let path = Path::new(&path);
     let text = match fs::read_to_string(path) {
