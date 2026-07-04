@@ -20,7 +20,7 @@ jobs:
       docs: ${{ steps.classify.outputs.docs }}
       diagnostics: ${{ steps.classify.outputs.diagnostics }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Classify changed files
@@ -84,7 +84,7 @@ jobs:
     if: needs.changes.outputs.conformance == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Validate conformance suite structure
@@ -98,7 +98,7 @@ jobs:
     if: needs.changes.outputs.compiler == 'true' || needs.changes.outputs.conformance == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Detect keelc
@@ -137,7 +137,7 @@ jobs:
     env:
       GOCACHE: ${{ github.workspace }}/.gocache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Cache Go build artifacts
@@ -177,7 +177,7 @@ jobs:
     if: needs.changes.outputs.harness == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Agent harness self-check
         run: scripts/check-harness.sh
 
@@ -186,7 +186,7 @@ jobs:
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Validate documentation graph
         run: scripts/check-docs.sh
@@ -199,7 +199,7 @@ jobs:
     if: needs.changes.outputs.diagnostics == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Check generated diagnostics table
         run: scripts/check-diagnostics-doc.sh
@@ -209,7 +209,7 @@ jobs:
     if: needs.changes.outputs.compiler == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -224,7 +224,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: One concern per PR
