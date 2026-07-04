@@ -84,9 +84,9 @@ code ([`scripts/check-harness.sh`](scripts/check-harness.sh)):
   self-links, and public Markdown files that are unreachable from this
   repository's [`README.md`](README.md).
 - **`.agents/`** holds the shared agent layer: a permission allowlist and slash
-  commands (`/preflight`, `/new-case`, `/new-kdr`, `/wiki-note`). `.claude` is
-  a symlink to `.agents` so Claude Code and other agent surfaces load the same
-  files instead of drifting.
+  commands (`/preflight`, `/new-case`, `/new-kdr`, `/wiki-note`,
+  `/harness-audit`). `.claude` is a symlink to `.agents` so Claude Code and
+  other agent surfaces load the same files instead of drifting.
 
 ### LLM wiki notes
 
@@ -113,3 +113,21 @@ prose belongs in the README/ARCHITECTURE file the nested `AGENTS.md` points
 to. Shared agent commands live in `.agents/`; keep `.claude` as a symlink, not
 a second copy. Harness changes are their own concern under hard rule 1 — never
 bundle them with spec, conformance, or compiler changes.
+
+### The improvement loop
+
+The harness is code: it regresses unless failures feed back into it. Two
+mechanisms keep it and the codebase current:
+
+- **Event-driven.** Whenever agent work gets corrected — in review, by CI, or
+  by the user — because guidance was missing, ambiguous, or too weak to prevent
+  the mistake, the correction is not finished until the lesson lands in a
+  follow-up harness PR. Encode it at the strongest layer that fits: a
+  `scripts/check-*.sh` wired into `scripts/preflight.sh` and CI (deterministic,
+  covers every agent) > `.agents/settings.json` permissions/hooks (Claude Code
+  surface) > a rule line in the nearest `AGENTS.md` (prose, weakest).
+- **Scheduled.** CI opens a monthly issue labeled `harness`
+  ([`.github/workflows/harness-audit.yml`](.github/workflows/harness-audit.yml));
+  whoever picks it up runs `/harness-audit`, which sweeps for prose rules that
+  keep being violated, stale guidance, unregistered areas, and tooling
+  friction. Close the issue with a one-line result even when nothing was found.

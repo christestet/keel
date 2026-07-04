@@ -1,0 +1,36 @@
+name: harness-audit
+
+# The scheduled half of the harness improvement loop (root AGENTS.md, "The
+# improvement loop"): opens a monthly issue reminding an agent (or human) to
+# run /harness-audit. Event-driven improvements happen at review time; this
+# catches the drift nobody trips over.
+on:
+  schedule:
+    - cron: "17 6 3 * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  open-audit-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open audit issue unless one is already open
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh label create harness --force --color 5319e7 \
+            --description "Agent-harness maintenance and drift"
+          open=$(gh issue list --label harness --state open \
+            --search "harness audit in:title" --json number --jq length)
+          if [ "$open" -gt 0 ]; then
+            echo "an open harness-audit issue already exists; skipping"
+            exit 0
+          fi
+          gh issue create \
+            --title "Monthly harness audit ($(date -u +%Y-%m))" \
+            --label harness \
+            --body "Run \`/harness-audit\` (\`.agents/commands/harness-audit.md\`): promote violated prose rules to checks, fix stale guidance, register grown areas, reduce tooling friction. Each fix is its own harness PR. Close with a one-line result even if nothing was found."
