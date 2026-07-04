@@ -3,15 +3,31 @@
 > A typed, compiled, garbage-collected language for backend services that should
 > still be readable, reviewable, and deployable after five years of team churn.
 
-**Status: 0.1.0 developer preview released (2026-07-03) — 222 conformance
-cases pass, 0 fail, 4 earlier-milestone rejection cases are intentionally
-skipped.** Try it with `docker build -t keel . && docker run --rm keel`, no
-local Rust/Go install needed, or install from the
-[GitHub releases page](https://github.com/christestet/keel/releases) — see
-[`docs/getting-started.md`](docs/getting-started.md). For scope and honest
-limitations see [`CHANGELOG.md`](CHANGELOG.md), [`ROADMAP.md`](ROADMAP.md),
-[`docs/milestone-status.md`](docs/milestone-status.md), and
-[`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
+```keel
+struct User {
+    name: String
+    email: Option<String>
+}
+
+fn find_user(id: Int) -> Result<User, String> {
+    if id == 1 {
+        Ok(User { name: "Ada", email: None })
+    } else {
+        Err("not found")
+    }
+}
+
+fn main() {
+    match find_user(1) {
+        Ok(user)   => print("found {user.name}"),
+        Err(reason) => print("error: {reason}"),
+    }
+}
+```
+
+No `null`, no exceptions, exhaustive `match` — the compiler rejects this
+program if either arm above is removed. More in
+[`docs/language-tour.md`](docs/language-tour.md).
 
 ## What Keel is
 
@@ -38,6 +54,16 @@ Game engines, kernels, embedded, GUIs, sub-100µs deterministic latency.
 Use Rust, C, or Zig there. Keel's C FFI is designed but not implemented; see
 [`docs/vision.md`](docs/vision.md) §10 and
 [`ROADMAP.md`](ROADMAP.md#m10--ecosystem-bridges).
+
+**Status: 0.1.0 developer preview released (2026-07-03) — 222 conformance
+cases pass, 0 fail, 4 earlier-milestone rejection cases are intentionally
+skipped.** Try it with `docker build -t keel . && docker run --rm keel`, no
+local Rust/Go install needed, or install from the
+[GitHub releases page](https://github.com/christestet/keel/releases) — see
+[`docs/getting-started.md`](docs/getting-started.md). For scope and honest
+limitations see [`CHANGELOG.md`](CHANGELOG.md), [`ROADMAP.md`](ROADMAP.md),
+[`docs/milestone-status.md`](docs/milestone-status.md), and
+[`docs/0.1-release-readiness.md`](docs/0.1-release-readiness.md).
 
 ## Repository map
 

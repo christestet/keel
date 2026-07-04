@@ -14,6 +14,11 @@ baseurl: /keel
 theme: minima
 markdown: kramdown
 
+# Renders a GitHub icon in minima's footer.html -> social.html partial on
+# every page, linking back to https://github.com/christestet (minima 2.5.1
+# keys off this flat site.github_username; there is no per-repo variant).
+github_username: christestet
+
 plugins:
   - jekyll-optional-front-matter # front matter isn't required on any doc file
   - jekyll-relative-links        # relative .md links resolve to the built .html pages
