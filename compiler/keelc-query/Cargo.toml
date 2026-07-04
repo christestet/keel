@@ -1,6 +1,6 @@
 [package]
 name = "keelc-query"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Salsa-backed query core shared by the keel CLI driver and keel lsp (M8, KDR-0106)."
 

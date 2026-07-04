@@ -1,6 +1,6 @@
 [package]
 name = "keelc-lsp"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "M8 base LSP server for keel lsp (spec ch. 16, KDR-0103)."
 
