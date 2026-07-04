@@ -1,0 +1,47 @@
+---
+# Front matter is required here so Jekyll runs this through Sass; everything
+# below is plain CSS/SCSS, not a doc page.
+---
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+// Keel brand tokens — keel-brand-kit/keel-style-guide.md §7.
+$keel-navy: #0F172A;
+$keel-teal: #0F766E;
+$keel-seaglass: #99F6E4;
+$keel-slate: #475569;
+$keel-coral: #F97360;
+$keel-mist: #F8FAFC;
+
+// Minima variable overrides (must be set before `@import "minima"`).
+$text-color: $keel-slate;
+$background-color: $keel-mist;
+$brand-color: $keel-teal;
+$brand-color-light: $keel-seaglass;
+$brand-color-dark: $keel-navy;
+$link-base-color: $keel-teal;
+$link-hover-color: $keel-navy;
+$body-font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+$base-font-family: $body-font-family;
+$code-font-family: $body-font-family;
+
+@import "minima";
+
+h1, h2, h3, h4, h5, h6 {
+  color: $keel-navy;
+}
+
+.site-header {
+  border-top: none;
+  border-bottom: 1px solid rgba($keel-navy, 0.1);
+}
+
+.site-title, .site-title:visited {
+  color: $keel-navy;
+  font-weight: 700;
+}
+
+// Signal Coral is reserved for breaking-change/migration callouts, not decoration.
+blockquote {
+  color: $keel-slate;
+  border-left: 4px solid $keel-seaglass;
+}

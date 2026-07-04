@@ -18,6 +18,7 @@ jobs:
       conformance: ${{ steps.classify.outputs.conformance }}
       harness: ${{ steps.classify.outputs.harness }}
       docs: ${{ steps.classify.outputs.docs }}
+      diagnostics: ${{ steps.classify.outputs.diagnostics }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +51,7 @@ jobs:
           conformance=false
           harness=false
           docs=false
+          diagnostics=false
 
           if has '^(compiler/|Cargo\.toml$|Cargo\.lock$)'; then
             compiler=true
@@ -63,11 +65,15 @@ jobs:
           if has '\.md$|^scripts/check-docs\.(rs|sh)$'; then
             docs=true
           fi
+          if has '^compiler/keelc-diag/src/registry\.rs$|^docs/diagnostics\.md$|^scripts/(gen|check)-diagnostics-doc\.(rs|sh)$'; then
+            diagnostics=true
+          fi
 
           {
             echo "compiler=$compiler"
             echo "conformance=$conformance"
             echo "harness=$harness"
+            echo "diagnostics=$diagnostics"
             echo "docs=$docs"
           } >> "$GITHUB_OUTPUT"
 
@@ -184,6 +190,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Validate documentation graph
         run: scripts/check-docs.sh
+
+  # docs/diagnostics.md is generated from the keelc-diag registry (AGENTS.md
+  # hard rule 4); this keeps the doc from silently drifting from the codes
+  # the compiler actually emits.
+  diagnostics-doc:
+    needs: changes
+    if: needs.changes.outputs.diagnostics == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check generated diagnostics table
+        run: scripts/check-diagnostics-doc.sh
 
   rust-quality:
     needs: changes

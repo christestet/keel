@@ -1,0 +1,61 @@
+# GitHub Pages site config. Built with GitHub's stock Jekyll + minima theme —
+# no Gemfile, no new dependency (AGENTS.md hard rule 5): every plugin below
+# ships in the github-pages gem's allowed list.
+#
+# Source is the whole repo, not docs/, because Keel's docs already link across
+# docs/, examples/, compiler/ARCHITECTURE.md, tests/*/README.md, and the root
+# README/ROADMAP/CONTRIBUTING — scoping Pages to docs/ would break every one
+# of those relative links. jekyll-relative-links keeps them working as HTML
+# links instead of raw .md links.
+title: Keel
+description: A typed, compiled language for durable backend systems.
+url: https://christestet.github.io
+baseurl: /keel
+theme: minima
+markdown: kramdown
+
+plugins:
+  - jekyll-optional-front-matter # front matter isn't required on any doc file
+  - jekyll-relative-links        # relative .md links resolve to the built .html pages
+  - jekyll-readme-index          # root README.md becomes the site's index page
+  - jekyll-titles-from-headings  # page <title> / nav labels come from each doc's first heading
+  - jekyll-seo-tag                # minima's layout expects this plugin to be present
+
+readme_index:
+  with_frontmatter: true
+
+header_pages:
+  - docs/README.md
+  - docs/getting-started.md
+  - docs/language-tour.md
+  - docs/stdlib-reference.md
+  - docs/cli-reference.md
+  - ROADMAP.md
+
+# Everything not listed here is a Markdown/doc file and gets pulled in as-is.
+# Excluded: build output and source that isn't part of the docs graph.
+exclude:
+  - target
+  - compiler
+  - tests
+  - scripts
+  - keel-brand-kit/keel-style-guide.md
+  - Cargo.toml
+  - Cargo.lock
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+# Force these back in even though their parent directories are excluded above
+# (Jekyll's `include` wins over `exclude` for exact matches).
+include:
+  - compiler/ARCHITECTURE.md
+  - tests/conformance/README.md
+  - tests/lsp/README.md
+
+defaults:
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: page

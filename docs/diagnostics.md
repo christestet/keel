@@ -46,6 +46,15 @@ in scripts; use the process exit status and code.
 
 ## Registered codes
 
+Generated from
+[`compiler/keelc-diag/src/registry.rs`](../compiler/keelc-diag/src/registry.rs)
+by [`scripts/gen-diagnostics-doc.rs`](../scripts/gen-diagnostics-doc.rs). Do not
+hand-edit the rows between the markers — register the code in the registry,
+then run `scripts/gen-diagnostics-doc.rs --write`.
+[`scripts/check-diagnostics-doc.sh`](../scripts/check-diagnostics-doc.sh) (part
+of preflight and CI) fails the build if this table drifts from the registry.
+
+<!-- gen:diagnostics:start -->
 | Code | Registry summary |
 |---|---|
 | `K0001` | unrecognized character |
@@ -64,10 +73,10 @@ in scripts; use the process exit status and code.
 | `K0401` | if/else arm type mismatch |
 | `K0402` | non-exhaustive match |
 | `K0403` | same-module enum wildcard match |
-| `K0501` | `?` used in incompatible return context |
-| `K0502` | `catch` is not exhaustive |
+| `K0501` | ? used in incompatible return context |
+| `K0502` | catch is not exhaustive |
 | `K0503` | union error match is not exhaustive |
-| `K0504` | cannot destructure opaque `Error` |
+| `K0504` | cannot destructure opaque Error |
 | `K0601` | interface declares more than five methods |
 | `K0602` | duplicate method name in interface |
 | `K0603` | missing method in impl |
@@ -115,8 +124,9 @@ in scripts; use the process exit status and code.
 | `K1505` | invalid HTTP port |
 | `K1506` | invalid FromRow function |
 | `K1507` | unparseable config target |
-| `K1601` | malformed schema in `keel gen` |
-| `K1602` | unsupported schema construct in `keel gen` |
+| `K1601` | malformed schema in keel gen |
+| `K1602` | unsupported schema construct in keel gen |
+<!-- gen:diagnostics:end -->
 
 `K1402` and `K1403` are reserved but intentionally untriggered: Keel has no
 approved preview feature or post-edition-1 removed idiom yet. The `K09xx`

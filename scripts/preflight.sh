@@ -14,6 +14,9 @@ scripts/check-harness.sh
 step "documentation graph"
 scripts/check-docs.sh
 
+step "diagnostics doc sync"
+scripts/check-diagnostics-doc.sh
+
 step "lsp transcript fixtures"
 scripts/check-lsp-fixtures.sh
 
