@@ -109,9 +109,17 @@ the binary ([`KDR-0105`](../kdr/0105-hermetic-reproducible-builds.md)).
 
 Reproducibility and layout-validity failures are **build properties**, like
 chapter 18's byte-identity check, not `K####` diagnostics: there is no Keel
-program a user writes that "is" a non-reproducible image. `K1901` is the one
-genuinely diagnosable, source/manifest-attributable condition this chapter
-introduces.
+program a user writes that "is" a non-reproducible image. `K1901` is registered
+now because the design decision (KDR-0107) commits to failing loudly rather
+than silently mislinking, but it has **no reachable trigger in the current
+language surface**: `extern`/FFI is rejected outright with `K0905` until
+chapter 12 lands (M10), and the M6 stdlib (`std.sql`'s
+[`modernc.org/sqlite`](../kdr/0042-sqlite-driver-modernc.md), `std.http`,
+`std.json`) is pure Go. `CGO_ENABLED=0` therefore always succeeds for every
+program expressible today. A `K1901` conformance case is deferred until M10's
+`extern` makes the condition constructible — adding one now would violate the
+conformance suite's "reject-cases must be minimal and real" rule with a case
+that cannot exist.
 
 ## 19.8 Conformance cases this chapter introduces
 
@@ -120,7 +128,6 @@ introduces.
 | `860-image-reproducible` | accept (`mode = "image"`) | two clean `keel build --image` runs of the same program produce a byte-identical OCI layout (identical top-level digest) |
 | `861-image-layout-valid` | accept (`mode = "image"`) | the produced layout parses as a valid OCI Image Layout: `oci-layout` marker, `index.json`, manifest, and config conform to the OCI Image Spec and reference an existing single-layer blob |
 | `862-image-no-base-layer` | accept (`mode = "image"`) | the produced manifest lists exactly one layer, and the config's rootfs diff-ids list has exactly one entry |
-| `863-image-cgo-dependency` | reject (`K1901`) | a program whose dependency requires cgo fails `--image` with `K1901` instead of producing a dynamically linked artifact |
 
 The `image` runner mode invokes `keelc build --image`, then validates the
 written layout against §19.4 and, for `860`, builds twice into distinct output
