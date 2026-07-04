@@ -12,7 +12,7 @@ WORKDIR /src
 COPY . .
 RUN cargo build --release -p keelc-driver
 
-FROM golang:1.22-bookworm
+FROM golang:1.26-bookworm
 COPY --from=builder /src/target/release/keel /src/target/release/keelc /usr/local/bin/
 COPY --from=builder /src/examples /keel/examples
 WORKDIR /keel
