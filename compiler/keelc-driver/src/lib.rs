@@ -50,6 +50,7 @@ pub fn main() -> ExitCode {
     let mut milestone = LATEST_MILESTONE;
     let mut image_target = false;
     let mut output_path: Option<PathBuf> = None;
+    let mut image_arch: Option<ImageArch> = None;
     while let Some(arg) = args.next() {
         if arg == OsStr::new("--milestone") {
             let Some(value) = args.next() else {
@@ -69,6 +70,19 @@ pub fn main() -> ExitCode {
                 return ExitCode::from(2);
             };
             output_path = Some(PathBuf::from(value));
+        } else if arg == OsStr::new("--arch") {
+            let Some(value) = args.next() else {
+                usage();
+                return ExitCode::from(2);
+            };
+            let Some(parsed) = ImageArch::parse(&value) else {
+                eprintln!(
+                    "unknown --arch `{}`; valid values are `amd64` and `arm64`",
+                    value.to_string_lossy()
+                );
+                return ExitCode::from(2);
+            };
+            image_arch = Some(parsed);
         } else {
             usage();
             return ExitCode::from(2);
@@ -82,6 +96,11 @@ pub fn main() -> ExitCode {
         eprintln!("-o is only valid with `keel build --image`");
         return ExitCode::from(2);
     }
+    if image_arch.is_some() && !image_target {
+        eprintln!("--arch is only valid with `keel build --image`");
+        return ExitCode::from(2);
+    }
+    let image_arch = image_arch.unwrap_or_default();
 
     let path = Path::new(&path);
     let text = match fs::read_to_string(path) {
@@ -149,10 +168,12 @@ pub fn main() -> ExitCode {
             Err(code) => code,
         },
         Some("build") if image_target => match query_go_source(&db, source, false) {
-            Ok(go_source) => match build_image(path, &go_source, output_path.as_deref()) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(code) => code,
-            },
+            Ok(go_source) => {
+                match build_image(path, &go_source, output_path.as_deref(), image_arch) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(code) => code,
+                }
+            }
             Err(code) => code,
         },
         Some("build") => match query_go_source(&db, source, false) {
@@ -178,7 +199,7 @@ pub fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel build --image <file.keel> [-o <path>]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version\n\n--milestone defaults to the latest implemented milestone (M7); pass an\nearlier M<N> only to check conformance against that milestone's gate.\n--image packages the built binary as an OCI Image Layout instead of a plain\nbinary (spec ch19); -o defaults to <file-stem>.oci beside the source."
+        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel build --image <file.keel> [-o <path>] [--arch amd64|arm64]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version\n\n--milestone defaults to the latest implemented milestone (M7); pass an\nearlier M<N> only to check conformance against that milestone's gate.\n--image packages the built binary as an OCI Image Layout instead of a plain\nbinary (spec ch19); -o defaults to <file-stem>.oci beside the source.\n--arch selects the image's target CPU architecture (default amd64)."
     );
 }
 
@@ -332,10 +353,48 @@ fn build_go_source(source_path: &Path, go_source: &str) -> Result<(), ExitCode> 
     }
 }
 
+/// The target CPU architecture of a `--image` build (spec §19.2, KDR-0108).
+/// `GOOS` is always `linux` (KDR-0107); this is the only free dimension.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageArch {
+    #[default]
+    Amd64,
+    Arm64,
+}
+
+impl ImageArch {
+    fn parse(value: &OsStr) -> Option<Self> {
+        match value.to_str()? {
+            "amd64" => Some(ImageArch::Amd64),
+            "arm64" => Some(ImageArch::Arm64),
+            _ => None,
+        }
+    }
+
+    /// `GOARCH` value for the Go cross-compile.
+    fn goarch(self) -> &'static str {
+        match self {
+            ImageArch::Amd64 => "amd64",
+            ImageArch::Arm64 => "arm64",
+        }
+    }
+
+    /// OCI image config `architecture` value. Matches `goarch()` for the two
+    /// supported targets (both use the Go/OCI-shared spelling).
+    pub fn oci_name(self) -> &'static str {
+        self.goarch()
+    }
+}
+
 /// `keel build --image`: forces the static Linux target (spec §19.2) and
 /// packages the resulting binary into an OCI Image Layout (spec ch19,
-/// KDR-0107) instead of leaving a plain binary at `output_binary_path`.
-fn build_image(source_path: &Path, go_source: &str, output: Option<&Path>) -> Result<(), ExitCode> {
+/// KDR-0107/0108) instead of leaving a plain binary at `output_binary_path`.
+fn build_image(
+    source_path: &Path,
+    go_source: &str,
+    output: Option<&Path>,
+    arch: ImageArch,
+) -> Result<(), ExitCode> {
     let temp_dir = env::temp_dir().join(format!("keelc-image-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
         eprintln!(
@@ -352,6 +411,13 @@ fn build_image(source_path: &Path, go_source: &str, output: Option<&Path>) -> Re
     let mut command = Command::new("go");
     command
         .env("GOOS", "linux")
+        // Pin GOARCH to the selected target (default amd64) so the layer is a
+        // pure function of the forced target platform (spec §19.2/§19.5:
+        // byte-identical "on any host"), and so the binary matches the config's
+        // architecture (§19.3). Never derived from the build host — otherwise an
+        // arm64 host would emit a linux/arm64 binary labeled amd64,
+        // exec-format-error under emulation on that same host's runtime.
+        .env("GOARCH", arch.goarch())
         .env("CGO_ENABLED", "0")
         .arg("build")
         .arg("-trimpath")
@@ -394,7 +460,7 @@ fn build_image(source_path: &Path, go_source: &str, output: Option<&Path>) -> Re
         Some(path) => path.to_path_buf(),
         None => default_image_path(source_path),
     };
-    image::write_oci_image(&binary, &out_path).map_err(|err| {
+    image::write_oci_image(&binary, &out_path, arch).map_err(|err| {
         eprintln!("could not write OCI image: {err}");
         ExitCode::from(2)
     })
