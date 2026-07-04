@@ -8,7 +8,7 @@ This guide covers the current source-built M7 toolchain. Commands below assume
 The CLI has no `--help` or `--version` yet. It requires a command and input path:
 
 ```sh
-target/release/keel check main.keel --milestone M7
+target/release/keel check main.keel
 ```
 
 The milestone value must use an uppercase `M` followed by a number. Invalid or
@@ -21,7 +21,7 @@ concurrency, arenas, packages, and later standard-library behavior require the
 appropriate milestone gate. Use M7 for the full implemented surface:
 
 ```sh
-target/release/keel check main.keel --milestone M7
+target/release/keel check main.keel
 ```
 
 `K0905` for `extern` is different: C FFI is genuinely not implemented at M7.
@@ -31,7 +31,7 @@ target/release/keel check main.keel --milestone M7
 Formatting is written to stdout. It never edits the input:
 
 ```sh
-target/release/keel fmt main.keel --milestone M7 > main.keel.formatted
+target/release/keel fmt main.keel > main.keel.formatted
 mv main.keel.formatted main.keel
 ```
 
@@ -96,7 +96,7 @@ For explicit packages:
 Run:
 
 ```sh
-target/release/keel audit main.keel --milestone M7
+target/release/keel audit main.keel
 ```
 
 ## `config.load<T>()` cannot find a value

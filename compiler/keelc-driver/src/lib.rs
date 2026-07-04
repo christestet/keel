@@ -14,10 +14,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-/// `keel lsp` always checks against the highest implemented Core milestone
-/// (M7 exit) so editor diagnostics reflect the full current language, unlike
-/// file commands whose `--milestone` flag defaults conservatively to M1.
-const LSP_MILESTONE: u32 = 7;
+/// The highest implemented Core milestone (M7 exit). `keel lsp` and file
+/// commands both default here so a developer trying Keel gets the full
+/// current language without knowing the milestone system exists; `--milestone
+/// M<N>` remains available on file commands for conformance/regression work
+/// against an earlier milestone gate.
+const LATEST_MILESTONE: u32 = 7;
 
 pub fn main() -> ExitCode {
     let mut args = env::args_os();
@@ -41,7 +43,7 @@ pub fn main() -> ExitCode {
         usage();
         return ExitCode::from(2);
     };
-    let mut milestone = 1u32;
+    let mut milestone = LATEST_MILESTONE;
     while let Some(arg) = args.next() {
         if arg != OsStr::new("--milestone") {
             usage();
@@ -117,7 +119,7 @@ pub fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version"
+        "usage: keel <build|run|fmt|test|check|audit> <file.keel> [--milestone M<N>]\n       keel gen <schema.proto>\n       keel lsp\n       keel --version\n\n--milestone defaults to the latest implemented milestone (M7); pass an\nearlier M<N> only to check conformance against that milestone's gate."
     );
 }
 
@@ -143,7 +145,7 @@ fn run_lsp() -> ExitCode {
     let stdout = io::stdout();
     let mut reader = stdin.lock();
     let mut writer = stdout.lock();
-    match keelc_lsp::serve(&mut reader, &mut writer, LSP_MILESTONE) {
+    match keelc_lsp::serve(&mut reader, &mut writer, LATEST_MILESTONE) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("keel lsp: {err}");

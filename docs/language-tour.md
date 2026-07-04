@@ -9,7 +9,7 @@ case disagree, the case wins.
 Run examples with the complete development gate:
 
 ```sh
-target/release/keel run example.keel --milestone M7
+target/release/keel run example.keel
 ```
 
 ## Source files

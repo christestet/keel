@@ -11,8 +11,8 @@ A `.keel` file with no adjacent `keel.toml` is an implicit package. Its name is
 the file stem, it has no dependencies, and it has no declared capabilities.
 
 ```sh
-keel run hello.keel --milestone M7
-keel audit hello.keel --milestone M7
+keel run hello.keel
+keel audit hello.keel
 ```
 
 An implicit package is useful for examples and small tools. Current M7 behavior
@@ -126,7 +126,7 @@ language surface currently exercises them. `extern` remains `K0905` through M7.
 Pass an entry source file so `keel audit` can locate its manifest:
 
 ```sh
-keel audit service/main.keel --milestone M7
+keel audit service/main.keel
 ```
 
 Output is deterministic: capabilities use the fixed order above and contributing

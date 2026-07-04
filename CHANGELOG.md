@@ -1,14 +1,20 @@
 # Changelog
 
-This file records user-visible changes from the point it was introduced. Keel
-has no published release yet, so earlier milestone history is not retroactively
+This file records user-visible changes from the point it was introduced.
+Milestone history prior to the first tagged release is not retroactively
 presented as released versions; use
 [`docs/milestone-status.md`](docs/milestone-status.md) and Git history for that
 development record.
 
 ## Unreleased
 
-Nothing yet.
+- `keel build|run|fmt|test|check|audit` now default `--milestone` to the
+  latest implemented milestone (M7) instead of M1, so running any file
+  command without the flag exercises the complete current language rather
+  than the parser-only gate. The flag remains available to check a program
+  against an earlier milestone's gate.
+- Added a `Dockerfile` (`docker build -t keel . && docker run --rm keel`) so
+  the developer preview can be tried with no local Rust/Go install.
 
 ## [0.1.0] — 2026-07-03 (developer preview)
 

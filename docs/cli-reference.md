@@ -28,14 +28,15 @@ stderr and exit 2.
 --milestone M<N>
 ```
 
-The compiler currently defaults to M1. Use `--milestone M7` for all implemented
-language and toolchain behavior. This flag is development scaffolding, not a
+The compiler defaults to the latest implemented milestone (M7) — the complete
+current language. Pass `--milestone M<N>` only to check a program against an
+earlier milestone's gate. This flag is development scaffolding, not a
 promised post-1.0 user interface.
 
 ## `keel check`
 
 ```sh
-keel check main.keel --milestone M7
+keel check main.keel
 ```
 
 Reads the source and adjacent workspace manifest, then runs parsing, name
@@ -52,7 +53,7 @@ error[K0303]: cannot assign to immutable binding `x`
 ## `keel run`
 
 ```sh
-keel run main.keel --milestone M7
+keel run main.keel
 ```
 
 Checks the program, lowers it through KIR, emits temporary Go source, and invokes
@@ -62,7 +63,7 @@ directory is removed when the command exits. Program stdin is currently closed.
 ## `keel build`
 
 ```sh
-keel build main.keel --milestone M7
+keel build main.keel
 ```
 
 Checks and lowers the program, then invokes:
@@ -83,7 +84,7 @@ yet true for every implemented standard-library program.
 ## `keel fmt`
 
 ```sh
-keel fmt main.keel --milestone M7
+keel fmt main.keel
 ```
 
 Parses the input and writes canonical source to stdout. It does not modify the
@@ -93,14 +94,14 @@ Do not redirect output directly onto the input because the shell truncates the
 file before `keel` reads it. Use a temporary file:
 
 ```sh
-keel fmt main.keel --milestone M7 > main.keel.formatted
+keel fmt main.keel > main.keel.formatted
 mv main.keel.formatted main.keel
 ```
 
 ## `keel test`
 
 ```sh
-keel test service_test.keel --milestone M7
+keel test service_test.keel
 ```
 
 Checks the source, discovers every `test "name" { ... }` block, emits a temporary
@@ -115,7 +116,7 @@ An assertion failure exits nonzero and includes its source line.
 ## `keel audit`
 
 ```sh
-keel audit src/main.keel --milestone M7
+keel audit src/main.keel
 ```
 
 The file locates the package/workspace to audit. The command reads `keel.toml`,

@@ -5,7 +5,8 @@
 
 **Status: 0.1.0 developer preview released (2026-07-03) — 222 conformance
 cases pass, 0 fail, 4 earlier-milestone rejection cases are intentionally
-skipped.** Install from the
+skipped.** Try it with `docker build -t keel . && docker run --rm keel`, no
+local Rust/Go install needed, or install from the
 [GitHub releases page](https://github.com/christestet/keel/releases) — see
 [`docs/getting-started.md`](docs/getting-started.md). For scope and honest
 limitations see [`CHANGELOG.md`](CHANGELOG.md), [`ROADMAP.md`](ROADMAP.md),
@@ -74,14 +75,14 @@ Available commands:
 ```sh
 cargo build --release -p keelc-driver
 
-./target/release/keel run examples/hello.keel --milestone M7
-./target/release/keel check examples/hello.keel --milestone M7
-./target/release/keel fmt examples/hello.keel --milestone M7
-./target/release/keel build examples/hello.keel --milestone M7
+./target/release/keel run examples/hello.keel
+./target/release/keel check examples/hello.keel
+./target/release/keel fmt examples/hello.keel
+./target/release/keel build examples/hello.keel
 ```
 
-The current development CLI defaults to the M1 parser gate, so use
-`--milestone M7` for the complete implemented language. `keel fmt` writes
+The CLI defaults to the latest implemented milestone (M7); pass `--milestone
+M<N>` only to check against an earlier milestone's gate. `keel fmt` writes
 canonical source to stdout; it does not edit the input file. `keel build` writes
 the executable beside the source file. Rust and Go are currently required to
 build and run the compiler.

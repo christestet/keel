@@ -8,7 +8,7 @@ runtime profiles, or provide deployment manifests.
 ## Build the executable
 
 ```sh
-target/release/keel build service/main.keel --milestone M7
+target/release/keel build service/main.keel
 ```
 
 The artifact is written beside the source and named after its stem. The example
@@ -89,7 +89,8 @@ toolchain artifacts.
 
 ## Pre-deployment checks
 
-1. Run `keel check`, `keel test`, and `keel build` with `--milestone M7`.
+1. Run `keel check`, `keel test`, and `keel build` (they default to M7, the
+   latest implemented milestone).
 2. Run `keel audit` against an explicit package manifest.
 3. Verify the binary on the actual target OS/architecture.
 4. Exercise startup failure, port conflicts, missing configuration, database

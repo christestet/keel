@@ -1,8 +1,21 @@
 # Getting started with Keel
 
 Keel is pre-1.0. The current toolchain is built from this repository and uses
-Go as its backend. No release has been published yet; when one is, it appears
-on the repository's GitHub Releases page as described below.
+Go as its backend. The 0.1.0 developer preview is tagged and published on the
+repository's GitHub Releases page (see below); until a release exists for
+your platform, build from source.
+
+## Try it in Docker (no local install)
+
+```sh
+docker build -t keel .
+docker run --rm keel                    # runs examples/hello.keel
+docker run --rm -v "$PWD":/work -w /work keel run my.keel
+```
+
+This builds the toolchain and its Go backend inside the image, so nothing
+touches your host beyond Docker itself. See the
+[`Dockerfile`](https://github.com/christestet/keel/blob/main/Dockerfile).
 
 ## Install from a release (macOS/Linux)
 
@@ -47,7 +60,7 @@ This produces:
 ## Run the hello-world example
 
 ```sh
-target/release/keel run examples/hello.keel --milestone M7
+target/release/keel run examples/hello.keel
 ```
 
 Output:
@@ -56,8 +69,9 @@ Output:
 hello, keel
 ```
 
-The development CLI currently defaults to the M1 parser gate. Pass
-`--milestone M7` to enable the complete implemented language.
+`--milestone M<N>` defaults to the latest implemented milestone (M7). You
+only need to pass it explicitly to check a program against an earlier
+milestone's gate.
 
 ## Write a program
 
@@ -73,8 +87,8 @@ fn main() {
 Check and run it:
 
 ```sh
-target/release/keel check hello.keel --milestone M7
-target/release/keel run hello.keel --milestone M7
+target/release/keel check hello.keel
+target/release/keel run hello.keel
 ```
 
 `check` parses, resolves, and typechecks without generating an executable.
@@ -85,20 +99,20 @@ Compiler errors use stable `K####` codes and point to the primary source span.
 `keel fmt` prints canonical source to stdout; it does not modify the input:
 
 ```sh
-target/release/keel fmt hello.keel --milestone M7
+target/release/keel fmt hello.keel
 ```
 
 To replace a file safely, write to a temporary file first:
 
 ```sh
-target/release/keel fmt hello.keel --milestone M7 > hello.keel.formatted
+target/release/keel fmt hello.keel > hello.keel.formatted
 mv hello.keel.formatted hello.keel
 ```
 
 ## Build an executable
 
 ```sh
-target/release/keel build hello.keel --milestone M7
+target/release/keel build hello.keel
 ./hello
 ```
 
@@ -118,7 +132,7 @@ test "addition holds" {
 Run it:
 
 ```sh
-target/release/keel test math_test.keel --milestone M7
+target/release/keel test math_test.keel
 ```
 
 Output:
