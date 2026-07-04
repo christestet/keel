@@ -55,6 +55,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0104](0104-keel-gen-codegen-surface.md) | `keel gen` — schema-driven codegen in the core toolchain | accepted |
 | [0105](0105-hermetic-reproducible-builds.md) | Hermetic, reproducible builds | accepted |
 | [0106](0106-query-engine.md) | Salsa query engine for keelc | accepted |
+| [0107](0107-oci-image-build.md) | Daemonless, reproducible OCI image build (`keel build --image`) | accepted |
 
 All decisions derived from [`docs/vision.md`](../vision.md) are expanded above.
 `proposed` entries are not yet accepted; see [`kdr/AGENTS.md`](AGENTS.md) for
