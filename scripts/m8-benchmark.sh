@@ -28,7 +28,7 @@ Options:
   --known-gap METRIC record and report METRIC, but never let --enforce fail on
                       it. Repeatable. Use for a budget that is honestly
                       unenforceable today and documented as such (see
-                      docs/m8-status.md) rather than silently gating on it.
+                      docs/milestone-status.md) rather than silently gating on it.
 EOF
 }
 
@@ -181,7 +181,7 @@ record_metric() {
 
   if [ "$enforce" = true ] && [ "$status" != "ok" ]; then
     if is_known_gap "$metric"; then
-      echo "m8 benchmark: $metric $status (${elapsed}ms, budget ${budget}ms, baseline ${previous}ms) — known gap, not enforced (docs/m8-status.md)" >&2
+      echo "m8 benchmark: $metric $status (${elapsed}ms, budget ${budget}ms, baseline ${previous}ms) — known gap, not enforced (docs/milestone-status.md)" >&2
       return 0
     fi
     echo "m8 benchmark: $metric $status (${elapsed}ms, budget ${budget}ms, baseline ${previous}ms)" >&2
@@ -212,6 +212,11 @@ printf "metric\telapsed_ms\tbudget_ms\tbaseline_ms\tstatus\n" > "$metrics"
 measure keel_check "$keelc" check "$work_dir/main.keel" --milestone M7
 
 if [ "$mode" = "full" ]; then
+  # keel_build_cold must measure a real build: drop any binary/stamp left by a
+  # previous run (locally or via a cached target/), or the driver's up-to-date
+  # cutoff would turn "cold" into a no-op. keel_build_incremental then
+  # measures exactly that cutoff.
+  rm -f "$work_dir/main" "$work_dir/.main.keelstamp"
   measure keel_build_cold "$keelc" build "$work_dir/main.keel" --milestone M7
   measure keel_build_incremental "$keelc" build "$work_dir/main.keel" --milestone M7
 fi

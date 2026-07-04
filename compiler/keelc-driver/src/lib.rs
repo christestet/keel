@@ -1,5 +1,6 @@
 //! Keel CLI driver: check, run, fmt, and build Keel Core source files.
 
+mod build_cache;
 mod gen;
 mod manifest;
 
@@ -93,11 +94,26 @@ pub fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // Up-to-date cutoff (KDR-0019 incremental budget): when nothing that
+    // feeds the binary changed since the last clean `keel build`, skip the
+    // frontend and `go build` entirely. Runs after the manifest gate so an
+    // invalid workspace still fails every time.
+    let build_stamp = if command.as_os_str().to_str() == Some("build") {
+        build_cache::BuildStamp::compute(path, &text, milestone)
+    } else {
+        None
+    };
+    if let Some(stamp) = &build_stamp {
+        if stamp.is_up_to_date() {
+            return ExitCode::SUCCESS;
+        }
+    }
+
     let db = keelc_query::QueryDatabase::default();
     let source = keelc_query::SourceFile::new(&db, text.clone(), milestone);
-    if !emit_check_diagnostics(path, &text, &db, source) {
+    let Ok(clean) = emit_check_diagnostics(path, &text, &db, source) else {
         return ExitCode::FAILURE;
-    }
+    };
 
     match command.as_os_str().to_str() {
         Some("check") => ExitCode::SUCCESS,
@@ -110,7 +126,20 @@ pub fn main() -> ExitCode {
             Err(code) => code,
         },
         Some("build") => match query_go_source(&db, source, false) {
-            Ok(go_source) => build_go_source(path, &go_source),
+            Ok(go_source) => match build_go_source(path, &go_source) {
+                Ok(()) => {
+                    // Only a diagnostic-free build may be replayed as a
+                    // no-op: a cached skip prints nothing, so it must only
+                    // stand in for builds that printed nothing.
+                    if clean {
+                        if let Some(stamp) = &build_stamp {
+                            stamp.record();
+                        }
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(code) => code,
+            },
             Err(code) => code,
         },
         _ => ExitCode::SUCCESS,
@@ -204,51 +233,43 @@ fn fmt_file(path: &Path, text: &str, milestone: u32) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Print check diagnostics. `Err(())` when any is an error; otherwise
+/// `Ok(clean)`, where `clean` means zero diagnostics — warnings pass the
+/// build but block the build-cache stamp (see the `build` arm).
 fn emit_check_diagnostics(
     path: &Path,
     text: &str,
     db: &keelc_query::QueryDatabase,
     source: keelc_query::SourceFile,
-) -> bool {
+) -> Result<bool, ()> {
     let diagnostics = keelc_query::check_diagnostics(db, source);
     let has_error = diagnostics.iter().any(is_error);
     let index = LineIndex::new(text);
     for diagnostic in diagnostics.iter() {
         emit_diagnostic(path, &index, diagnostic);
     }
-    !has_error
+    if has_error {
+        Err(())
+    } else {
+        Ok(diagnostics.is_empty())
+    }
 }
 
-fn build_go_source(source_path: &Path, go_source: &str) -> ExitCode {
+fn build_go_source(source_path: &Path, go_source: &str) -> Result<(), ExitCode> {
     let temp_dir = env::temp_dir().join(format!("keelc-build-{}", std::process::id()));
     if let Err(err) = fs::create_dir_all(&temp_dir) {
         eprintln!(
             "could not create Go build directory {}: {err}",
             temp_dir.display()
         );
-        return ExitCode::from(2);
+        return Err(ExitCode::from(2));
     }
     let _guard = TempDir(temp_dir.clone());
 
-    let module_mode = match write_go_project(&temp_dir, go_source) {
-        Ok(module_mode) => module_mode,
-        Err(code) => return code,
-    };
+    let module_mode = write_go_project(&temp_dir, go_source)?;
 
-    let binary_name = source_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("keel-out");
-    let binary_name = format!("{binary_name}{}", std::env::consts::EXE_SUFFIX);
-    let output_dir = source_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let binary_path = output_dir.join(&binary_name);
     // Absolute so `-o` is correct even when we run `go build` from the module dir.
-    let binary_path = fs::canonicalize(output_dir)
-        .map(|dir| dir.join(&binary_name))
-        .unwrap_or(binary_path);
+    let binary_path = build_cache::output_binary_path(source_path);
 
     let mut command = Command::new("go");
     // Hermetic build (spec ch18, KDR-0105): `-trimpath` strips the per-invocation
@@ -269,15 +290,15 @@ fn build_go_source(source_path: &Path, go_source: &str) -> ExitCode {
         Ok(output) => output,
         Err(err) => {
             eprintln!("could not invoke Go toolchain: {err}");
-            return ExitCode::from(2);
+            return Err(ExitCode::from(2));
         }
     };
 
     if output.status.success() {
-        ExitCode::SUCCESS
+        Ok(())
     } else {
         eprint!("{}", String::from_utf8_lossy(&output.stderr));
-        ExitCode::FAILURE
+        Err(ExitCode::FAILURE)
     }
 }
 
