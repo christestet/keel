@@ -25,6 +25,7 @@ conformance tests (spec PR → test PR → implementation PR, per AGENTS.md).
 | 16 | LSP server protocol | [KDR-0103](../kdr/0103-lsp-server.md) — **landed**, see [`16-lsp.md`](16-lsp.md) |
 | 17 | Schema codegen (`keel gen`) | [KDR-0104](../kdr/0104-keel-gen-codegen-surface.md) — **implemented** (proto3 subset), see [`17-codegen.md`](17-codegen.md) |
 | 18 | Hermetic, reproducible builds | [KDR-0105](../kdr/0105-hermetic-reproducible-builds.md) — **implemented**, see [`18-hermetic-builds.md`](18-hermetic-builds.md) |
+| 19 | OCI image build (`keel build --image`) | [KDR-0107](../kdr/0107-oci-image-build.md) — **specified** (impl pending), see [`19-oci-images.md`](19-oci-images.md) |
 
 Until a chapter exists, `keel-core.md` plus the conformance suite is the only
 normative text. Style: every normative statement is testable; every error gets a
