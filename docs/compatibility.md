@@ -127,9 +127,12 @@ Honest limitations that must stay prominent in any preview presentation:
 - **Go toolchain required.** Executable generation still shells out to `go build`;
   the native backend is M11. SQL cases may resolve `modernc.org/sqlite` from a
   module cache or the network.
-- **Incremental build known-gap.** `keel build` creates a fresh query database
-  per invocation, so `keel_build_incremental` stays over budget and is a
-  documented `--known-gap` in the enforced KDR-0019 performance gate (see
+- **Incremental build = whole-build cutoff only.** An unchanged `keel build`
+  is a verified no-op (a stamp beside the output binary records the source,
+  compiler, and Go-toolchain inputs), which is what the enforced
+  `keel_build_incremental` budget measures. An *edited* source still reruns
+  the full pipeline: the query database is fresh per invocation, and
+  per-module reuse across invocations is future work (see
   [`milestone-status.md`](milestone-status.md) §M8).
 - **LSP is base-capability only.** `keel lsp` resolves module-level `fn`/`struct`
   declarations by name; parameters and `let` bindings (local scopes) are not

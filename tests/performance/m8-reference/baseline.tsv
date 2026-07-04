@@ -1,16 +1,22 @@
 # metric budget_ms baseline_ms
 #
-# baseline_ms captured on the m8-benchmark CI job's own ubuntu-latest runner,
-# workflow run 28676356124 (PR #24, binary-search name lookups + the #18
-# GOCACHE pre-warm). keel_check and keel_build_cold are inside their KDR-0019
-# budget_ms, so --enforce is on in CI: it fails a PR that exceeds budget_ms or
-# regresses >5% over baseline_ms. keel_build_incremental remains over budget
-# and is a documented --known-gap (fresh Salsa database per CLI invocation, no
-# cross-invocation reuse) — see docs/m8-status.md.
+# baseline_ms captured on the m8-benchmark CI job's own ubuntu-latest runner.
+# keel_check and keel_build_cold: workflow run 28676356124 (PR #24,
+# binary-search name lookups + the #18 GOCACHE pre-warm).
+# keel_build_incremental: the `keel build` up-to-date cutoff (stamp beside the
+# output binary; see compiler/keelc-driver/src/build_cache.rs) makes the
+# unchanged rebuild a verified no-op, so all three KDR-0019 budgets are
+# enforced in CI: --enforce fails a PR that exceeds budget_ms or regresses
+# >5% over baseline_ms. Measured 16 ms on this runner (workflow run
+# 28715590592, PR #43); baseline_ms is deliberately pinned at 100, not 16,
+# because the +5% rule was sized for hundreds-of-ms metrics and would fail on
+# scheduler jitter at no-op scale. >105 ms means the cutoff stopped being a
+# no-op; the 1000 ms budget still catches a fully broken cutoff (full
+# pipeline rerun measured ~1121 ms on this runner).
 #
 # keel_build_cold's 9451 ms sits within 6% of its 10000 ms budget; if the
 # runner fleet's variance trips the gate without a compiler change, that is
 # the signal to right-size the corpus or budget via KDR, not to widen silently.
 keel_check 300 228
 keel_build_cold 10000 9451
-keel_build_incremental 1000 1121
+keel_build_incremental 1000 100

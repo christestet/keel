@@ -85,7 +85,7 @@ developer-preview releases (see [`compatibility.md`](compatibility.md)).
   resolution. Documentation treats the implementation as the present limit;
   the normative/implementation gap still needs resolution.
 - The KDR-0019 performance gate is enforced in CI against checked-in baselines
-  (`keel_build_incremental` a documented `--known-gap`), `keel lsp` ships the
+  for all three budgets, `keel lsp` ships the
   full base capability set, and `keel --version` reports version + commit. The
   `0.1.x` developer-preview scope and remaining limits are in
   [`compatibility.md`](compatibility.md).

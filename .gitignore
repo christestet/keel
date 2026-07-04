@@ -8,8 +8,9 @@ Cargo.lock.orig
 .AppleDouble
 .LSOverride
 
-# Conformance build-mode artifacts (compiled test binaries)
+# Conformance build-mode artifacts (compiled test binaries + build-cache stamps)
 tests/conformance/*/main
+tests/conformance/*/.main.keelstamp
 
 # Agent-harness runtime state (per-session lock file, not repo content)
 .agents/scheduled_tasks.lock
