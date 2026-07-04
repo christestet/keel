@@ -125,14 +125,15 @@ that cannot exist.
 
 | Case | Kind | Asserts |
 |---|---|---|
-| `860-image-reproducible` | accept (`mode = "image"`) | two clean `keel build --image` runs of the same program produce a byte-identical OCI layout (identical top-level digest) |
-| `861-image-layout-valid` | accept (`mode = "image"`) | the produced layout parses as a valid OCI Image Layout: `oci-layout` marker, `index.json`, manifest, and config conform to the OCI Image Spec and reference an existing single-layer blob |
-| `862-image-no-base-layer` | accept (`mode = "image"`) | the produced manifest lists exactly one layer, and the config's rootfs diff-ids list has exactly one entry |
+| `860-image-reproducible` | accept (`mode = "image"`) | two clean `keel build --image` runs of the same program produce a byte-identical OCI layout (identical top-level digest); the layout parses as valid per the OCI Image Spec (`oci-layout` marker, `index.json`, manifest, config all present and consistent); the manifest lists exactly one layer and the config's `rootfs.diff_ids` has exactly one entry |
 
-The `image` runner mode invokes `keelc build --image`, then validates the
-written layout against §19.4 and, for `860`, builds twice into distinct output
-paths and asserts the two layouts are byte-identical (mirroring the `repro`
-mode chapter 18 introduced for the plain binary).
+The `image` runner mode invokes `keelc build --image` twice into distinct
+output paths (mirroring the `repro` mode chapter 18 introduced for the plain
+binary), asserts the two layouts are byte-identical, and structurally
+validates one of them against §19.3/§19.4. One case combining these
+assertions matches how `850-build-reproducible` already combines
+byte-identity and stdout-correctness in a single case — the properties are
+one behavior (the §19.1 contract), not three.
 
 ## 19.9 Dependencies
 
