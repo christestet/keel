@@ -5,12 +5,13 @@
 // this workspace and running `keel audit` proves, from the manifests alone,
 // exactly which package can open a socket, before a single line runs.
 //
-// Cross-package function calls are not yet linked into the executable by the
-// Go backend (a documented M7 boundary: `docs/feature-status.md` lists
-// "Packages | Partial | ... dependency source is not linked into the root
-// module"). This example exercises what IS implemented today: manifest
+// Cross-package function, type, and interpolated calls now link into the
+// executable (KDR-0044; see `docs/cross-package-linking-notes.md`). This example
+// deliberately stays focused on the capability-audit surface: manifest
 // capability declaration, static enforcement (K1110/K1112), and the
 // deterministic `keel audit` report — see README.md for the enforcement demo.
+// The `use` lines below declare the dependency graph the audit reasons over;
+// for a runnable cross-package call see conformance `818`/`838`.
 use std.log
 use payments.charge
 use pricing.quote

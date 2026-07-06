@@ -70,15 +70,22 @@ but only the SQLite Go driver is bundled. Use SQLite with the current toolchain.
 Do not add a driver dependency as an undocumented workaround; backend dependency
 changes require their own decision and review.
 
-## Package imports validate but symbols do not link
+## A cross-package call or type does not resolve
 
-M7 implements manifest parsing, path-dependency graph validation, `use`-path
-declaration checks, and capability rollup. It does not compile dependency source
-or resolve dependency symbols into the root module. A declared `use helper.x`
-can pass package validation while calls into that package remain unsupported.
+Cross-package linking of functions, types, and interpolated calls is implemented
+(KDR-0044; see [`cross-package-linking-notes.md`](cross-package-linking-notes.md)),
+but a few forms sit outside the ceiling and fail with an ordinary unresolved-name
+or unknown-type error rather than a package diagnostic:
 
-Keep code in one source module for executable behavior until cross-package
-resolution has conformance coverage.
+- a call nested inside a *nested* interpolation (`"{f("{g()}")}"`) — bind the
+  inner result in a `let` and interpolate the local;
+- constructing a dependency struct directly from the root (`dep.Point{...}` does
+  not parse) — call a dependency constructor function instead;
+- a cross-package enum whose variant name collides with a root or sibling variant
+  (variant names are not mangled).
+
+Also confirm the `use <alias>.<module>` path names a real `<module>.keel` file in
+the dependency and that `<alias>` appears in the root `[dependencies]`.
 
 ## Capability checks appear to be missing
 

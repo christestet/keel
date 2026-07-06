@@ -123,9 +123,10 @@ call) plus every single-file case stay byte-identical.
 
 Concrete entry points, in the repo's spec → tests → impl order per concern:
 
-1. **Housekeeping already flagged as stale:** the `examples/capability-audit`
-   `main.keel` header comment and `docs/troubleshooting.md` still say linking
-   does not happen.
+1. **Lift a ceiling item when the corpus needs it:** nested-interpolation calls
+   (would need `rewrite_interpolations` to recurse), cross-package enum
+   variant-name mangling, or root-side dependency-struct construction (a parser
+   change so `dep.Point{...}` parses as a struct literal).
 2. **Governance:** the work shipped as one tree; if CI's concern-separation is
    wanted retroactively, split into the KDR / spec / tests / compiler commit
    sequence before opening any PR.

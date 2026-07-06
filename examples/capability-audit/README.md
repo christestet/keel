@@ -28,14 +28,13 @@ smuggled in silently.
 ## What's implemented vs. what isn't (read this before extending the demo)
 
 Manifest capability declaration, static enforcement (`K1110`/`K1112`), and
-`keel audit` reporting are **implemented today** and are what this example
-exercises. Cross-package **function calls are not yet linked into the
-executable** by the Go backend — see `docs/feature-status.md`: "Packages |
-Partial | ... dependency source is not linked into the root module." That's
-why `main.keel` only `use`s `payments.charge` and `pricing.quote` (which is
-enough to put them in the dependency and capability graph) without calling
-them. Don't "fix" this by inlining calls that need cross-package codegen —
-that's a separate, tracked compiler gap, not a bug in this example.
+`keel audit` reporting are what this example exercises. Cross-package function,
+type, and interpolated calls now **do** link into the executable (KDR-0044; see
+`docs/cross-package-linking-notes.md`), but this example stays deliberately
+narrow: `main.keel` only `use`s `payments.charge` and `pricing.quote` to put
+them in the dependency and capability graph the audit reasons over, without
+calling them. That keeps the demo about capabilities, not linking — for a
+runnable cross-package call, see conformance `818`/`838`.
 
 ## Run it
 
