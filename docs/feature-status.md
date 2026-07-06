@@ -30,8 +30,8 @@ M9 (reproducible OCI images) is the next milestone.
 | Constrained generics | Implemented | every type parameter has an interface bound; Go backend erases bounds |
 | Structured concurrency | Implemented | `scope`/`spawn`, join, fail-fast, deadlines, cancellation checkpoints |
 | Arenas | Partial | syntax and tail escape check; Go backend uses an ordinary block, not a region allocator |
-| Modules | Partial | headers/imports parse; cross-package function calls link (spec §6.4); cross-package types not yet |
-| Packages | Partial | local path graph/import validation; dependency **functions** link into the build (KDR-0044), called outside string interpolation; dependency structs/enums do not yet cross the boundary |
+| Modules | Partial | headers/imports parse; cross-package function **and type** references link (spec §6.4) |
+| Packages | Partial | local path graph/import validation; dependency **functions, structs, and enums** link into the build (KDR-0044); ceiling: no calls inside string interpolation, enum variant names not mangled (cross-package variant-name collisions unsupported), root cannot construct a dependency struct directly |
 | Package capabilities | Implemented | enforced for explicit packages; implicit packages are the root-only trust anchor whose derived set `keel audit` reports (KDR-0043) |
 | Editions | Partial | edition 1 selection and unknown-edition error only |
 | C FFI / `extern` | Planned (M10) | rejected with `K0905` today |

@@ -71,13 +71,16 @@ cycles, and collisions.
 ## Current module ceiling
 
 The driver scans every package source file for `use` paths, validates
-dependency declarations, and computes capabilities. Cross-package **function**
-calls now link (spec §6.4, [KDR-0044](kdr/0044-cross-package-symbol-linking.md)):
-a dependency module's functions are merged into the build and `module.fn(...)`
-resolves to them, proven by `818-cross-package-call`. Still outside the ceiling:
-dependency structs/enums crossing the boundary, and calls written inside string
-interpolation (`"{dep.f()}"`). Keep public package APIs provisional until those
-land too.
+dependency declarations, and computes capabilities. Cross-package **function
+and type** references now link (spec §6.4,
+[KDR-0044](kdr/0044-cross-package-symbol-linking.md)): a dependency module's
+functions, structs, and enums are merged into the build; `module.fn(...)` and
+`module.Type` annotations resolve to them, proven by `818-cross-package-call`
+and `819-cross-package-type`. Still outside the ceiling: calls written inside
+string interpolation (`"{dep.f()}"`), cross-package enum *variant-name*
+collisions (variants are not mangled), and constructing a dependency struct
+directly from the root (`dep.Point{...}` does not parse). Keep public package
+APIs provisional until those land too.
 
 ## Capability declarations
 
@@ -162,6 +165,6 @@ what the dependency can reach. Source review and version control still matter.
 - registry or Git dependencies;
 - lockfiles and dependency resolution;
 - package publishing;
-- cross-package linking of structs/enums (functions link — spec §6.4);
+- root-side construction of a dependency struct (`dep.Point{...}` does not parse) and cross-package enum variant-name collisions (functions, structs, and enums otherwise link — spec §6.4);
 - function-level capability restrictions;
 - FFI capability exercise and SBOM output.

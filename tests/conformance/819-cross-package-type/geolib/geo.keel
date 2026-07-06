@@ -1,0 +1,28 @@
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+enum Quadrant {
+    Origin,
+    NorthEast,
+    Other,
+}
+
+fn origin() -> Point {
+    Point { x: 0, y: 0 }
+}
+
+fn translate(p: Point, dx: Int, dy: Int) -> Point {
+    Point { x: p.x + dx, y: p.y + dy }
+}
+
+fn classify(p: Point) -> Quadrant {
+    if p.x == 0 {
+        Origin
+    } else if p.x > 0 {
+        NorthEast
+    } else {
+        Other
+    }
+}

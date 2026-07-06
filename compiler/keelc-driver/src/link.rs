@@ -1,20 +1,22 @@
 //! Cross-package symbol linking (spec §6.4, KDR-0044).
 //!
 //! ponytail: source-level merge. Parse each dependency module the root `use`s,
-//! rename its top-level functions by the dependency's manifest name, rewrite the
-//! root's `module.fn(...)` calls into the mangled free function, then hand one
-//! merged module to the existing single-source pipeline via the pretty-printer.
-//! Ceiling — dependency **functions** only, and a cross-package call must sit
+//! rename its top-level functions and types by the dependency's manifest name,
+//! rewrite the root's `module.fn(...)` calls and `module.Type` annotations into
+//! the mangled forms, then hand one merged module to the existing single-source
+//! pipeline via the pretty-printer. Ceiling — a cross-package call must sit
 //! outside string interpolation (the AST keeps interpolations as raw text, so a
-//! call written `"{dep.f()}"` is not rewritten). Non-function dependency items
-//! and interpolated calls fail loudly downstream (unknown name/type), never
-//! silently mislink. Upgrade path when the corpus needs it: real module
-//! namespaces in the resolver/backend so linking stops round-tripping through
-//! source (KDR-0044 reopening clause).
+//! call written `"{dep.f()}"` is not rewritten); enum *variant* names are not
+//! mangled, so cross-package variant-name collisions are unsupported; and the
+//! root cannot construct a dependency struct directly (`dep.Point{...}` does not
+//! parse). Such cases fail loudly downstream (unknown name/type), never silently
+//! mislink. Upgrade path when the corpus needs it: real module namespaces in the
+//! resolver/backend so linking stops round-tripping through source (KDR-0044
+//! reopening clause).
 
 use crate::manifest;
 use keelc_ast::pretty::pretty_print;
-use keelc_ast::{Block, Expr, Item, Module, RouteHandler, Stmt};
+use keelc_ast::{Block, Expr, Item, Module, Pattern, RouteHandler, Stmt, Type};
 use keelc_parse::parse_with_milestone;
 use keelc_span::{SourceId, Spanned};
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,9 +43,9 @@ pub fn link(entry: &Path, root_text: &str, milestone: u32) -> String {
     // Deduplicated `std` imports from the root and every merged dependency
     // module (BTreeMap key = path segments → deterministic order, hard rule 7).
     let mut std_uses: BTreeMap<Vec<String>, Item> = BTreeMap::new();
-    // Imported dependency module local name → (package name, its function set),
-    // used to rewrite `local.fn(...)` at the call site.
-    let mut modules: BTreeMap<String, (String, BTreeSet<String>)> = BTreeMap::new();
+    // Imported dependency module local name → its linked package (name +
+    // function/type sets), used to rewrite `local.fn(...)` and `local.Type`.
+    let mut modules: BTreeMap<String, Linked> = BTreeMap::new();
     let mut dep_functions: Vec<Item> = Vec::new();
 
     collect_std_uses(&root, &mut std_uses);
@@ -68,11 +70,21 @@ pub fn link(entry: &Path, root_text: &str, milestone: u32) -> String {
         let mut dep_module = parse_with_milestone(SourceId::new(0), &module_text, milestone).module;
 
         collect_std_uses(&dep_module, &mut std_uses);
-        let functions = mangle_dependency(&mut dep_module, package);
+        let (functions, types) = mangle_dependency(&mut dep_module, package);
         let local_name = segments.last().cloned().unwrap_or_default();
-        modules.insert(local_name, (package.to_string(), functions));
+        modules.insert(
+            local_name,
+            Linked {
+                package: package.to_string(),
+                functions,
+                types,
+            },
+        );
         for dep_item in dep_module.items {
-            if matches!(dep_item, Item::Function(_)) {
+            if matches!(
+                dep_item,
+                Item::Function(_) | Item::Struct(_) | Item::Enum(_)
+            ) {
                 dep_functions.push(dep_item);
             }
         }
@@ -82,7 +94,11 @@ pub fn link(entry: &Path, root_text: &str, milestone: u32) -> String {
         return root_text.to_string();
     }
 
-    walk_module_exprs(&mut root, &mut |expr| rewrite_call_site(expr, &modules));
+    walk_module(
+        &mut root,
+        &mut |expr| rewrite_call_site(expr, &modules),
+        &mut |ty| rewrite_type_ref(ty, &modules),
+    );
 
     let mut items: Vec<Item> = Vec::new();
     items.extend(std_uses.into_values());
@@ -102,6 +118,28 @@ fn mangle(package: &str, name: &str) -> String {
     format!("{package}__{name}")
 }
 
+/// Mangle a dependency **type** name. A type name may not contain `_` and must
+/// be UpperCamelCase (K0101), so the `pkg__name` form used for functions is
+/// invalid here. Prefix the PascalCased package name instead, keeping the
+/// result a valid, deterministic UpperCamelCase identifier.
+fn mangle_type(package: &str, name: &str) -> String {
+    format!("{}{}", pascal(package), name)
+}
+
+/// PascalCase a package name (`my_geo.lib` → `MyGeoLib`) for use as a type-name
+/// prefix. Splits on the separators a manifest name may contain.
+fn pascal(s: &str) -> String {
+    s.split(['_', '.', '-'])
+        .filter(|seg| !seg.is_empty())
+        .map(|seg| {
+            let mut chars = seg.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(chars).collect::<String>()
+            })
+        })
+        .collect()
+}
+
 /// Collect the module's `use std.*` declarations into `into`, keyed by path so
 /// duplicates across merged modules collapse to one deterministic entry.
 fn collect_std_uses(module: &Module, into: &mut BTreeMap<Vec<String>, Item>) {
@@ -115,38 +153,75 @@ fn collect_std_uses(module: &Module, into: &mut BTreeMap<Vec<String>, Item>) {
     }
 }
 
-/// Rename every top-level function in a dependency module (declaration and
-/// internal call sites) by the package prefix, and return the original function
-/// names so the root can map `local.fn` to `package__fn`.
-fn mangle_dependency(module: &mut Module, package: &str) -> BTreeSet<String> {
-    let functions: BTreeSet<String> = module
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Function(decl) => Some(decl.name.value.clone()),
-            _ => None,
-        })
-        .collect();
-    for item in &mut module.items {
-        if let Item::Function(decl) = item {
-            decl.name.value = mangle(package, &decl.name.value);
+/// Rename every top-level function and type in a dependency module (declarations
+/// and internal references) by the package prefix, and return the original
+/// function and type names so the root can map `local.fn`/`local.Type` to the
+/// `package__name` forms.
+fn mangle_dependency(module: &mut Module, package: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut functions = BTreeSet::new();
+    let mut types = BTreeSet::new();
+    for item in &module.items {
+        match item {
+            Item::Function(decl) => {
+                functions.insert(decl.name.value.clone());
+            }
+            Item::Struct(decl) => {
+                types.insert(decl.name.value.clone());
+            }
+            Item::Enum(decl) => {
+                types.insert(decl.name.value.clone());
+            }
+            _ => {}
         }
     }
-    walk_module_exprs(module, &mut |expr| {
-        if let Expr::Call { callee, .. } = expr {
-            if let Expr::Name(name) = callee.as_mut() {
-                if functions.contains(name.value.as_str()) {
-                    name.value = mangle(package, &name.value);
+    for item in &mut module.items {
+        match item {
+            Item::Function(decl) => decl.name.value = mangle(package, &decl.name.value),
+            Item::Struct(decl) => decl.name.value = mangle_type(package, &decl.name.value),
+            Item::Enum(decl) => decl.name.value = mangle_type(package, &decl.name.value),
+            _ => {}
+        }
+    }
+    walk_module(
+        module,
+        &mut |expr| match expr {
+            // Internal call to a sibling function in the same dependency.
+            Expr::Call { callee, .. } => {
+                if let Expr::Name(name) = callee.as_mut() {
+                    if functions.contains(name.value.as_str()) {
+                        name.value = mangle(package, &name.value);
+                    }
                 }
             }
-        }
-    });
-    functions
+            // Construction of one of the dependency's own structs.
+            Expr::StructLiteral { name, .. } if types.contains(name.value.as_str()) => {
+                name.value = mangle_type(package, &name.value);
+            }
+            _ => {}
+        },
+        &mut |ty| {
+            if let Type::Named { name, .. } = ty {
+                if types.contains(name.value.as_str()) {
+                    name.value = mangle_type(package, &name.value);
+                }
+            }
+        },
+    );
+    (functions, types)
+}
+
+/// An imported dependency module, keyed in `modules` by its root-local name.
+/// `functions`/`types` hold the *original* (unmangled) names so root-side
+/// references can be matched before rewriting to the `package__name` form.
+struct Linked {
+    package: String,
+    functions: BTreeSet<String>,
+    types: BTreeSet<String>,
 }
 
 /// Rewrite `local.fn(args)` — a `MethodCall` whose receiver names an imported
 /// dependency module — into the free call `package__fn(args)`.
-fn rewrite_call_site(expr: &mut Expr, modules: &BTreeMap<String, (String, BTreeSet<String>)>) {
+fn rewrite_call_site(expr: &mut Expr, modules: &BTreeMap<String, Linked>) {
     let replacement = match expr {
         Expr::MethodCall {
             receiver,
@@ -155,17 +230,15 @@ fn rewrite_call_site(expr: &mut Expr, modules: &BTreeMap<String, (String, BTreeS
             span,
         } => match receiver.as_ref() {
             Expr::Name(local) => match modules.get(local.value.as_str()) {
-                Some((package, functions)) if functions.contains(method.value.as_str()) => {
-                    Some(Expr::Call {
-                        callee: Box::new(Expr::Name(Spanned::new(
-                            mangle(package, &method.value),
-                            method.span,
-                        ))),
-                        type_args: Vec::new(),
-                        args: std::mem::take(args),
-                        span: *span,
-                    })
-                }
+                Some(dep) if dep.functions.contains(method.value.as_str()) => Some(Expr::Call {
+                    callee: Box::new(Expr::Name(Spanned::new(
+                        mangle(&dep.package, &method.value),
+                        method.span,
+                    ))),
+                    type_args: Vec::new(),
+                    args: std::mem::take(args),
+                    span: *span,
+                }),
                 _ => None,
             },
             _ => None,
@@ -177,72 +250,158 @@ fn rewrite_call_site(expr: &mut Expr, modules: &BTreeMap<String, (String, BTreeS
     }
 }
 
-// --- exhaustive expression walk (mutating) -------------------------------
-// Visits every expression in a module's function and test bodies, applying `f`
-// before recursing so a node `f` replaces still has its new children walked.
+/// Rewrite a `local.Type` type annotation in the root into the merged
+/// `package__Type`. The parser folds a dotted type name into one string
+/// (`"math.Point"`), so split on the first `.` to recover module + type.
+fn rewrite_type_ref(ty: &mut Type, modules: &BTreeMap<String, Linked>) {
+    let Type::Named { name, .. } = ty else { return };
+    let Some((local, type_name)) = name.value.split_once('.') else {
+        return;
+    };
+    if let Some(dep) = modules.get(local) {
+        if dep.types.contains(type_name) {
+            name.value = mangle_type(&dep.package, type_name);
+        }
+    }
+}
 
-fn walk_module_exprs(module: &mut Module, f: &mut impl FnMut(&mut Expr)) {
+// --- exhaustive expression + type walk (mutating) ------------------------
+// Visits every expression (`f`) and every type node (`t`) in a module's
+// declarations and bodies, applying the callback before recursing so a node a
+// callback replaces still has its new children walked. `t` reaches struct/enum
+// field types, function signatures, `let` annotations, generic type arguments,
+// and pattern type annotations — every position a dependency type can appear.
+
+fn walk_module(module: &mut Module, f: &mut impl FnMut(&mut Expr), t: &mut impl FnMut(&mut Type)) {
     for item in &mut module.items {
         match item {
-            Item::Function(decl) => {
-                for param in &mut decl.params {
-                    if let Some(default) = &mut param.default {
-                        walk_expr(default, f);
-                    }
-                }
-                if let Some(body) = &mut decl.body {
-                    walk_block(body, f);
+            Item::Struct(decl) => {
+                for field in &mut decl.fields {
+                    walk_type(&mut field.ty, t);
                 }
             }
-            Item::Test(test) => walk_block(&mut test.body, f),
+            Item::Enum(decl) => {
+                for variant in &mut decl.variants {
+                    for field in &mut variant.fields {
+                        walk_type(&mut field.ty, t);
+                    }
+                }
+            }
+            Item::Function(decl) => {
+                for param in &mut decl.params {
+                    if let Some(ty) = &mut param.ty {
+                        walk_type(ty, t);
+                    }
+                    if let Some(default) = &mut param.default {
+                        walk_expr(default, f, t);
+                    }
+                }
+                if let Some(ret) = &mut decl.return_type {
+                    walk_type(ret, t);
+                }
+                if let Some(body) = &mut decl.body {
+                    walk_block(body, f, t);
+                }
+            }
+            Item::Test(test) => walk_block(&mut test.body, f, t),
             _ => {}
         }
     }
 }
 
-fn walk_block(block: &mut Block, f: &mut impl FnMut(&mut Expr)) {
+/// Visit a type node and every type nested inside it (union members, generic
+/// arguments), applying `t` to each.
+fn walk_type(ty: &mut Type, t: &mut impl FnMut(&mut Type)) {
+    t(ty);
+    match ty {
+        Type::Named { args, .. } => {
+            for arg in args {
+                walk_type(arg, t);
+            }
+        }
+        Type::Union { members, .. } => {
+            for member in members {
+                walk_type(member, t);
+            }
+        }
+    }
+}
+
+/// Visit the type annotation on a pattern (`Err(err: sql.Error)`) and recurse
+/// into its sub-patterns.
+fn walk_pattern_types(pattern: &mut Pattern, t: &mut impl FnMut(&mut Type)) {
+    if let Pattern::Name { args, ty, .. } = pattern {
+        if let Some(ty) = ty {
+            walk_type(ty, t);
+        }
+        for arg in args {
+            walk_pattern_types(arg, t);
+        }
+    }
+}
+
+fn walk_block(block: &mut Block, f: &mut impl FnMut(&mut Expr), t: &mut impl FnMut(&mut Type)) {
     for stmt in &mut block.statements {
         match stmt {
-            Stmt::Let { value, .. } | Stmt::Assert { value, .. } => walk_expr(value, f),
+            Stmt::Let { ty, value, .. } => {
+                if let Some(ty) = ty {
+                    walk_type(ty, t);
+                }
+                walk_expr(value, f, t);
+            }
+            Stmt::Assert { value, .. } => walk_expr(value, f, t),
             Stmt::Assign { target, value, .. } => {
-                walk_expr(target, f);
-                walk_expr(value, f);
+                walk_expr(target, f, t);
+                walk_expr(value, f, t);
             }
             Stmt::Return {
                 value: Some(value), ..
-            } => walk_expr(value, f),
-            Stmt::Expr(expr) => walk_expr(expr, f),
+            } => walk_expr(value, f, t),
+            Stmt::Expr(expr) => walk_expr(expr, f, t),
             Stmt::Return { value: None, .. } | Stmt::Break(_) | Stmt::Continue(_) => {}
         }
     }
 }
 
-fn walk_expr(expr: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
+fn walk_expr(expr: &mut Expr, f: &mut impl FnMut(&mut Expr), t: &mut impl FnMut(&mut Type)) {
     f(expr);
     match expr {
         Expr::Unary { expr, .. }
         | Expr::Spawn { expr, .. }
         | Expr::Question { expr, .. }
-        | Expr::Field { target: expr, .. } => walk_expr(expr, f),
+        | Expr::Field { target: expr, .. } => walk_expr(expr, f, t),
         Expr::Binary { left, right, .. } => {
-            walk_expr(left, f);
-            walk_expr(right, f);
+            walk_expr(left, f, t);
+            walk_expr(right, f, t);
         }
-        Expr::Call { callee, args, .. } => {
-            walk_expr(callee, f);
+        Expr::Call {
+            callee,
+            type_args,
+            args,
+            ..
+        } => {
+            walk_expr(callee, f, t);
+            for ty in type_args {
+                walk_type(ty, t);
+            }
             for arg in args {
-                walk_expr(&mut arg.value, f);
+                walk_expr(&mut arg.value, f, t);
             }
         }
         Expr::MethodCall { receiver, args, .. } => {
-            walk_expr(receiver, f);
+            walk_expr(receiver, f, t);
             for arg in args {
-                walk_expr(&mut arg.value, f);
+                walk_expr(&mut arg.value, f, t);
             }
         }
-        Expr::StructLiteral { fields, .. } => {
+        Expr::StructLiteral {
+            type_args, fields, ..
+        } => {
+            for ty in type_args {
+                walk_type(ty, t);
+            }
             for field in fields {
-                walk_expr(&mut field.value, f);
+                walk_expr(&mut field.value, f, t);
             }
         }
         Expr::If {
@@ -251,54 +410,56 @@ fn walk_expr(expr: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             else_branch,
             ..
         } => {
-            walk_expr(condition, f);
-            walk_block(then_block, f);
+            walk_expr(condition, f, t);
+            walk_block(then_block, f, t);
             if let Some(branch) = else_branch {
-                walk_expr(branch, f);
+                walk_expr(branch, f, t);
             }
         }
         Expr::Match {
             scrutinee, arms, ..
         } => {
-            walk_expr(scrutinee, f);
+            walk_expr(scrutinee, f, t);
             for arm in arms {
+                walk_pattern_types(&mut arm.pattern, t);
                 if let Some(guard) = &mut arm.guard {
-                    walk_expr(guard, f);
+                    walk_expr(guard, f, t);
                 }
-                walk_expr(&mut arm.value, f);
+                walk_expr(&mut arm.value, f, t);
             }
         }
         Expr::While {
             condition, body, ..
         } => {
-            walk_expr(condition, f);
-            walk_block(body, f);
+            walk_expr(condition, f, t);
+            walk_block(body, f, t);
         }
         Expr::Scope { deadline, body, .. } => {
             if let Some(deadline) = deadline {
-                walk_expr(deadline, f);
+                walk_expr(deadline, f, t);
             }
-            walk_block(body, f);
+            walk_block(body, f, t);
         }
-        Expr::Arena { body, .. } => walk_block(body, f),
-        Expr::Block(block) => walk_block(block, f),
+        Expr::Arena { body, .. } => walk_block(body, f, t),
+        Expr::Block(block) => walk_block(block, f, t),
         Expr::Catch { expr, arms, .. } => {
-            walk_expr(expr, f);
+            walk_expr(expr, f, t);
             for arm in arms {
+                walk_pattern_types(&mut arm.pattern, t);
                 if let Some(guard) = &mut arm.guard {
-                    walk_expr(guard, f);
+                    walk_expr(guard, f, t);
                 }
-                walk_expr(&mut arm.value, f);
+                walk_expr(&mut arm.value, f, t);
             }
         }
         Expr::Return {
             value: Some(value), ..
-        } => walk_expr(value, f),
+        } => walk_expr(value, f, t),
         Expr::Router { routes, .. } => {
             for route in routes {
                 match &mut route.handler {
-                    RouteHandler::Expr(expr) => walk_expr(expr, f),
-                    RouteHandler::Closure { body, .. } => walk_expr(body, f),
+                    RouteHandler::Expr(expr) => walk_expr(expr, f, t),
+                    RouteHandler::Closure { body, .. } => walk_expr(body, f, t),
                 }
             }
         }

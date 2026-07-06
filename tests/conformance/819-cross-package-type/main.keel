@@ -1,0 +1,13 @@
+use geolib.geo
+
+fn main() {
+    let o: geo.Point = geo.origin()
+    let p = geo.translate(o, 3, 4)
+    print("{p.x},{p.y}")
+    let label = match geo.classify(p) {
+        Origin => "origin",
+        NorthEast => "ne",
+        Other => "other",
+    }
+    print(label)
+}
