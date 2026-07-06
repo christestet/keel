@@ -16,18 +16,27 @@ internally works end-to-end; the root can pass and receive those values (field
 access, `match`) without the parser supporting direct `module.Type{...}`
 construction.
 
-Landed together (single working tree, on `main`, no PR — a deliberate override
-of [`AGENTS.md`](../AGENTS.md) hard rule 1's spec→tests→impl PR separation, at
-the maintainer's instruction for this session):
+Committed directly to `main` (no PR/branch — a deliberate override of
+[`AGENTS.md`](../AGENTS.md) hard rule 1's spec→tests→impl PR separation, at the
+maintainer's instruction; each commit bundles spec/tests/impl/docs together):
 
 - **KDR:** [`0044-cross-package-symbol-linking.md`](kdr/0044-cross-package-symbol-linking.md) — accepted.
 - **Spec:** [§6.4 "Cross-package symbol linking"](spec/06-modules-packages.md)
-  (and the old "dependency graph" section renumbered to §6.4a).
-- **Conformance:** `tests/conformance/818-cross-package-call/` — accept case,
-  `math.add(2,3)` from a path dependency prints `5`.
-- **Compiler:** `compiler/keelc-driver/src/link.rs` (the linker) and
-  `manifest::root_dependencies` in `compiler/keelc-driver/src/manifest.rs`
-  (dependency resolution reused from the manifest loader).
+  already lists `fn`/`struct`/`enum` as the public surface (and the old
+  "dependency graph" section renumbered to §6.4a); the type/interp increments
+  made the implementation catch up to it, so needed no spec change.
+- **Conformance:** `818-cross-package-call` (function call → `5`),
+  `819-cross-package-type` (dependency struct + enum used by dependency
+  functions, matched in the root, `module.Type` annotation → `3,4`/`ne`),
+  `838-cross-package-interp` (call inside a root interpolation + a dependency
+  function whose own interpolated body calls a sibling → `sum is 5`/`4 + 5 = 9`).
+- **Compiler:** `compiler/keelc-driver/src/link.rs` (the linker),
+  `manifest::root_dependencies` in `compiler/keelc-driver/src/manifest.rs`, and
+  `keelc_ast::pretty::pretty_print_expr` (added to re-emit interpolation bodies).
+
+Commit trail (most recent first): `f2ad6ae` stale-doc cleanup · `91d62eb`
+interpolated calls · `3bf69bc` types (structs/enums) · `8a71ca2` functions
+(the original 818 landing). All pushed.
 
 ## How it works today
 
