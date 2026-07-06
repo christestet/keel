@@ -44,7 +44,10 @@ passes and before the build-cache stamp / query pipeline (see
    visitor), keyed off the dependency's `[package].name`;
 4. rewrites the root's `module.fn(...)` (`MethodCall`) into a free call
    `pkgname__fn(...)` and its `module.Type` annotations into `PkgnameType`;
-5. pretty-prints one merged module and feeds it to the existing single-source
+5. rewrites the same references inside string-interpolation bodies, which the AST
+   keeps as raw text: each body is re-parsed, mangled, and re-emitted
+   (`rewrite_interpolations`), then spliced back into the literal;
+6. pretty-prints one merged module and feeds it to the existing single-source
    pipeline.
 
 Two mangling schemes because the two namespaces have different lints: functions
@@ -68,10 +71,11 @@ and [`packages-and-capabilities.md`](packages-and-capabilities.md):
 - **Root-side struct construction.** The root cannot write `dep.Point{...}`: that
   parses as a `Field` expression, not a struct literal, so construction stays
   inside the dependency. The root passes/receives dependency values instead.
-- **Interpolated calls.** A call written inside a string interpolation
-  (`"{dep.f()}"`) is not rewritten — the AST stores interpolation bodies as raw
-  text, so the merge cannot see the call. Bind the result in a `let` and
-  interpolate the local.
+- **Nested interpolated calls.** A cross-package call written at the top level of
+  a string interpolation (`"{dep.f()}"`) now links — the merge re-parses the
+  interpolation body, mangles it, and re-emits it (`rewrite_interpolations`). A
+  call nested inside a *nested* interpolation (`"{f("{g()}")}"`) is still not
+  reached; bind the inner result in a `let` and interpolate the local.
 - **Diagnostics point at merged source.** An error inside a merged dependency
   maps to a line in the merged text, not the dependency file.
 
@@ -104,25 +108,24 @@ lockfiles, or publishing (still out of scope, see
 
 ```
 scripts/preflight.sh   → green
-conformance            → 226 passed, 0 failed, 4 skipped (KEEL_MILESTONE=M9)
+conformance            → 227 passed, 0 failed, 4 skipped (KEEL_MILESTONE=M9)
 ```
 
 Beyond `818`: `819-cross-package-type` exercises a dependency struct + enum used
 by dependency functions, returned to and matched in the root, with a
-`module.Type` annotation. A dependency function calling a sibling dependency
-function (`quad` → `double`) links correctly, and `812-path-dependency` (import
-without a call) plus every single-file case stay byte-identical.
+`module.Type` annotation; `838-cross-package-interp` covers a `module.fn(...)`
+call inside a root interpolation and a dependency function whose own interpolated
+body calls a sibling. A dependency function calling a sibling dependency function
+(`quad` → `double`) links correctly, and `812-path-dependency` (import without a
+call) plus every single-file case stay byte-identical.
 
 ## Next work
 
 Concrete entry points, in the repo's spec → tests → impl order per concern:
 
-1. **Interpolated cross-package calls.** Requires the interpolation body to be a
-   parsed expression rather than raw text (an AST/parse change) before the merge
-   can reach it — scope it as its own concern.
-2. **Housekeeping already flagged as stale:** the `examples/capability-audit`
+1. **Housekeeping already flagged as stale:** the `examples/capability-audit`
    `main.keel` header comment and `docs/troubleshooting.md` still say linking
    does not happen.
-3. **Governance:** the work shipped as one tree; if CI's concern-separation is
+2. **Governance:** the work shipped as one tree; if CI's concern-separation is
    wanted retroactively, split into the KDR / spec / tests / compiler commit
    sequence before opening any PR.

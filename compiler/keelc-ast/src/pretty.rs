@@ -14,6 +14,14 @@ pub fn pretty_print(module: &Module) -> String {
     printer.finish()
 }
 
+/// Render a single expression to its canonical Keel Core source form. Used by
+/// cross-package linking to re-emit a string-interpolation body after its
+/// symbols have been mangled.
+#[must_use]
+pub fn pretty_print_expr(expr: &Expr) -> String {
+    Printer::new().expr(expr, 0, 0)
+}
+
 struct Printer {
     output: String,
     indent: usize,

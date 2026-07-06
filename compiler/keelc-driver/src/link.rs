@@ -3,10 +3,11 @@
 //! ponytail: source-level merge. Parse each dependency module the root `use`s,
 //! rename its top-level functions and types by the dependency's manifest name,
 //! rewrite the root's `module.fn(...)` calls and `module.Type` annotations into
-//! the mangled forms, then hand one merged module to the existing single-source
-//! pipeline via the pretty-printer. Ceiling — a cross-package call must sit
-//! outside string interpolation (the AST keeps interpolations as raw text, so a
-//! call written `"{dep.f()}"` is not rewritten); enum *variant* names are not
+//! the mangled forms — including calls inside string interpolations, whose raw
+//! text is re-parsed, mangled, and re-emitted (see `rewrite_interpolations`) —
+//! then hand one merged module to the existing single-source pipeline via the
+//! pretty-printer. Ceiling — a cross-package call nested inside a *nested*
+//! interpolation (`"{f("{g()}")}"`) is not reached; enum *variant* names are not
 //! mangled, so cross-package variant-name collisions are unsupported; and the
 //! root cannot construct a dependency struct directly (`dep.Point{...}` does not
 //! parse). Such cases fail loudly downstream (unknown name/type), never silently
@@ -15,9 +16,9 @@
 //! reopening clause).
 
 use crate::manifest;
-use keelc_ast::pretty::pretty_print;
+use keelc_ast::pretty::{pretty_print, pretty_print_expr};
 use keelc_ast::{Block, Expr, Item, Module, Pattern, RouteHandler, Stmt, Type};
-use keelc_parse::parse_with_milestone;
+use keelc_parse::{parse_interpolation_expr, parse_with_milestone};
 use keelc_span::{SourceId, Spanned};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -96,7 +97,12 @@ pub fn link(entry: &Path, root_text: &str, milestone: u32) -> String {
 
     walk_module(
         &mut root,
-        &mut |expr| rewrite_call_site(expr, &modules),
+        &mut |expr| {
+            rewrite_call_site(expr, &modules);
+            rewrite_interpolations(expr, &mut |e| rewrite_call_site(e, &modules), &mut |ty| {
+                rewrite_type_ref(ty, &modules)
+            });
+        },
         &mut |ty| rewrite_type_ref(ty, &modules),
     );
 
@@ -184,30 +190,82 @@ fn mangle_dependency(module: &mut Module, package: &str) -> (BTreeSet<String>, B
     }
     walk_module(
         module,
-        &mut |expr| match expr {
-            // Internal call to a sibling function in the same dependency.
-            Expr::Call { callee, .. } => {
-                if let Expr::Name(name) = callee.as_mut() {
-                    if functions.contains(name.value.as_str()) {
-                        name.value = mangle(package, &name.value);
-                    }
-                }
-            }
-            // Construction of one of the dependency's own structs.
-            Expr::StructLiteral { name, .. } if types.contains(name.value.as_str()) => {
-                name.value = mangle_type(package, &name.value);
-            }
-            _ => {}
+        &mut |expr| {
+            rewrite_dep_symbol(expr, package, &functions, &types);
+            rewrite_interpolations(
+                expr,
+                &mut |e| rewrite_dep_symbol(e, package, &functions, &types),
+                &mut |ty| rewrite_dep_type(ty, package, &types),
+            );
         },
-        &mut |ty| {
-            if let Type::Named { name, .. } = ty {
-                if types.contains(name.value.as_str()) {
-                    name.value = mangle_type(package, &name.value);
-                }
-            }
-        },
+        &mut |ty| rewrite_dep_type(ty, package, &types),
     );
     (functions, types)
+}
+
+/// Mangle a reference to one of the dependency's own top-level symbols: a call
+/// to a sibling function, or the construction of one of its structs.
+fn rewrite_dep_symbol(
+    expr: &mut Expr,
+    package: &str,
+    functions: &BTreeSet<String>,
+    types: &BTreeSet<String>,
+) {
+    match expr {
+        Expr::Call { callee, .. } => {
+            if let Expr::Name(name) = callee.as_mut() {
+                if functions.contains(name.value.as_str()) {
+                    name.value = mangle(package, &name.value);
+                }
+            }
+        }
+        Expr::StructLiteral { name, .. } if types.contains(name.value.as_str()) => {
+            name.value = mangle_type(package, &name.value);
+        }
+        _ => {}
+    }
+}
+
+/// Mangle a reference to one of the dependency's own types in a type position.
+fn rewrite_dep_type(ty: &mut Type, package: &str, types: &BTreeSet<String>) {
+    if let Type::Named { name, .. } = ty {
+        if types.contains(name.value.as_str()) {
+            name.value = mangle_type(package, &name.value);
+        }
+    }
+}
+
+/// Rewrite the symbols inside a string literal's interpolations. Interpolation
+/// bodies are stored as raw text (the AST keeps them unparsed), so the module
+/// walk cannot reach them: re-parse each body, apply the same `rewrite`/
+/// `rewrite_ty` mangling used for real expressions, then re-emit the body and
+/// splice it back into both the interpolation entry and the literal's text.
+///
+/// ponytail: single level only. A cross-package call nested inside a *nested*
+/// interpolation (`"{f("{g()}")}"`) is not rewritten — `rewrite` is the plain
+/// symbol mangler, not this function, so it does not recurse back in. Bind the
+/// inner result in a `let` if you hit that.
+fn rewrite_interpolations(
+    expr: &mut Expr,
+    rewrite: &mut impl FnMut(&mut Expr),
+    rewrite_ty: &mut impl FnMut(&mut Type),
+) {
+    let Expr::String(lit) = expr else { return };
+    for i in 0..lit.value.interpolations.len() {
+        let original = lit.value.interpolations[i].value.clone();
+        let source = lit.value.interpolations[i].span.source;
+        let Some(mut sub) = parse_interpolation_expr(source, &original) else {
+            continue; // malformed body → downstream K0004 on the original text
+        };
+        walk_expr(&mut sub, rewrite, rewrite_ty);
+        let new_text = pretty_print_expr(&sub);
+        if new_text != original {
+            let old_needle = format!("{{{original}}}");
+            let new_needle = format!("{{{new_text}}}");
+            lit.value.text = lit.value.text.replacen(&old_needle, &new_needle, 1);
+            lit.value.interpolations[i].value = new_text;
+        }
+    }
 }
 
 /// An imported dependency module, keyed in `modules` by its root-local name.

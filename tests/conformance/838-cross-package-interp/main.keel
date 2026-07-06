@@ -1,0 +1,6 @@
+use mathlib.math
+
+fn main() {
+    print("sum is {math.add(2, 3)}")
+    print(math.describe(4, 5))
+}

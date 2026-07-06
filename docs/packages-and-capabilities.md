@@ -75,12 +75,13 @@ dependency declarations, and computes capabilities. Cross-package **function
 and type** references now link (spec §6.4,
 [KDR-0044](kdr/0044-cross-package-symbol-linking.md)): a dependency module's
 functions, structs, and enums are merged into the build; `module.fn(...)` and
-`module.Type` annotations resolve to them, proven by `818-cross-package-call`
-and `819-cross-package-type`. Still outside the ceiling: calls written inside
-string interpolation (`"{dep.f()}"`), cross-package enum *variant-name*
-collisions (variants are not mangled), and constructing a dependency struct
-directly from the root (`dep.Point{...}` does not parse). Keep public package
-APIs provisional until those land too.
+`module.Type` annotations resolve to them — including calls inside string
+interpolations (`"{dep.f()}"`) — proven by `818-cross-package-call`,
+`819-cross-package-type`, and `838-cross-package-interp`. Still outside the
+ceiling: calls inside a *nested* interpolation (`"{f("{g()}")}"`), cross-package
+enum *variant-name* collisions (variants are not mangled), and constructing a
+dependency struct directly from the root (`dep.Point{...}` does not parse). Keep
+public package APIs provisional until those land too.
 
 ## Capability declarations
 
