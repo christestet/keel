@@ -49,6 +49,7 @@ contains the decision, rationale, alternatives, and a reopening clause.
 | [0041](0041-http-error-helpers-accept-error.md) | HTTP error response helpers accept `Error` | accepted |
 | [0042](0042-sqlite-driver-modernc.md) | SQLite driver for the Go backend (`modernc.org/sqlite`) | accepted |
 | [0043](0043-implicit-package-capability-trust-anchor.md) | Implicit packages are the capability trust anchor; `keel audit` reports derived capabilities | accepted |
+| [0044](0044-cross-package-symbol-linking.md) | Cross-package symbol linking — dependency source compiles into the root program | accepted |
 | [0101](0101-compiler-in-rust.md) | Compiler implemented in Rust | accepted |
 | [0102](0102-go-backend-first.md) | Go-emitting backend first, native before 1.0 | accepted |
 | [0103](0103-lsp-server.md) | LSP server — protocol-driven editor integration | accepted |

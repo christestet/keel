@@ -63,6 +63,47 @@ pub fn check_workspace(entry: &Path, milestone: u32) -> Vec<ManifestDiag> {
     errors
 }
 
+/// Resolve the root package's direct path dependencies to
+/// `(alias, directory, package name)` for cross-package linking (spec §6.4,
+/// [`KDR-0044`](../../../docs/kdr/0044-cross-package-symbol-linking.md)). Empty
+/// when the entry has no adjacent manifest or declares no dependencies.
+///
+/// Lenient by design: `check_workspace` runs first and rejects any malformed
+/// graph, so by the time the linker calls this the workspace is already valid.
+/// Sorted for determinism (root AGENTS.md hard rule 7).
+#[must_use]
+pub(crate) fn root_dependencies(entry: &Path) -> Vec<(String, PathBuf, String)> {
+    let dir = entry
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let Ok(text) = std::fs::read_to_string(dir.join("keel.toml")) else {
+        return Vec::new();
+    };
+    let Ok(raw) = parse_toml(&text) else {
+        return Vec::new();
+    };
+    let mut deps = Vec::new();
+    for (alias, dep) in &raw.dependencies {
+        let Some(Value::String(rel)) = dep.get("path") else {
+            continue;
+        };
+        let depdir = dir.join(rel);
+        let Ok(dep_text) = std::fs::read_to_string(depdir.join("keel.toml")) else {
+            continue;
+        };
+        let Ok(dep_raw) = parse_toml(&dep_text) else {
+            continue;
+        };
+        let Some(Value::String(name)) = dep_raw.package.get("name") else {
+            continue;
+        };
+        deps.push((alias.clone(), depdir, name.clone()));
+    }
+    deps.sort();
+    deps
+}
+
 /// Produce the deterministic `keel audit` report (spec §11.5) for the workspace
 /// rooted at `entry`'s directory, or the manifest diagnostics that prevent it.
 /// Capabilities are listed in the fixed §11.1 order; contributing packages are

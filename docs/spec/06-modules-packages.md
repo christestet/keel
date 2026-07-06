@@ -107,7 +107,39 @@ dependency). Resolution is deterministic: the segment namespace is fixed before
 resolution begins, so ordering of `use` statements or directory traversal never
 affects the outcome ([`AGENTS.md`](../../AGENTS.md) hard rule 7).
 
-## 6.4 The dependency graph
+## 6.4 Cross-package symbol linking
+
+Resolving a `use` path (§6.3) makes a dependency module's **public surface**
+referenceable, and the referenced symbols are **compiled into the built
+program** — a cross-package call runs, it is not merely graph-validated
+([`KDR-0044`](../kdr/0044-cross-package-symbol-linking.md)).
+
+- **Public surface.** A module's public surface is every item it declares at
+  module scope: `fn`, `struct`, and `enum` (with its variants and fields). Keel
+  Core has no visibility modifier, so a module hides nothing and there is no
+  `pub` keyword.
+- **Reference form.** `use <alias>.<module>` binds the final path segment
+  (`<module>`) as the local name of that module, mirroring `use std.log` → `log`.
+  A reference `<module>.<name>` addresses the top-level `<name>` of that module.
+  Argument passing, defaults (§chapter 9), and `?`/`catch` behave exactly as for
+  a same-module call.
+- **Unresolved name.** A `<module>.<name>` whose `<name>` is not a top-level item
+  of the addressed module is the ordinary unresolved-name error, not a package
+  diagnostic. An alias absent from `[dependencies]` remains `K1105` (§6.3); this
+  section adds no new error code.
+- **Compilation model.** The whole acyclic package graph (§6.4a) is compiled
+  into one program. Symbols from a non-root package are emitted under a
+  deterministic name derived from that package's `[package].name`, so a symbol's
+  identity is independent of the alias any dependent binds it under and two
+  packages that declare the same top-level name do not collide. The derived
+  naming is part of the reproducible-build output contract
+  ([`AGENTS.md`](../../AGENTS.md) hard rule 7).
+
+Capability enforcement (chapter 11) is unchanged: a symbol crosses the package
+boundary, authority does not — each package's `std` obligations stay bounded by
+its own manifest, checked transitively across the graph.
+
+## 6.4a The dependency graph
 
 Path dependencies form a directed graph over packages. The graph is resolved by
 reading each dependency's manifest at its `path`:
@@ -197,6 +229,7 @@ directories).
 | `810-package-manifest-minimal` | accept | a one-file package with a valid `keel.toml` builds |
 | `811-implicit-single-file` | accept | a bare `.keel` file with no manifest still builds (implicit package) |
 | `812-path-dependency` | accept | `use <alias>.<module>` resolves through a `[dependencies]` path entry |
+| `818-cross-package-call` | accept | `<module>.<fn>()` from a path dependency compiles, runs, and returns its value (§6.4) |
 | `813-malformed-manifest` | reject `K1102` | `keel.toml` with a TOML syntax error |
 | `814-missing-name` | reject `K1103` | manifest lacking `[package].name` |
 | `815-unknown-manifest-key` | reject `K1104` | manifest with a key outside the closed schema |

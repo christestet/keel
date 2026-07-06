@@ -70,12 +70,14 @@ cycles, and collisions.
 
 ## Current module ceiling
 
-The M7 driver scans every package source file for `use` paths, validates
-dependency declarations, and computes capabilities. It does not yet resolve
-and compile symbols from dependency source into the root program. The
-path-dependency conformance case proves graph/import validation, not a linked
-multi-package call. Keep public package APIs provisional until cross-package
-resolution has its own conformance cases.
+The driver scans every package source file for `use` paths, validates
+dependency declarations, and computes capabilities. Cross-package **function**
+calls now link (spec §6.4, [KDR-0044](kdr/0044-cross-package-symbol-linking.md)):
+a dependency module's functions are merged into the build and `module.fn(...)`
+resolves to them, proven by `818-cross-package-call`. Still outside the ceiling:
+dependency structs/enums crossing the boundary, and calls written inside string
+interpolation (`"{dep.f()}"`). Keep public package APIs provisional until those
+land too.
 
 ## Capability declarations
 
@@ -160,6 +162,6 @@ what the dependency can reach. Source review and version control still matter.
 - registry or Git dependencies;
 - lockfiles and dependency resolution;
 - package publishing;
-- cross-package symbol linking;
+- cross-package linking of structs/enums (functions link — spec §6.4);
 - function-level capability restrictions;
 - FFI capability exercise and SBOM output.

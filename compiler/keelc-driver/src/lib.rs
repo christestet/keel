@@ -3,6 +3,7 @@
 mod build_cache;
 mod gen;
 mod image;
+mod link;
 mod manifest;
 mod sha256;
 mod tar;
@@ -134,6 +135,12 @@ pub fn main() -> ExitCode {
         }
         return ExitCode::FAILURE;
     }
+
+    // Cross-package symbol linking (spec §6.4, KDR-0044): merge the source of
+    // any `use`d path dependency into one module before compiling. A no-op for
+    // a single-file program or a workspace whose root calls nothing across a
+    // package boundary, so every pre-existing path stays byte-identical.
+    let text = link::link(path, &text, milestone);
 
     // Up-to-date cutoff (KDR-0019 incremental budget): when nothing that
     // feeds the binary changed since the last clean `keel build`, skip the

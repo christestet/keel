@@ -48,6 +48,8 @@ normative prose, stop and file an issue rather than reconciling either silently.
 - [Feature status](feature-status.md) — concise implemented/partial/planned
   matrix for users.
 - [Milestone status](milestone-status.md) — current implementation snapshot.
+- [Cross-package linking notes](cross-package-linking-notes.md) — status and
+  next steps for dependency symbol linking (KDR-0044, spec §6.4).
 - [Compiler architecture](../compiler/ARCHITECTURE.md) — pipeline, crate layout,
   and compiler invariants.
 - [Conformance guide](../tests/conformance/README.md) — executable case format.
